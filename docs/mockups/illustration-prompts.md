@@ -132,27 +132,93 @@ Detailed pixel-art wide banner, ~1920x720, opaque background, strong visible dit
 
 > **재생성이 필요할 때만** 위 프롬프트 대신 orc-camp의 PixelLab 캐릭터를 재수출한다(orc-camp `sprites/`·`portraits/`가 정본). Citadel에서 신규 캐릭터 프롬프트로 생성하지 않는다 — 세계관 캐릭터 정체성은 orc-camp가 소유.
 
-## 4. 빈 상태 아트 (Empty States) — `empty-*.png`
+## 4. 빈 상태 아트 (Empty States) — `empty-*.png` (복붙용)
 
-**용도:** 각 공간의 데이터 없음 상태. 작고 절제된 씬. 투명 배경, ~360px.
+**용도:** 각 공간의 데이터 없음 상태. 작고 절제된 픽셀아트 스팟. **preamble 인라인**(그대로 복사). **투명 배경**, ~360px(정사각~가로형). `orc-citadel-hero.png`와 동일 dot 스타일.
 
-| 파일 | 화면 | 프롬프트 추가 지시 |
-| --- | --- | --- |
-| `empty-wartable.png` | War Table (조사 미선택) | `{공통 preamble} A dim, empty War Table with only a few faint unconnected node dots in iron gray, one waiting to be lit emerald. Quiet "awaiting investigation" mood. Small, centered spot illustration, transparent background.` |
-| `empty-watchtower.png` | Watchtower (모든 소스 정상) | `{공통 preamble} A calm watchtower silhouette at night with steady (not blinking) small amber #FFB13B beacons and an orc scout resting — "all sources healthy" mood. Restrained. Transparent background.` |
-| `empty-spire.png` | Signal Spire (새 알림 없음) | `{공통 preamble} A single unlit signal spire against the night, one small dormant amber #FFB13B ember at its tip — "no material changes" mood. Minimal, transparent background.` |
-| `empty-archive.png` | Grand Archive (검색 결과 없음) | `{공통 preamble} A basalt archive shelf with a few parchment #C8B58E scrolls and one empty slot, a small magnifier — "no documents found" mood. Minimal spot illustration, transparent background.` |
-| `empty-witnesses.png` | Hall of Witnesses (claim 미선택) | `{공통 preamble} An empty witness stand / evidence pedestal in a dim basalt hall, one parchment #C8B58E scroll awaiting examination, no claim selected — "select a claim to inspect its evidence" mood. Minimal spot illustration, transparent background.` |
-| `empty-chronicle.png` | Chronicle Vault (이력 없음) | `{공통 preamble} A quiet vault with a horizontal time-rail fading into the dark, only one or two faint event pins, no version history yet — "no recorded changes" mood. Minimal spot illustration, transparent background.` |
+### 4.1 War Table — `empty-wartable.png` ★
 
-## 5. 처리 상태 아트 (Processing) — `proc-*.png`
+```text
+Detailed 16-bit pixel art (dot art), retro-RPG spot illustration in the spirit of the Orc Citadel README hero: crisp visible pixels, strong dithering and careful shading. Dark basalt and black-iron on a transparent background. Emerald #45E06F used ONLY as a small verified-knowledge accent, sparingly. Muted stone #D6CCB8, ember #E97824 glow. Restrained, serious, audit-grade. Chunky dot texture. Original design — do NOT imitate Warcraft or any existing game IP.
 
-**용도:** 긴 작업 진행 표현(수집·조사 루프). 애니메이션은 CSS로, 여기선 정지 프레임.
+A dim, empty War Table: a small round black-basalt tactical table holding only a few faint unconnected node dots in iron gray, with a single node just beginning to glow emerald #45E06F, awaiting an investigation. One unlit candle at the table edge. Quiet "awaiting investigation" mood.
 
-| 파일 | 상태 | 프롬프트 추가 지시 |
-| --- | --- | --- |
-| `proc-scout.png` | 수집 중 | `{공통 preamble} A small orc scout mid-stride carrying a report scroll, a faint ember #E97824 motion trail behind — "ingesting" mood. Side profile, transparent background, ~200px.` |
-| `proc-seer.png` | 조사/추론 중 | `{공통 preamble} A Seer tracing a dashed emerald #45E06F path between two faint nodes with a fingertip — "reasoning over the graph" mood. Analytical, calm. Transparent background, ~200px.` |
+Small centered pixel-art spot illustration, transparent background, ~360px, strong dithering / chunky dot texture.
+```
+
+### 4.2 Watchtower — `empty-watchtower.png`
+
+```text
+Detailed 16-bit pixel art (dot art), retro-RPG spot illustration in the spirit of the Orc Citadel README hero: crisp visible pixels, strong dithering and careful shading. Dark basalt and black-iron on a transparent background. Emerald #45E06F used ONLY as a small verified-knowledge accent, sparingly. Muted stone #D6CCB8, parchment #C8B58E, amber #FFB13B and ember #E97824 glow. Restrained, serious, audit-grade. Chunky dot texture. Original design — do NOT imitate Warcraft or any existing game IP.
+
+A calm watchtower interior at night: a small wall of parchment #C8B58E status panels each showing a steady tiny green check, one orc sentinel resting against a pillar, a single steady (not blinking) amber #FFB13B beacon. "All sources healthy" mood.
+
+Small centered pixel-art spot illustration, transparent background, ~360px, strong dithering / chunky dot texture.
+```
+
+### 4.3 Grand Archive — `empty-archive.png`
+
+```text
+Detailed 16-bit pixel art (dot art), retro-RPG spot illustration in the spirit of the Orc Citadel README hero: crisp visible pixels, strong dithering and careful shading. Dark basalt and black-iron on a transparent background. Emerald #45E06F used ONLY as a small verified-knowledge accent, sparingly. Muted stone #D6CCB8, parchment #C8B58E, ember #E97824 glow. Restrained, serious, audit-grade. Chunky dot texture. Original design — do NOT imitate Warcraft or any existing game IP.
+
+A basalt archive shelf with a few rolled parchment #C8B58E scrolls and one conspicuously empty slot, a small iron magnifier resting on the shelf, a dim lantern. "No documents found" mood.
+
+Small centered pixel-art spot illustration, transparent background, ~360px, strong dithering / chunky dot texture.
+```
+
+### 4.4 Hall of Witnesses — `empty-witnesses.png`
+
+```text
+Detailed 16-bit pixel art (dot art), retro-RPG spot illustration in the spirit of the Orc Citadel README hero: crisp visible pixels, strong dithering and careful shading. Dark basalt and black-iron on a transparent background. Emerald #45E06F used ONLY as a small verified-knowledge accent, sparingly. Muted stone #D6CCB8, parchment #C8B58E, ember #E97824 glow. Restrained, serious, audit-grade. Chunky dot texture. Original design — do NOT imitate Warcraft or any existing game IP.
+
+An empty stone evidence pedestal in a dim basalt hall, a single closed parchment #C8B58E book resting on it unopened, two dark unlit evidence stands flanking it. "Select a claim to inspect its evidence" mood.
+
+Small centered pixel-art spot illustration, transparent background, ~360px, strong dithering / chunky dot texture.
+```
+
+### 4.5 Chronicle Vault — `empty-chronicle.png`
+
+```text
+Detailed 16-bit pixel art (dot art), retro-RPG spot illustration in the spirit of the Orc Citadel README hero: crisp visible pixels, strong dithering and careful shading. Dark basalt and black-iron on a transparent background. Emerald #45E06F and amber #FFB13B used ONLY as small accents, sparingly. Muted stone #D6CCB8, ember #E97824 glow. Restrained, serious, audit-grade. Chunky dot texture. Original design — do NOT imitate Warcraft or any existing game IP.
+
+A quiet vault with a short horizontal stone time-rail fading into shadow, only one or two faint iron event pins and no glowing markers yet, a single lantern. "No recorded changes" mood.
+
+Small centered pixel-art spot illustration, transparent background, ~360px, strong dithering / chunky dot texture.
+```
+
+### 4.6 Signal Spire — `empty-spire.png`
+
+```text
+Detailed 16-bit pixel art (dot art), retro-RPG spot illustration in the spirit of the Orc Citadel README hero: crisp visible pixels, strong dithering and careful shading. Dark basalt and black-iron on a transparent background. Amber #FFB13B used ONLY as a small accent, dormant/dim. Muted stone #D6CCB8. Restrained, serious, audit-grade. Chunky dot texture. Original design — do NOT imitate Warcraft or any existing game IP.
+
+A single tall dark basalt spire against the night with its amber #FFB13B beacon dormant and unlit at the tip, a crescent moon behind, everything still. "No material changes" mood.
+
+Small centered pixel-art spot illustration, transparent background, ~360px, strong dithering / chunky dot texture.
+```
+
+## 5. 처리 상태 아트 (Processing) — `proc-*.png` (복붙용)
+
+**용도:** 긴 작업 진행 표현(수집·조사 루프). 애니메이션은 CSS로, 여기선 정지 프레임. **preamble 인라인**, **투명 배경**, ~200px.
+
+### 5.1 수집 중 — `proc-scout.png`
+
+```text
+Detailed 16-bit pixel art (dot art), retro-RPG character sprite in the spirit of the Orc Citadel README hero: crisp visible pixels, strong dithering and careful shading. Transparent background. Emerald #45E06F reserved for verified-knowledge accents only. Ember #E97824 lantern glow, muted stone #D6CCB8. Restrained, serious. Chunky dot texture. Original design — do NOT imitate Warcraft or any existing game IP.
+
+A small green-skinned orc scout mid-stride carrying a rolled report scroll, a faint ember #E97824 lantern at the belt and a short motion trail behind. Side profile, calm and competent (not a raging berserker). "Ingesting" mood.
+
+Small pixel-art sprite, transparent background, ~200px, strong dithering / chunky dot texture.
+```
+
+### 5.2 조사/추론 중 — `proc-seer.png`
+
+```text
+Detailed 16-bit pixel art (dot art), retro-RPG character sprite in the spirit of the Orc Citadel README hero: crisp visible pixels, strong dithering and careful shading. Transparent background. Emerald #45E06F reserved for the reasoning accent only, restrained. Muted stone #D6CCB8. Serious, analytical. Chunky dot texture. Original design — do NOT imitate Warcraft or any existing game IP.
+
+A small hooded green-skinned orc seer tracing a dashed emerald #45E06F line between two faint pixel nodes with a fingertip, a restrained green glow at the fingertip. Thoughtful and analytical (an investigator, not a mystic). "Reasoning over the graph" mood.
+
+Small pixel-art sprite, transparent background, ~200px, strong dithering / chunky dot texture.
+```
 
 ## 6. 페이지별 삽화 매핑 (SSOT)
 
