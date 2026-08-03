@@ -34,19 +34,23 @@
 
 - 사양: 2400×900, 불투명 PNG.
 
-## 3. 캐릭터 (Orc Camp 픽셀 계보) — `char-*.png`
+## 3. 캐릭터 — `char-*.png` (Orc Camp 초상 복사)
 
-**용도:** onboarding·empty state·processing state·result summary. 매 화면 상시 노출 금지. **Orc Camp의 픽셀 캐릭터 비율·방향**을 재사용하되 Citadel 전용 전문 직책으로.
+**결정:** 캐릭터는 신규 생성하지 **않고**, 자매 프로젝트 [`orc-camp`](https://github.com/hwangjongtaek/orc-camp)의 확립된 캐릭터 초상(`asset-packs/orc-camp-default/portraits/*.webp`, 512×512)을 **복사**해 사용한다. blueprint §1.4 "Orc Camp의 픽셀 캐릭터 비율·방향·prestige 개념을 재사용할 수 있다"에 근거하며, 세계관 일관성(동일 캐릭터군)을 유지한다.
 
-공통 캐릭터 스타일:
-> `{공통 preamble} Pixel-art character sprite (16-bit era proportions, chunky readable pixels), single orc figure, front-facing, standing, transparent background, ~256px tall, no ground shadow baked in. Green-skinned orc but in a scholarly/military archive role, NOT a rage-berserker. Calm, competent, professional posture.`
+- **라이선스/출처:** orc-camp `asset-packs/orc-camp-default/`의 자산 팩(PixelLab.ai 유료 플랜 생성). 해당 `LICENSE.md` 기준 **상업·재배포 허용, 귀속 선택**. 두 리포 모두 동일 소유자.
+- **배경:** 초상은 **불투명 어두운 배경**(검정)이므로 **프레임/라운드 아바타 컨테이너**에 넣어 사용한다(자유 배치보다 avatar 프레임 권장). 512×512 → CSS에서 축소.
+- **용도:** onboarding·result summary·Council 8-Agent roster 아바타·Hall of Witnesses 안내. 매 화면 상시 노출 금지.
 
-| 파일 | 역할(기술) | 프롬프트 추가 지시 |
+| 파일 (Citadel) | Citadel 역할(기술) | orc-camp 원본 초상 |
 | --- | --- | --- |
-| `char-scout.png` | Scout (수집) | `A Scout: light leather gear, a satchel overflowing with rolled scrolls/reports, a small ember #E97824 lantern at the belt. Ready-to-travel stance.` |
-| `char-archivist.png` | Archivist/Lorekeeper (정규화·동일성 판정) | `An Archivist-Lorekeeper: robed scholar orc holding a ledger and a quill, parchment #C8B58E scrolls tucked under arm, spectacles. Careful, precise expression.` |
-| `char-seer.png` | Seer (LLM 추론) | `A Seer: orc analyst holding a compact glowing orb/lens emitting a restrained seer-green #20B85A light, studying it analytically (not mystically). A dashed emerald thread of reasoning near the orb. Thoughtful, skeptical look — an investigator, not a fortune-teller.` |
-| `char-warchief.png` | Warchief / Council (조사 종합) | `A Warchief presiding at a war table: armored but composed orc leader, one hand on the tactical table edge, emerald #45E06F node-lines faintly reflected. Authoritative, deliberative — leading an evidence council, not a battle charge.` |
+| `char-warchief.png` | Warchief / Council (조사 종합) | `orc-high-warchief-mascot` |
+| `char-seer.png` | Seer (LLM 추론) | `orc-claude-storm-shaman` |
+| `char-archivist.png` | Lorekeeper / Archivist (정규화·동일성 해소) | `orc-codex-field-engineer` |
+| `char-scout.png` | Scout (수집) | `orc-unknown` (grunt) |
+| `char-sentinel.png` | Sentinel (Watchtower 관제·경계) | `orc-iron-commander` |
+
+> **재생성이 필요할 때만** 위 프롬프트 대신 orc-camp의 PixelLab 캐릭터를 재수출한다(orc-camp `sprites/`·`portraits/`가 정본). Citadel에서 신규 캐릭터 프롬프트로 생성하지 않는다 — 세계관 캐릭터 정체성은 orc-camp가 소유.
 
 ## 4. 빈 상태 아트 (Empty States) — `empty-*.png`
 
@@ -80,6 +84,7 @@
 | `citadel-gate.html` | `gate-hero.png` | §2 | 히어로 배경/일러스트 | ★ |
 | `citadel-gate.html` | `crest-hero.png` | §1 | 히어로 워드마크 | |
 | `citadel-gate.html` | `char-scout.png`, `char-seer.png` | §3 | 온보딩 안내(최초 방문·result summary, 상시 금지) | |
+| `watchtower.html` | `char-sentinel.png` | §3 | 관제 헤더/빈 상태 아바타 | |
 | `watchtower.html` | `empty-watchtower.png` | §4 | "모든 소스 정상" 빈 상태 | |
 | `watchtower.html` | `proc-scout.png` | §5 | 수집 진행(ingesting) 표시 | |
 | `grand-archive.html` | `empty-archive.png` | §4 | "검색 결과 없음" 빈 상태 | |
