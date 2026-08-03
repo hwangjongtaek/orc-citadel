@@ -248,6 +248,28 @@
   .roundtrip .goal { margin-left: auto; color: var(--primary); font-family: var(--font-data); font-size: 10.5px; }
 
   @media (max-width: 1240px) { main { grid-template-columns: 240px 1fr 320px; } }
+
+  /* space masthead (hero band) — grid: header / masthead / main / roundtrip */
+  .app { grid-template-rows: auto auto 1fr auto; }
+  .masthead {
+    position: relative; height: 132px; overflow: hidden;
+    border-bottom: 1px solid var(--surface-variant);
+    display: flex; align-items: center; padding: 0 var(--sp-lg);
+    background:
+      linear-gradient(90deg, rgba(7,17,28,.92) 0%, rgba(7,17,28,.6) 42%, rgba(7,17,28,.32) 100%),
+      url('./assets/hall-of-witnesses-hero.png') center 42% / cover no-repeat,
+      var(--citadel-night);
+  }
+  .masthead h1 {
+    font-family: var(--font-head); font-size: 22px; font-weight: 600;
+    color: var(--on-surface); letter-spacing: -0.01em;
+    text-shadow: 0 2px 14px rgba(7,17,28,.9);
+  }
+  .masthead p {
+    font-family: var(--font-head); font-size: 11px; font-weight: 500;
+    letter-spacing: 0.08em; text-transform: uppercase; color: var(--parchment);
+    margin-top: 5px; text-shadow: 0 2px 14px rgba(7,17,28,.9);
+  }
 </style>
 </head>
 <body>
@@ -276,6 +298,14 @@
     </label>
     <div class="spire" title="Signal Spire · 결론·confidence 변화 알림"><span class="dot"></span> Signal Spire · 3</div>
   </header>
+
+  <!-- ══ Masthead (space hero band) ═══════════════════════════════════ -->
+  <div class="masthead">
+    <div class="mh-txt">
+      <h1>Hall of Witnesses · 증거 검사</h1>
+      <p>claim ↔ 원문 span · 지지·반박 근거 · 독립성 · provenance 왕복 추적</p>
+    </div>
+  </div>
 
   <!-- ══ MAIN: 3-column ═══════════════════════════════════════════════ -->
   <main>
