@@ -1,6 +1,6 @@
 # 01 · 시스템 아키텍처 (Citadel)
 
-> **상태:** Draft · **Spec:** 0.1.0 · **Blueprint 매핑:** §7, §17
+> **상태:** Review · **Spec:** 0.1.0 · **Blueprint 매핑:** §7, §17
 > 상위 규약: [`README.md`](./README.md) · 관련: [`03-storage`](./03-storage-and-data-model.md), [`06-graph`](./06-graph-service.md)
 
 전체 플랫폼(Citadel)의 컴포넌트 경계, 데이터 흐름, 기술 스택, 배포 토폴로지를 정의한다. 세부 스키마·계약은 각 하위 문서가 소유하며, 본 문서는 **컴포넌트 간 경계와 책임**을 확정한다.
@@ -9,7 +9,7 @@
 
 [`README.md`](./README.md) §3 설계 불변식을 아키텍처로 구체화한다.
 
-1. **Lakehouse-as-SoT.** 그래프·검색 인덱스는 파생물이다. immutable raw + curated table + mutation log에서 전량 재구축 가능해야 한다.
+1. **Lakehouse+Log-as-SoT.** 그래프·검색 인덱스는 파생물이다. SoT는 immutable raw + curated table + mutation log **세 요소**로 구성되며, 이 셋에서 전량 재구축 가능해야 한다.
 2. **단계적 도입.** 초기 구성(단일 노드, Postgres 큐)에서 시작하고, **측정된 병목이 분리를 정당화할 때만** 확장 구성(Kafka, Iceberg, K8s)으로 승격한다 (blueprint §7.2).
 3. **Stage 격리 + 공통 correlation.** 각 파이프라인 stage는 독립 배포·재실행 가능하며, 공통 correlation ID로 end-to-end 추적된다 (→ [`11`](./11-observability-and-governance.md)).
 4. **Idempotent stage.** 모든 stage는 idempotency key로 재실행 안전성을 보장한다.
@@ -61,17 +61,19 @@
 | --- | --- | --- | --- | --- |
 | **Collector** | Scouts | 허용된 소스에서 문서 수집, 변경 탐지, rate limit | source config → raw document + fetch metadata | [`04`](./04-ingestion-and-parsing.md) |
 | **Archive** | Grand Archive | raw/normalized/curated 3 zone 저장, 테이블 관리 | 각 stage 산출물 → Parquet/Iceberg | [`03`](./03-storage-and-data-model.md) |
+| **Provenance Store** | Hall of Witnesses | claim·assertion의 근거(source span·extraction_record) 계보 보관·조회 | extraction/resolution 산출물 → provenance record | [`03`](./03-storage-and-data-model.md) |
 | **Parser** | Archivists | 본문/메타 분리, 문단·문장 ID, offset 매핑 | raw → normalized doc | [`04`](./04-ingestion-and-parsing.md) |
 | **Deduper** | — | exact/near/semantic 중복·출처 계보 판정 | normalized → dup cluster | [`04`](./04-ingestion-and-parsing.md) |
 | **Extractor** | Evidence Extractor | entity mention·claim·evidence 후보 추출 | normalized → candidates + span | [`05`](./05-resolution-and-extraction.md) |
 | **Lorekeepers** | Lorekeepers | Entity Resolution, Claim Canonicalization, Contradiction | candidates → resolved entities/claims | [`05`](./05-resolution-and-extraction.md) |
 | **Graph Service** | War Table | mutation event 적용, materialized graph, quarantine | resolution decision → graph mutation | [`06`](./06-graph-service.md) |
+| **Quarantine** | Quarantine | 저신뢰·충돌 mutation의 격리 보류(논리 분리, 상태 라벨 `:Quarantine`) | 미확정 resolution/mutation → 보류 상태 | [`06`](./06-graph-service.md) |
 | **Search Service** | — | BM25 + 벡터 인덱싱·질의 | curated + graph → index/query result | [`08`](./08-search-and-graphrag.md) |
 | **Agent Runtime** | Warchief's Council | 조사 루프, 모델 라우팅, budget 관리 | question → report + evidence subgraph | [`07`](./07-llm-and-agents.md) |
 | **API Gateway** | Citadel Gate | REST 계약, 인증, 페이지네이션 | client ↔ services | [`09`](./09-api.md) |
 | **Chronicle** | Chronicle | bitemporal event history 조회 | mutation log → time-travel query | [`03`](./03-storage-and-data-model.md) |
 | **Alerting** | Signal Spire | 결론·confidence 변화 알림 | graph change event → alert | [`11`](./11-observability-and-governance.md) |
-| **Observability** | Watchtower | correlation, 대시보드, SLO | 전 stage 이벤트 → metrics | [`11`](./11-observability-and-governance.md) |
+| **Observability** | Watchtower | correlation, 대시보드, SLO. **이중 역할**: ingestion monitor(수집 소스 상태·변경 감시, blueprint §1.2)와 플랫폼 전역 observability를 겸한다 | 전 stage 이벤트 → metrics | [`11`](./11-observability-and-governance.md) |
 
 **경계 규칙:** Agent Runtime은 Graph/Search Service의 read API만 사용하고, 그래프 변경은 반드시 Lorekeepers → Graph Service의 mutation event 경로를 거친다. Agent가 그래프를 직접 mutate하지 않는다 (불변식 §3-3).
 
@@ -91,7 +93,25 @@ blueprint §7 파이프라인을 stage 계약으로 확정한다. 각 stage는 `
 | S8 | Index | `doc_id/element_id + index_version` | element | [`08`](./08-search-and-graphrag.md) |
 | S9 | Investigate | `inv_id + step_id` | step | [`07`](./07-llm-and-agents.md) |
 
-> **재현성 계약:** 동일 raw corpus + 동일 version tuple → 동일 materialized graph (blueprint §21-2, §16 Phase 1 완료 조건). 이를 위해 S3–S7은 결정적이거나(코드 stage), version-pinned LLM 호출이어야 한다.
+> **재현성 계약:** 재현성은 stage 성격에 따라 두 수준으로 구분한다 (blueprint §21-2, §16 Phase 1 완료 조건; [`07`](./07-llm-and-agents.md) §13 정합).
+> - **결정적 재현성 (code stage):** S1–S4와 S7 replay는 동일 입력 + 동일 version tuple → **byte-identical 출력**을 보장한다. graph mutation log의 재적용(S7 replay)은 결정적이므로 동일 로그 → 동일 materialized graph.
+> - **버전 고정 + golden-regression 재현성 (LLM stage):** S5(extract)·S6(resolve)의 LLM 호출은 결정성을 보장하지 않는다(version-pinned ≠ deterministic). 대신 model_id·prompt_hash·ontology_version을 핀으로 고정하고, golden-regression 스위트([`10`](./10-evaluation-and-testing.md))로 회귀 허용치 내 동등성을 검증한다.
+>
+> 따라서 "동일 corpus + 동일 version tuple → 동일 graph"는 code 경로에 대해 엄밀히 성립하고, LLM 경로에 대해서는 version-pinned + golden-regression 범위 내에서 성립한다.
+
+### 4.1 큐 실패 시맨틱 (Postgres SKIP-LOCKED)
+
+초기 event stream은 Postgres 큐(`SELECT … FOR UPDATE SKIP LOCKED`)이다(§5, ADR-102). stage 실행 실패 시 다음 계약을 따른다.
+
+| 항목 | 규약 |
+| --- | --- |
+| **Lease/visibility timeout** | worker가 row를 claim하면 `lease_until = now() + lease_ttl`을 설정한다. `lease_ttl` 경과(worker 크래시·행오버) 시 재가시화(re-visible)되어 다른 worker가 재claim한다. |
+| **Retry limit** | 각 메시지는 `attempt_count`를 보유하며 실패 시 증가한다. `attempt_count < max_retries`이면 backoff(지수) 후 재큐잉한다. |
+| **DLQ** | `attempt_count ≥ max_retries`이면 dead-letter 큐로 라우팅하고 원본에서 제거한다. DLQ 항목은 correlation_id로 추적되며 수동/배치 재처리 대상이다. |
+| **Quarantine 라우팅** | 데이터 결함(파싱 불가·스키마 위반 등 재시도로 해소 불가한 실패)은 DLQ가 아니라 quarantine 상태로 라우팅한다([`06`](./06-graph-service.md)). transient 실패(네트워크·rate limit)만 retry/DLQ 경로를 탄다. |
+| **Idempotency 관계** | 재시도·재가시화로 인한 중복 실행은 각 stage의 idempotency key(§4 표)로 흡수한다. 즉 at-least-once 배달 + idempotent 처리 = effectively-once 효과. lease 만료 후 재실행이 동일 output_ref를 재생성해도 부작용이 없어야 한다. |
+
+`lease_ttl`·`max_retries`·backoff 파라미터의 구체값은 stage별 SLO에 맞춰 튜닝하며 실측 후 확정한다(placeholder). 확장 구성(Kafka)으로 승격 시 이 시맨틱은 consumer group + DLQ topic으로 이관된다.
 
 ## 5. 기술 스택 (초기 → 확장)
 
@@ -105,7 +125,7 @@ blueprint §7.2를 스펙으로 고정한다. **초기 구성이 기본값**이�
 | 메타데이터 | PostgreSQL | PostgreSQL (read replica) | 조회 부하 증가 |
 | Knowledge Graph | Neo4j Community | Neo4j/Memgraph (또는 검증된 대안) | 그래프 query p95 SLO 초과 |
 | 전문·벡터 검색 | OpenSearch (단일) | OpenSearch cluster | 인덱스 크기·QPS 증가 |
-| 분석·관측 | PostgreSQL + Grafana | ClickHouse + Grafana | 분석 쿼리 지연 |
+| 분석·관측 | DuckDB(로컬 ad-hoc) / PostgreSQL + Grafana | ClickHouse + Grafana | 분석 쿼리 지연 |
 | API | FastAPI | FastAPI + async workers | 동시 investigation 증가 |
 | 배포 | Docker Compose | Kubernetes | 다중 노드 운영 필요 |
 | LLM | 계층화 (규칙→소형→중급→고성능) | 동일 + batch inference | → [`07`](./07-llm-and-agents.md) |
@@ -153,3 +173,5 @@ docker compose:
 | ADR-102 | Event stream 초기값을 PostgreSQL 큐(SKIP LOCKED)로 | Kafka 도입 전 단순성 우선, 병목 측정 후 승격 | Accepted |
 | ADR-103 | Agent는 그래프 read-only, mutation은 Lorekeepers→Graph Service 경로만 | 불변식 §3-3(event-driven) 강제 | Accepted |
 | ADR-104 | Python 3.12 단일 언어 | 파이프라인·LLM 생태계 일관성 | Accepted |
+| ADR-105 | 재현성을 2계층으로 정의: code stage(S1–S4, S7 replay)는 결정적, LLM stage(S5/S6)는 version-pinned + golden-regression | version-pinned LLM 호출은 byte-level 결정성을 보장하지 못함(doc07 §13, blueprint §21-2) | Accepted |
+| ADR-106 | Postgres SKIP-LOCKED 큐에 lease/visibility timeout·retry limit·DLQ·quarantine 라우팅 시맨틱 명시, idempotency key로 effectively-once 보장 | transient 실패 복원력과 데이터 결함 격리를 분리(§4.1) | Accepted |

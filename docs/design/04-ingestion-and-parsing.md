@@ -1,6 +1,6 @@
 # 04 · 수집·파싱 (Scouts · Archivists)
 
-> **상태:** Draft · **Spec:** 0.1.0 · **Blueprint 매핑:** §8.1–§8.3
+> **상태:** Review · **Spec:** 0.1.0 · **Blueprint 매핑:** §8.1–§8.3
 > 상위 규약: [README](./README.md) · 관련: [01-architecture](./01-architecture.md), [03-storage](./03-storage-and-data-model.md), [05-resolution](./05-resolution-and-extraction.md)
 
 허용된 소스에서 문서를 수집(Fetch)하고, 원문을 손실 없이 정규화(Parse/Normalize)하며, 복제·파생을 출처 계보로 축소(Dedup)하는 파이프라인 전반(stage S1·S3·S4)을 확정한다. 본 문서는 커넥터 모델과 세 stage의 계약을 소유하며, 저장 스키마·ID 체계는 [`03`](./03-storage-and-data-model.md)을, 추출·해소(S5–S6)는 [`05`](./05-resolution-and-extraction.md)를 정본으로 참조한다.
@@ -39,7 +39,8 @@ blueprint §8.1. Scouts는 외부 세계에서 자료를 가져오는 수집 주
   "compliance": {
     "license": "gov-public | cc-by | proprietary",
     "license_url": "https://...",
-    "allow_store_raw": true
+    "allow_store_raw": true,
+    "allow_redistribute": false
   },
   "schedule": { "cron": "0 */6 * * *", "priority": "normal" },
   "enabled": true
@@ -47,7 +48,7 @@ blueprint §8.1. Scouts는 외부 세계에서 자료를 가져오는 수집 주
 ```
 
 - `source_type` ∈ `official`/`press`/`gov`/`research`/`exchange`. 초기 도메인(AI 반도체·데이터센터 공급망, [`README`](./README.md) §4)의 발행 주체 분류다.
-- `compliance.license`는 수집 정책이자 [`03`](./03-storage-and-data-model.md) `fetch.json.license`로 전파되며, retention·재배포 게이트는 [`11`](./11-observability-and-governance.md) governance가 강제한다.
+- `compliance.license`는 수집 정책이자 [`03`](./03-storage-and-data-model.md) `fetch.json.license`로 전파된다. 재배포 게이트는 `compliance.allow_redistribute`(bool, 기본 `false`)로 선언하며, retention·재배포 강제는 [`11`](./11-observability-and-governance.md) §5.4 governance가 이 필드명을 인용해 수행한다. `allow_store_raw`는 raw bytes 저장 허용 여부, `allow_redistribute`는 원문·발췌의 외부 재배포 허용 여부로 분리한다.
 - `robots_respect: false`는 라이선스가 명시적으로 허용한 소스에 한해 ADR로만 승인한다. 수집 권한·라이선스 우회 크롤러는 명시적 비목표다(blueprint §비목표).
 
 ### 1.2 Connector 인터페이스 (Python 추상)
@@ -133,6 +134,7 @@ fetch(url) → content_hash 계산
 
 - **새 버전 → 새 `doc_id`:** 동일 `url`의 변경분은 덮어쓰지 않고 새 `doc_id`로 **모두 보존**한다([`03`](./03-storage-and-data-model.md) §2.2 불변식, ADR-301). `doc_id`가 내용 기반([`README`](./README.md) §2.2, ADR-001)이므로 동일 bytes 재수집은 동일 객체 → S2 idempotent.
 - 변경 탐지는 조건부 GET(ETag/Last-Modified)로 대역폭을 아끼고, 최종 판정은 항상 `content_hash`로 한다(헤더가 거짓말해도 hash가 진실).
+- 비교 기준이 되는 **직전 저장본의 `content_hash`·ETag**는 `url`별 최신 fetch 상태로 보관한다. 저장위치는 [`03`](./03-storage-and-data-model.md) §2.2 `fetch.json`(최신 `doc_id`) 및 소스 수집 상태(PostgreSQL, [`01`](./01-architecture.md) §5)이며, 조건부 GET 헤더 주입과 hash 비교의 입력이 된다.
 
 ### 2.3 `fetch.json` 필드 채움
 
@@ -164,7 +166,8 @@ blueprint §8.2. 입력은 raw `doc_id`, 출력은 normalized zone의 `documents
 blueprint §8.2. 표와 각주는 본문에서 제거하지 않고 **구조를 보존한 segment**로 저장한다.
 
 - `segments.kind` ∈ `paragraph`/`sentence`/`table_cell`/`footnote`([`03`](./03-storage-and-data-model.md) §3.2). 표는 `table_cell` 단위로, 각주는 `footnote`로 보존해 셀 값·각주 본문이 추출(S5) 대상 span이 될 수 있게 한다.
-- 각주 참조(본문의 상첨자)와 각주 본문은 `order`로 연결해 provenance 왕복을 깨지 않는다.
+- `table_cell`은 소속 표를 식별하는 **table anchor**(문서 내 표 순번 기반)와 셀의 **(row, col) 좌표**를 함께 보존해, 셀 값을 표 구조로 왕복 복원할 수 있게 한다(round-trip). 좌표·anchor의 물리 컬럼은 [`03`](./03-storage-and-data-model.md) §3.2가 정본이다.
+- 각주 참조(본문의 상첨자)와 각주 본문은 문서 내에서 유일한 **footnote marker key**(각주 표식 + 문서 내 등장 순번)로 연결한다. `order` 단독이 아니라 이 key로 참조↔본문을 결합해 다중 각주·재사용 표식에서도 provenance 왕복을 깨지 않는다.
 
 ### 3.3 문단·문장 ID 안정 생성 (segment_id 결정성)
 
@@ -203,22 +206,25 @@ blueprint §8.3. 입력은 normalized `doc_id`, 출력은 curated `dup_clusters`
 | ③ semantic | LLM 의미적 파생·인용 관계 판정 | 재작성·번역·인용 등 의미적 파생 | `llm` | 고비용, 후보 쌍에만 |
 
 - ①은 사실상 S2 단계에서 `doc_id` 동일성으로 이미 흡수된다. S4는 서로 다른 `doc_id` 사이의 관계를 다룬다.
-- ②는 shingle 기반 MinHash(또는 SimHash) LSH로 후보 쌍을 좁힌 뒤, 애매 구간만 embedding cosine으로 보강한다. 임계값·방법 선택은 ADR-403.
-- ③은 ②가 "가깝지만 동일하지 않다"고 남긴 후보 쌍에만 LLM을 호출해 파생/인용/독립을 판정한다. LLM 호출은 version tuple([`README`](./README.md) §2.3)을 부착한다.
+- ②는 shingle 기반 MinHash(또는 SimHash) LSH로 후보 쌍을 좁힌 뒤, 애매 구간만 embedding cosine으로 보강한다. 구체 임계값(shingle k·MinHash perm·LSH band/row·Jaccard cutoff·embedding cosine)과 방법 선택은 ADR-403(초기 placeholder, 실측 조정).
+- ③은 ②가 "가깝지만 동일하지 않다"고 남긴 후보 쌍에만 LLM을 호출해 **문서↔문서** 파생/인용/독립 관계를 판정한다. LLM 호출은 version tuple([`README`](./README.md) §2.3)을 부착한다. 여기서 판정하는 것은 dedup 목적의 doc-level 계보뿐이며, claim 단위 인용(citation) 추출은 [`11`](./11-observability-and-governance.md) cite-extractor가 소유한다(S4 level③ ≠ claim-level citation).
 
 ### 4.2 dup_clusters 산출
 
-blueprint §8.3의 `root source`/`derived sources`/`independent additions`를 [`03`](./03-storage-and-data-model.md) §4.3 컬럼으로 매핑한다.
+blueprint §8.3의 `root source`/`derived sources`/`independent additions`를 [`03`](./03-storage-and-data-model.md) §4.3 컬럼으로 매핑한다. 각 cluster는 `cluster_id`(`clus-<ULID>`, [`README`](./README.md) §2.2, [`03`](./03-storage-and-data-model.md) §4.3)로 식별된다.
 
 | 개념(blueprint) | `dup_clusters` 컬럼(03) | 의미 |
 | --- | --- | --- |
+| (cluster 식별자) | `cluster_id` | `clus-<ULID>` (출처 계보 클러스터 ID) |
 | root source | `root_doc_id` | 근원 문서(가장 이른 공개 시각·원 발행 주체 우선) |
 | derived sources | `member_doc_ids[]` | 근원에서 파생된 복제·재작성 문서 |
 | independent additions | `independent_addition_doc_ids[]` | 파생이지만 **독립적 추가 정보**를 가진 문서 |
 
 - **root 선정 규칙:** 최선의 `publication_time`(가장 이른) + `source_type` 신뢰(official/gov 우선). 동률은 결정적 tie-break(`doc_id` 사전순)로 재현성을 보장한다.
-- **"복제 500건을 독립 500으로 세지 않음":** 하나의 보도자료에서 파생된 복제 기사 500건은 **1개 근원 + N개 독립 추가**로 카운트한다([`03`](./03-storage-and-data-model.md) §4.3, blueprint §8.3·§11). 독립 증거 수 = 1(root) + |independent_addition_doc_ids|. 이 값이 하류 confidence·evidence 카운팅([`05`](./05-resolution-and-extraction.md), [`06`](./06-graph-service.md))의 근거다.
-- 새 문서가 기존 cluster에 편입되면 `dedup_version` 하에 cluster를 재계산하되, cluster/`doc_id`는 불변 원칙을 지킨다(관계 갱신은 append 방식).
+- **independent_addition_doc_ids 분류 기준:** cluster 멤버(파생) 문서 중 root_source의 span에 **없는 새 claim/span**을 담거나, 별도 root_source 계보로 **독립 취득**된(재인용이 아닌 자체 취재·자체 데이터) 정보를 귀속시키는 문서만 이 배열에 넣는다. 단순 재작성·번역·전재는 파생일 뿐 독립 추가가 아니다. 이 판정은 S4 dedup 산출물이므로 `dedup_version`에 바인딩되고 `doc_id+dedup_version` idempotency key(§4, [`01`](./01-architecture.md) §4 S4) 하에 결정적으로 재생성된다.
+- **member vs independent 관계:** `independent_addition_doc_ids[]` ⊆ `member_doc_ids[]`(독립 추가 정보를 가진 파생 문서의 **부분집합**)이며, `root_doc_id`는 두 배열 어디에도 포함하지 않는다(disjoint).
+- **"복제 500건을 독립 500으로 세지 않음"(축소만 담당):** S4는 각 cluster를 **root_source 기여 단위**(1개 root_source + 독립 추가 기여)로 **축소**하는 것까지만 소유한다. 04는 per-claim 독립 증거 공식을 자체 정의하지 않는다 — `independent_evidence_count`의 per-claim 집계와 "새 증거를 더하는지(adds new evidence)" 한정자는 [`11`](./11-observability-and-governance.md) §1.4가 정본이며, API 노출 필드명은 `independent_source_count`([`09`](./09-api.md))다. cluster 축소 결과(root + `independent_addition_doc_ids[]`)가 그 집계의 입력이 된다.
+- 새 문서가 기존 cluster에 편입되면 `dedup_version` 하에 cluster를 **재계산(recompute)**한다. `doc_id`·raw bytes는 불변([`03`](./03-storage-and-data-model.md) §2)이지만 `dup_clusters` 자체는 append-only가 아니라 `dedup_version` 하에서 재생성되는 curated 산출물이다(같은 `dedup_version`은 동일 cluster를 결정적으로 재생성).
 
 ## 5. Watchtower (Ingestion monitor) 지표 개요
 
@@ -237,6 +243,7 @@ blueprint §11·§14. Scouts·S1–S4의 건전성을 감시한다. **지표 정
 불변식 §3-6(Idempotency). 모든 stage는 idempotency key로 재실행 안전하며, retry해도 동일 결과를 중복 생성하지 않는다.
 
 - **Idempotent 재실행:** S1은 `hash(source_id,url,fetch_window)`, S3는 `doc_id+parser_version`, S4는 `doc_id+dedup_version`로 재실행을 흡수한다. 부분 실패 후 재시도는 이미 완료된 단위를 no-op 처리한다.
+- **version 구성·bump 트리거:** `parser_version`은 문단/문장 분할 규칙·분할기 pin·정규화(offset 매핑) 로직의 조합을 식별하며, 그중 어느 하나라도 바뀌면 상향한다(→ 재파싱, §3.3). `dedup_version`은 3수준 판정 파라미터(ADR-403 임계값·MinHash/LSH 설정·LLM 판정 프롬프트/모델)의 조합을 식별하며, 어느 하나라도 바뀌면 상향한다(→ cluster 재생성, §4.2). 두 버전은 결정적이어서 동일 버전은 동일 산출물을 낸다.
 - **Backoff:** 일시 오류(네트워크·`429`/`5xx`)는 exponential backoff + jitter(`politeness.backoff`)로 재시도한다. rate limit은 소스별 토큰버킷을 넘지 않는다.
 - **Dead-letter:** 재시도 예산 소진, 영구 오류(파싱 불가·인코딩 판정 실패·`4xx` non-retryable)는 원본 bytes·오류 컨텍스트·correlation ID와 함께 dead-letter로 보낸다. **원본은 절대 유실하지 않으며**(raw는 immutable, [`03`](./03-storage-and-data-model.md) §2), 재처리는 `parser_version`/`dedup_version` 상향 후 동일 key로 안전하게 재실행한다.
 - 실패한 문서는 authoritative graph로 진입하지 않는다. provenance/파싱이 불완전한 element는 quarantine 경로([`03`](./03-storage-and-data-model.md) §8.3, [`05`](./05-resolution-and-extraction.md))로 격리한다.
@@ -247,6 +254,21 @@ blueprint §11·§14. Scouts·S1–S4의 건전성을 감시한다. **지표 정
 | --- | --- | --- | --- |
 | ADR-401 | `doc_id`는 내용 기반 `sha256(raw_bytes)[:24]`, 변경분은 새 `doc_id`로 전부 보존 | S2 idempotency + 버전 추적([`README`](./README.md) §2.2, [`03`](./03-storage-and-data-model.md) ADR-301) | Accepted |
 | ADR-402 | S1 idempotency key = `hash(source_id, url, fetch_window)`, S2 idempotency(`doc_id`)와 분리 | 수집 창 중복 방지와 bytes 중복 저장 방지를 독립 계층으로(불변식 §3-6) | Accepted |
-| ADR-403 | near-dup은 MinHash/SimHash LSH로 후보 축소 후 애매 구간만 embedding 보강 | LLM 없이 저비용 정밀, 임계값 튜닝 가능(blueprint §8.3) | Accepted |
+| ADR-403 | near-dup은 MinHash/SimHash LSH로 후보 축소 후 애매 구간만 embedding 보강. 초기 임계값은 아래 placeholder로 고정하고 golden set 실측으로 조정 | LLM 없이 저비용 정밀, 임계값 튜닝 가능(blueprint §8.3) | Accepted |
 | ADR-404 | LLM 의미적 파생 판정은 near-dup이 남긴 후보 쌍에만 계단식 호출(S4 수준 ③) | LLM 비용 통제 + 재현성(version tuple 부착) | Accepted |
 | ADR-405 | 파싱 실패·인코딩 판정 실패는 dead-letter로 보내되 raw bytes는 유실 없이 보존, 버전 상향 후 재처리 | immutable raw 불변식·재현성([`03`](./03-storage-and-data-model.md) §2, 불변식 §3-1) | Accepted |
+
+### ADR-403 near-dup 파라미터 (초기값 · 실측 조정)
+
+아래 값은 **placeholder(초기 기본값)**이며 golden dedup set 기준 precision/recall 실측으로 조정한다. 확정 시 `dedup_version`을 상향한다(§6). 값 변경은 재현성상 반드시 `dedup_version`에 반영된다.
+
+| 파라미터 | 초기값(placeholder) | 역할 |
+| --- | --- | --- |
+| shingle k (word n-gram) | `k = 5` | 문서 표면을 shingle 집합으로 변환하는 토큰 창 크기 |
+| MinHash 순열 수 (perm) | `128` | Jaccard 추정 정밀도 ↔ 비용 트레이드오프 |
+| LSH band × row | `b = 16`, `r = 8` (`b·r = 128`) | 후보 쌍 recall 튜닝(작은 r = 높은 recall·많은 후보) |
+| Jaccard cutoff | `≥ 0.80` | LSH 후보 중 near-dup으로 승인하는 표면 유사도 하한 |
+| embedding cosine (보강 확정) | `≥ 0.90` | 애매 구간에서 near-dup 확정 임계 |
+| embedding cosine (③ LLM 회부) | `[0.82, 0.90)` | 확정도 배제도 아닌 구간 → 수준 ③(LLM) 후보로 전달 |
+
+- 위 값은 초기 도메인(§1.3)·언어(§3.5)별로 달라질 수 있으므로 source_type·language 축으로 별도 튜닝할 수 있다. 최종값은 [`10`](./10-evaluation-and-testing.md) golden set 회귀로 검증한다.

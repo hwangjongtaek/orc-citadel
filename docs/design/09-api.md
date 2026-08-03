@@ -1,6 +1,6 @@
 # 09 · API 계약
 
-> **상태:** Draft · **Spec:** 0.1.0 · **Blueprint 매핑:** §5
+> **상태:** Review · **Spec:** 0.1.0 · **Blueprint 매핑:** §5
 > 상위 규약: [README](./README.md) · 관련: [01-architecture](./01-architecture.md), [06-graph](./06-graph-service.md), [07-llm](./07-llm-and-agents.md), [03-storage](./03-storage-and-data-model.md)
 
 Citadel의 외부 계약(API Gateway = **Citadel Gate**, FastAPI)을 확정한다. blueprint §5(조사 요청/결과/지속 관찰)의 사용자 경험을 REST 리소스와 응답 스키마로 번역하며, 그래프·조사·저장 계층의 내부 세부는 각 정본 문서([`06`](./06-graph-service.md), [`07`](./07-llm-and-agents.md), [`03`](./03-storage-and-data-model.md))가 소유한다. 본 문서는 **client ↔ services 경계의 wire contract**만 확정한다 (컴포넌트 경계는 [`01`](./01-architecture.md) §3).
@@ -44,6 +44,7 @@ Citadel의 외부 계약(API Gateway = **Citadel Gate**, FastAPI)을 확정한�
 - 요청: `?limit=<1..200>&cursor=<opaque>` (default `limit=50`).
 - 응답: `{ "items": [...], "page": { "next_cursor": <string|null>, "limit": 50 } }`.
 - cursor는 ULID 시간 정렬성([`README`](./README.md) §2.2)을 활용한 불투명 토큰이며 클라이언트가 파싱하지 않는다. `next_cursor=null`이면 마지막 페이지.
+- **정렬 키는 collection별로 고정**된다(클라이언트 미지정): 시계열 성격 목록(chronicle 이벤트·alert)은 `mutation_id`/`alert_id`의 ULID 역순(최신 우선), 리소스 목록(investigations·documents·segments)은 생성 ULID 순. cursor는 이 고정 정렬 축 위의 위치만 인코딩하므로 페이지 간 정렬 키를 바꿀 수 없다.
 
 ### 1.5 표준 에러 모델
 
@@ -69,11 +70,22 @@ Citadel의 외부 계약(API Gateway = **Citadel Gate**, FastAPI)을 확정한�
 
 표준 코드(발췌): `validation_error`(400), `unauthorized`(401), `forbidden`(403), `*_not_found`(404), `conflict`(409), `rate_limited`(429), `budget_exceeded`(422), `internal_error`(500). 상태 색·아이콘 매핑은 표시 레이어 책임이며 API는 색상을 규정하지 않는다.
 
+**Rate limiting (429):** `rate_limited`(429) 응답은 `Retry-After`(초) 헤더로 재시도 대기 시간을 통지하며, 클라이언트는 이를 존중해 backoff한다. 임계치·윈도우 정책의 정본은 [`11`](./11-observability-and-governance.md) governance이며, 본 스펙은 응답 계약(코드+`Retry-After`)만 고정한다.
+
 ### 1.6 인증 (개요)
 
 - **Bearer 토큰** — `Authorization: Bearer <token>`. 토큰 발급·회전 상세는 본 스펙 범위 밖이며 [`11`](./11-observability-and-governance.md) governance에 위임한다.
-- **Idempotency-Key 헤더** — 모든 비멱등(`POST`) 생성 요청은 `Idempotency-Key: <client-uuid>`를 받는다. 동일 키 재수신 시 최초 결과를 반환(no-op)한다 (불변식 §3-6, [`03`](./03-storage-and-data-model.md) §7.2).
-- **Webhook 서명** — 비동기 콜백은 `X-Citadel-Signature`(HMAC)로 검증한다 (§7.2).
+- **Idempotency-Key 헤더** — 리소스를 **새로 생성**하는 비멱등(`POST`) 요청은 `Idempotency-Key: <client-uuid>`를 받는다. 동일 키 재수신 시 최초 결과를 반환(no-op)한다 (불변식 §3-6, [`03`](./03-storage-and-data-model.md) §7.2). 상태 전이(`:cancel` 등 이미 존재하는 리소스의 idempotent transition)에는 필수가 아니다 — 전이 자체가 멱등이므로 재요청은 현재 상태를 그대로 반환한다.
+- **Webhook 서명** — 비동기 콜백은 `X-Citadel-Signature`(HMAC)로 검증한다 (§5.2).
+
+### 1.7 인가(Authorization)·테넌시
+
+인증(§1.6)이 "누구인지"를 확인한다면, 인가는 "무엇에 접근·조작할 수 있는지"를 결정한다. 세부 정책(role 정의·권한 매트릭스·감사)의 정본은 [`11`](./11-observability-and-governance.md) governance이며, 본 스펙은 wire 계약에 필요한 최소 모델만 고정한다.
+
+- **Scope 토큰** — Bearer 토큰은 하나 이상의 scope를 담는다: `investigations:read` / `investigations:write` / `graph:read` / `alerts:write` 등 리소스×동작 조합. scope 부족은 `403 forbidden`(§1.5 표준 코드).
+- **Resource ownership** — investigation은 생성 주체(`owner`)에 귀속된다. 다음 조작은 `owner` 본인 또는 관리 role만 가능하다: `POST …:cancel`, `GET …/report`, `POST …:register-continuous`, alert 구독 생성/해제(§2.6). 타 소유 리소스 접근은 `403 forbidden`, 존재 자체를 숨겨야 하는 경우 `404 *_not_found`.
+- **`?owner=` 필터** — 목록 질의(§2.1 `GET /v1/investigations`)의 `owner` 파라미터는 인가 범위 안에서만 유효하다. 요청자 scope를 벗어난 owner 지정은 결과를 확장하지 않는다(권한 상승 금지).
+- **테넌시** — 토큰은 단일 테넌트에 바인딩되며 모든 리소스 조회·조작은 토큰 테넌트로 암묵 필터된다. cross-tenant ID를 경로에 넣어도 `404`로 처리하고 존재를 노출하지 않는다. role·권한 매트릭스 상세는 [`11`](./11-observability-and-governance.md).
 
 ---
 
@@ -83,11 +95,11 @@ Citadel의 외부 계약(API Gateway = **Citadel Gate**, FastAPI)을 확정한�
 
 ### 2.1 Investigations (조사 · Campaign)
 
-blueprint §5.1(요청)·§5.2(결과)·§5.3(지속 관찰). 자연어 `question` + `scope`로 조사를 생성하고, 장시간 실행은 §7 job 패턴을 따른다.
+blueprint §5.1(요청)·§5.2(결과)·§5.3(지속 관찰). 자연어 `question` + `scope`로 조사를 생성하고, 장시간 실행은 §5 job 패턴을 따른다.
 
 | METHOD PATH | 설명 | 주요 파라미터 | 응답 개요 |
 | --- | --- | --- | --- |
-| `POST /v1/investigations` | 자연어 조사 생성 | body: `question`, `scope{time,region,source_type,depth}` | `202` + `inv-…` + `job-…` (§7) |
+| `POST /v1/investigations` | 자연어 조사 생성 | body: `question`, `scope{time,region,source_type,depth}` | `202` + `inv-…` + `job-…` (§5) |
 | `GET /v1/investigations/{id}` | 조사 메타·현재 상태 | — | Investigation 객체 |
 | `GET /v1/investigations` | 조사 목록 | `?status=&owner=&cursor=&limit=` | cursor 페이지 |
 | `POST /v1/investigations/{id}:cancel` | 실행 중 조사 취소 | — | `status=cancelled` |
@@ -206,7 +218,7 @@ claim → 근거(지지/반박), 원문 span·provenance trail. **결과 문장�
 | `GET /v1/chronicle` | 이벤트 타임라인 질의 | `?subject=<node-id>&valid_from=&valid_to=&tx_from=&tx_to=&op=&cursor=` (`op` enum은 [`03`](./03-storage-and-data-model.md) §7.1: create_node/create_edge/merge_entity/unmerge/supersede/delete/quarantine) | 시간순 이벤트 목록 |
 | `GET /v1/chronicle/{mutation_id}` | 단일 mutation 이벤트 | — | `graph_mutations` row([`03`](./03-storage-and-data-model.md) §7.1) |
 
-- `op` 필터는 `create_node`/`create_edge`/`merge_entity`/`supersede`/`delete`/`quarantine`.
+- `op` 필터는 `create_node`/`create_edge`/`merge_entity`/`unmerge`/`supersede`/`delete`/`quarantine` ([`03`](./03-storage-and-data-model.md) §7.1 전 op 열거와 동일). `unmerge`는 merge_entity의 역이벤트로 감사·되돌림 추적에 포함된다 ([`06`](./06-graph-service.md) §3).
 - 각 이벤트는 `actor`(`pipeline`/`llm:<model>`/`human:<user>`), `version_tuple`, `correlation_id`를 포함해 감사 가능하다.
 
 ### 2.6 Signal Spire (Alerts)
@@ -306,8 +318,10 @@ source 신선도·backlog. **상세 지표·SLO·대시보드는 [`11`](./11-obs
 
 계약 세부:
 
-- `report.statements[].modality`는 온톨로지 `Claim.modality`([`02`](./02-ontology.md) §5.3)와 동일 vocabulary(`fact`/`asserted`/`opinion`/`prediction`)로, **사실·주장·의견·예측을 명시적으로 분리**한다 (blueprint §5.2, §9.3 Synthesis/Audit).
+- `report.sections[].statements[].modality`는 온톨로지 `Claim.modality`([`02`](./02-ontology.md) §5.3)와 동일 vocabulary(`fact`/`asserted`/`opinion`/`prediction`)로, **사실·주장·의견·예측을 명시적으로 분리**한다 (blueprint §5.2, §9.3 Synthesis/Audit). 모델 자체의 추론(inference)은 `modality` 값으로 신설하지 않는다 — evidence-first 원칙상 모델 추론은 별도 modality가 아니라 근거 구조(model_prior 플래그)로 처리하며, 4개 값 외 확장이 필요하면 [`02`](./02-ontology.md) §5.3 정본을 먼저 개정한다.
+- `report.sections[].statements[].speaker_id`는 해당 문장의 발화 주체(node ID, 예: `org-…`)를 가리키는 선택 필드로, 보고서가 "누가 주장했는가"를 화자에 귀속시킬 때 채워진다. 화자 미상·시스템 종합 문장은 생략(부재)한다. 참조 대상은 그래프 노드(§2.2)다.
 - 무출처 문장은 `claim_ref=null`이면서 `modality`가 `prediction`/`opinion`인 경우로만 허용되며, `fact`/`asserted`는 반드시 `claim_ref`(→ provenance)를 가진다 (Audit Agent 계약, blueprint §9.3, 불변식 §3-2).
+- `timeline[].change`는 해당 시점 변화의 종류를 나타내는 enum: `asserted`(주장 최초 등장) / `contradicts`(반박 증거 등장) / `superseded`(이전 주장 대체) / `retracted`(철회). `supersedes`는 대체된 이전 claim ref(없으면 `null`). 시간축 의미는 [`03`](./03-storage-and-data-model.md) §6 bitemporal 정본을 따른다.
 - `evidence_graph_ref`는 문서를 인라인하지 않고 War Table subgraph API(§2.2)를 가리켜 progressive disclosure를 유지한다.
 
 ---
