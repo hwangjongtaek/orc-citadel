@@ -6,5 +6,8 @@
 # direnv
 .direnv/
 
+# Claude Code — 개인 로컬 설정 (머신별, 커밋 제외)
+.claude/settings.local.json
+
 # OS
 .DS_Store
