@@ -58,6 +58,8 @@
 | `empty-watchtower.png` | Watchtower (모든 소스 정상) | `{공통 preamble} A calm watchtower silhouette at night with steady (not blinking) small amber #FFB13B beacons and an orc scout resting — "all sources healthy" mood. Restrained. Transparent background.` |
 | `empty-spire.png` | Signal Spire (새 알림 없음) | `{공통 preamble} A single unlit signal spire against the night, one small dormant amber #FFB13B ember at its tip — "no material changes" mood. Minimal, transparent background.` |
 | `empty-archive.png` | Grand Archive (검색 결과 없음) | `{공통 preamble} A basalt archive shelf with a few parchment #C8B58E scrolls and one empty slot, a small magnifier — "no documents found" mood. Minimal spot illustration, transparent background.` |
+| `empty-witnesses.png` | Hall of Witnesses (claim 미선택) | `{공통 preamble} An empty witness stand / evidence pedestal in a dim basalt hall, one parchment #C8B58E scroll awaiting examination, no claim selected — "select a claim to inspect its evidence" mood. Minimal spot illustration, transparent background.` |
+| `empty-chronicle.png` | Chronicle Vault (이력 없음) | `{공통 preamble} A quiet vault with a horizontal time-rail fading into the dark, only one or two faint event pins, no version history yet — "no recorded changes" mood. Minimal spot illustration, transparent background.` |
 
 ## 5. 처리 상태 아트 (Processing) — `proc-*.png`
 
@@ -68,12 +70,33 @@
 | `proc-scout.png` | 수집 중 | `{공통 preamble} A small orc scout mid-stride carrying a report scroll, a faint ember #E97824 motion trail behind — "ingesting" mood. Side profile, transparent background, ~200px.` |
 | `proc-seer.png` | 조사/추론 중 | `{공통 preamble} A Seer tracing a dashed emerald #45E06F path between two faint nodes with a fingertip — "reasoning over the graph" mood. Analytical, calm. Transparent background, ~200px.` |
 
-## 6. 연결 계획 (전달 후)
+## 6. 페이지별 삽화 매핑 (SSOT)
 
-이미지 수령 시 각 목업에 아래처럼 연결한다.
-- `index.html` / `citadel-gate.html` 히어로 → `crest-hero.png`, `gate-hero.png`.
-- 각 화면 empty state 컴포넌트에 `empty-*.png` + 안내 문구(기능명 병기).
-- Council Chamber 진행·Watchtower 수집 중 → `proc-*.png`.
-- 캐릭터는 onboarding·result summary 카드에 한정 노출(상시 금지).
+각 목업 페이지가 사용하는 삽화와 **프롬프트 위치(§)**, 배치 지점. 우선순위 ★ = 먼저 필요.
 
-> 파일명을 위 규약대로 주시면 `assets/`에 배치하고 `<img>`(또는 배경)로 연결, `prefers-reduced-motion` 및 대체 텍스트를 함께 처리한다.
+| 페이지 (`docs/mockups/`) | 삽화 파일 | 프롬프트 위치 | 배치 지점 · 용도 | 우선 |
+| --- | --- | --- | --- | :---: |
+| `index.html` | `crest-hero.png` | §1 | 상단 워드마크 옆 브랜드 문장 | ★ |
+| `citadel-gate.html` | `gate-hero.png` | §2 | 히어로 배경/일러스트 | ★ |
+| `citadel-gate.html` | `crest-hero.png` | §1 | 히어로 워드마크 | |
+| `citadel-gate.html` | `char-scout.png`, `char-seer.png` | §3 | 온보딩 안내(최초 방문·result summary, 상시 금지) | |
+| `watchtower.html` | `empty-watchtower.png` | §4 | "모든 소스 정상" 빈 상태 | |
+| `watchtower.html` | `proc-scout.png` | §5 | 수집 진행(ingesting) 표시 | |
+| `grand-archive.html` | `empty-archive.png` | §4 | "검색 결과 없음" 빈 상태 | |
+| `hall-of-witnesses.html` | `empty-witnesses.png` | §4 | "claim 미선택" 빈 상태 | |
+| `hall-of-witnesses.html` | `char-archivist.png` | §3 | 안내/헤더 스팟(선택) | |
+| `war-table.html` | `empty-wartable.png` | §4 | "조사 미선택" 빈 상태 | ★ |
+| `war-table.html` | `proc-seer.png` | §5 | 조사 진행(reasoning) 표시 | |
+| `council-chamber.html` | `char-scout.png`·`char-archivist.png`·`char-seer.png`·`char-warchief.png` | §3 | 8-Agent roster 아바타(Scout→Retrieval/수집, Archivist→Lorekeeper, Seer→추론계열, Warchief→Council) | |
+| `council-chamber.html` | `proc-seer.png` | §5 | 조사 루프 진행 표시 | |
+| `chronicle-vault.html` | `empty-chronicle.png` | §4 | "이력 없음" 빈 상태 | |
+| `signal-spire.html` | `empty-spire.png` | §4 | "새 알림 없음" 빈 상태 | |
+
+> **읽는 법:** "프롬프트 위치" 열의 §번호가 이 문서 안에서 해당 이미지의 실제 생성 프롬프트가 있는 섹션이다. 예: `empty-wartable.png` → §4 표의 해당 행 프롬프트.
+
+## 7. 연결 계획 (이미지 전달 후)
+
+- 파일명을 위 §0 규약대로 `assets/<name>.png`로 주시면 배치 후 `<img>`(또는 CSS 배경)로 연결한다.
+- 빈 상태·처리 상태는 해당 컴포넌트에 삽입하고 기능명 병기 안내 문구를 함께 둔다.
+- 캐릭터는 onboarding·result summary·roster 아바타에 한정(상시 노출 금지, blueprint §1.4).
+- 접근성: 모든 삽화에 `alt` 텍스트, 처리 상태 애니메이션은 `prefers-reduced-motion`에서 정지 프레임으로 대체.
