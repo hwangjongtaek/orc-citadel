@@ -198,7 +198,16 @@ Small centered pixel-art spot illustration, transparent background, ~360px, stro
 
 ## 5. 처리 상태 아트 (Processing) — `proc-*.png` (복붙용)
 
-**용도:** 긴 작업 진행 표현(수집·조사 루프). 애니메이션은 CSS로, 여기선 정지 프레임. **preamble 인라인**, **투명 배경**, ~200px.
+**용도:** 긴 작업 진행 표현(수집·조사 루프).
+
+> **구현(확정): orc-camp 애니메이션 재사용 — CSS 스프라이트시트(steps).** 신규 생성 대신 자매 프로젝트 `orc-camp`의 애니메이션 프레임 시퀀스(8방향·232×232·투명, 재배포 허용)를 재사용한다. 프레임을 가로 strip으로 합쳐 `assets/proc-*.png`로 저장하고 `steps()` 애니메이션으로 재생(`@media (prefers-reduced-motion)`에서 정지).
+>
+> | 파일 | orc-camp 애니메이션 | 프레임 | 방향 | 연결 위치 |
+> | --- | --- | --- | --- | --- |
+> | `proc-scout.png` | Codex Field Engineer · `clear_walking_patrol_cycle` (roaming) | 9 | east | Watchtower S1 Fetch |
+> | `proc-seer.png` | Claude Storm Shaman · `active_..._casting_and_monitoring_loop` (active) | 7 | south | Council "현재 하위 질문" |
+>
+> 아래 픽셀 프롬프트는 **재생성이 필요할 때만** 쓰는 fallback이다. **투명 배경**, ~200px.
 
 ### 5.1 수집 중 — `proc-scout.png`
 

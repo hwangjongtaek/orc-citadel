@@ -166,6 +166,12 @@
   /* ember 실시간 표식 — 정적(무한 점멸 금지), 색+형태+라벨 병기 */
   .live-tag { display: inline-flex; align-items: center; gap: 5px; font-family: var(--font-head); font-size: 9.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ember); }
   .live-tag .em { width: 7px; height: 7px; border-radius: var(--r-full); background: var(--ember); box-shadow: 0 0 7px 1px rgba(233,120,36,.7); flex: none; }
+  /* orc-camp 애니메이션 스프라이트 (steps, prefers-reduced-motion에서 정지) */
+  .proc { display: inline-block; vertical-align: middle; flex: none; }
+  .proc.scout { width: 32px; height: 32px; background: url('./assets/proc-scout.png') 0 0 / 288px 32px no-repeat;
+    animation: proc-scout 0.85s steps(9) infinite; }
+  @keyframes proc-scout { to { background-position: -288px 0; } }
+  @media (prefers-reduced-motion: reduce) { .proc { animation: none !important; } }
 
   /* ── 3-column dashboard grid ─────────────────────────────────────── */
   .grid-2 { display: grid; grid-template-columns: 1.9fr 1fr; gap: var(--sp-lg); align-items: start; }
@@ -364,7 +370,7 @@
 
           <!-- S1 Fetch -->
           <div class="stage">
-            <div class="sid"><span class="code mono">S1</span><span class="nm">Fetch</span></div>
+            <div class="sid"><span class="proc scout" title="Scout · 수집 중" aria-label="수집 중"></span><span class="code mono">S1</span><span class="nm">Fetch</span></div>
             <div class="thru">42 <small>docs/min</small></div>
             <div class="kv"><span>backlog</span><b>1,120</b></div>
             <div class="kv"><span>실패</span><b class="warn">0.9%</b></div>

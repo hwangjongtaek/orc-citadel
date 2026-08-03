@@ -166,6 +166,12 @@
   .agent .st { margin-left: auto; }
   .agent .av { width: 34px; height: 34px; border-radius: 6px; object-fit: cover;
     border: 1px solid var(--surface-variant); flex: none; }
+  /* orc-camp 애니메이션 스프라이트 (steps, prefers-reduced-motion에서 정지) */
+  .proc { display: inline-block; vertical-align: middle; flex: none; }
+  .proc.seer { width: 36px; height: 36px; background: url('./assets/proc-seer.png') 0 0 / 252px 36px no-repeat;
+    animation: proc-seer 0.9s steps(7) infinite; }
+  @keyframes proc-seer { to { background-position: -252px 0; } }
+  @media (prefers-reduced-motion: reduce) { .proc { animation: none !important; } }
 
   /* 상태: 색 + 형태(아이콘) + 라벨 3중 부호화 */
   .st { display: inline-flex; align-items: center; gap: 5px; font-family: var(--font-head); font-size: 9.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; padding: 3px 7px; border-radius: var(--r-full); white-space: nowrap; }
@@ -424,6 +430,7 @@
     <!-- ── 중: Council 진행/토론 로그 ──────────────────────────────── -->
     <section class="panel council-mid">
       <div class="subq-banner">
+        <span class="proc seer" title="Seer · 추론 중" aria-label="추론 중"></span>
         <span class="k">현재 하위 질문</span>
         <span class="q">C사와의 신규 공급 계약은 발표가 아닌 실제 집행이 확인되는가?</span>
         <span class="id mono">subclaim-3 · step-014</span>
