@@ -33,7 +33,7 @@
   .hero { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; margin-bottom: 44px;
     padding-bottom: var(--sp-xl); border-bottom: 1px solid var(--surface-variant); }
   .wordmark { display: flex; align-items: center; gap: 14px; }
-  .wordmark .crest { width: 34px; height: 34px; color: var(--primary); }
+  .wordmark .crest { width: 42px; height: 42px; color: var(--primary); display: grid; place-items: center; }
   .wordmark .txt { font-family: var(--font-display); font-weight: 700; font-size: 32px; letter-spacing: 0.12em; color: var(--on-surface); }
   .tagline { font-family: var(--font-head); font-size: 14px; letter-spacing: 0.04em; color: var(--parchment); }
   .lede { color: var(--on-surface-muted); max-width: 720px; }
@@ -72,12 +72,8 @@
 
   <div class="hero">
     <div class="wordmark">
-      <span class="crest" aria-hidden="true">
-        <svg width="34" height="34" viewBox="0 0 24 24" fill="none">
-          <path d="M12 2 L20 6 V13 C20 18 12 22 12 22 C12 22 4 18 4 13 V6 Z" stroke="currentColor" stroke-width="1.6" fill="rgba(69,224,111,.07)"/>
-          <path d="M9 9 Q12 12 15 9 M12 11 V15" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
-          <circle cx="12" cy="8" r="1.3" fill="currentColor"/>
-        </svg>
+      <span class="crest">
+        <img src="./assets/crest-hero.png" width="42" height="42" alt="Orc Citadel 문장" />
       </span>
       <span class="txt">ORC&nbsp;CITADEL</span>
     </div>
