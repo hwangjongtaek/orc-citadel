@@ -327,6 +327,28 @@
   @media (max-width: 1180px) {
     main { grid-template-columns: 240px 1fr 300px; }
   }
+
+  /* space masthead (hero band) — grid: header / masthead / main / chronicle */
+  .app { grid-template-rows: auto auto 1fr auto; }
+  .masthead {
+    position: relative; height: 132px; overflow: hidden;
+    border-bottom: 1px solid var(--surface-variant);
+    display: flex; align-items: center; padding: 0 var(--sp-lg);
+    background:
+      linear-gradient(90deg, rgba(7,17,28,.92) 0%, rgba(7,17,28,.6) 42%, rgba(7,17,28,.32) 100%),
+      url('./assets/war-table-hero.png') center 42% / cover no-repeat,
+      var(--citadel-night);
+  }
+  .masthead h1 {
+    font-family: var(--font-head); font-size: 22px; font-weight: 600;
+    color: var(--on-surface); letter-spacing: -0.01em;
+    text-shadow: 0 2px 14px rgba(7,17,28,.9);
+  }
+  .masthead p {
+    font-family: var(--font-head); font-size: 11px; font-weight: 500;
+    letter-spacing: 0.08em; text-transform: uppercase; color: var(--parchment);
+    margin-top: 5px; text-shadow: 0 2px 14px rgba(7,17,28,.9);
+  }
 </style>
 </head>
 <body>
@@ -361,6 +383,14 @@
       <span class="dot"></span> Signal Spire · 3
     </div>
   </header>
+
+  <!-- ══ Masthead (space hero band) ═══════════════════════════════════ -->
+  <div class="masthead">
+    <div class="mh-txt">
+      <h1>War Table · 그래프 탐색</h1>
+      <p>엔터티 · 주장 · 증거 · 시간 관계의 Temporal Knowledge Graph</p>
+    </div>
+  </div>
 
   <!-- ══ Main 3-column ════════════════════════════════════════════ -->
   <main>
