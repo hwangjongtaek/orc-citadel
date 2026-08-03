@@ -1,0 +1,548 @@
+<!-- ============================================================================
+  ORC CITADEL — Grand Archive · 문서 탐색 (Documents). 공유 셸(citadel-shell.html)의
+  <head>/토큰/헤더를 verbatim 재사용. 화면 고유 CSS는 "SCREEN-SPECIFIC"에만.
+  도메인: AI 반도체 공급망 (A사 10-K · 보도자료), war-table.html과 일관.
+============================================================================ -->
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Orc Citadel · 문서 탐색 — 목업</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  /* ── Citadel Nightwatch tokens (DESIGN.md) ───────────────────────── */
+  :root {
+    --citadel-void: #07111C; --citadel-night: #0D1B2A;
+    --surface: #111820; --surface-variant: #26313A;
+    --on-surface: #D6CCB8; --on-surface-muted: #59636A; --parchment: #C8B58E;
+    --primary: #45E06F;   /* war-green — verified */
+    --secondary: #20B85A; /* seer-green — LLM candidate */
+    --ember: #E97824; --signal-amber: #FFB13B;
+    --crimson: #7B2833;
+    --error: #E05252; --uncertain: #A78BFA; --superseded: #59636A;
+    --font-display: "Cinzel", Georgia, serif;
+    --font-head: "Space Grotesk", system-ui, sans-serif;
+    --font-body: "Inter", system-ui, sans-serif;
+    --font-data: "JetBrains Mono", ui-monospace, monospace;
+    --r-sm: 4px; --r-md: 8px; --r-lg: 12px; --r-full: 9999px;
+    --sp-xs: 4px; --sp-sm: 8px; --sp-md: 16px; --sp-lg: 24px; --sp-xl: 32px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: var(--font-body); background: var(--citadel-void);
+    color: var(--on-surface); font-size: 14px; line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  .mono { font-family: var(--font-data); }
+  a { color: var(--secondary); text-decoration: none; }
+  ::selection { background: rgba(69,224,111,.25); }
+
+  /* ── App shell: header + body + optional footer ──────────────────── */
+  .app { height: 100vh; display: grid; grid-template-rows: auto 1fr auto; background: var(--citadel-night); }
+
+  /* ── Header (공유) ───────────────────────────────────────────────── */
+  header {
+    display: flex; align-items: center; gap: var(--sp-lg);
+    padding: 10px var(--sp-lg); background: var(--surface);
+    border-bottom: 1px solid var(--surface-variant);
+  }
+  .wordmark {
+    font-family: var(--font-display); font-weight: 700; font-size: 18px;
+    letter-spacing: 0.14em; color: var(--on-surface);
+    display: flex; align-items: center; gap: 10px; white-space: nowrap;
+  }
+  .crest { width: 22px; height: 22px; flex: none; display: grid; place-items: center; color: var(--primary); }
+  /* 공간 브레드크럼: war-table의 .campaign 슬롯을 일반화 */
+  .space {
+    display: flex; flex-direction: column; min-width: 0;
+    padding-left: var(--sp-lg); border-left: 1px solid var(--surface-variant);
+  }
+  .space .eyebrow {
+    font-family: var(--font-head); font-size: 10px; font-weight: 600;
+    letter-spacing: 0.14em; text-transform: uppercase; color: var(--on-surface-muted);
+  }
+  .space .title {
+    font-family: var(--font-head); font-size: 15px; font-weight: 600; color: var(--on-surface);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .grow { flex: 1 1 auto; }
+  /* 공간 스위처(선택): 상단 우측 작은 탭 */
+  .spaces { display: flex; gap: 2px; }
+  .spaces a {
+    font-family: var(--font-head); font-size: 11px; font-weight: 500; color: var(--on-surface-muted);
+    padding: 6px 10px; border-radius: var(--r-md); white-space: nowrap;
+  }
+  .spaces a:hover { color: var(--on-surface); background: var(--surface-variant); }
+  .spaces a.active { color: var(--primary); background: rgba(69,224,111,.08); }
+  .search {
+    display: flex; align-items: center; gap: 8px; background: var(--surface-variant);
+    border: 1px solid transparent; border-radius: var(--r-md);
+    padding: 8px 12px; width: 300px; max-width: 32vw; color: var(--on-surface-muted);
+  }
+  .search input { background: none; border: none; outline: none; color: var(--on-surface); font-family: var(--font-body); font-size: 13px; width: 100%; }
+  .search input::placeholder { color: var(--on-surface-muted); }
+  .spire {
+    position: relative; display: flex; align-items: center; gap: 8px;
+    font-family: var(--font-head); font-size: 12px; font-weight: 600; color: var(--signal-amber);
+    background: rgba(255,177,59,.08); border: 1px solid rgba(255,177,59,.3);
+    padding: 8px 12px; border-radius: var(--r-md); cursor: pointer;
+  }
+  .spire .dot { width: 7px; height: 7px; border-radius: var(--r-full); background: var(--signal-amber); box-shadow: 0 0 8px 1px var(--signal-amber); }
+
+  /* ── Panel (공유) ────────────────────────────────────────────────── */
+  main { min-height: 0; }
+  .panel { background: var(--surface); display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+  .panel + .panel { border-left: 1px solid var(--surface-variant); }
+  .panel-head { display: flex; align-items: center; justify-content: space-between; padding: 12px var(--sp-md); border-bottom: 1px solid var(--surface-variant); }
+  .panel-head h2 { font-family: var(--font-head); font-size: 12px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--on-surface); }
+  .panel-head .sub { font-family: var(--font-head); font-size: 10px; letter-spacing: 0.08em; color: var(--on-surface-muted); text-transform: uppercase; }
+  .panel-body { overflow-y: auto; padding: var(--sp-md); }
+  .panel-body::-webkit-scrollbar { width: 8px; }
+  .panel-body::-webkit-scrollbar-thumb { background: var(--surface-variant); border-radius: var(--r-full); }
+
+  /* ── 공통 원자: 섹션 라벨 / 배지 / 칩 / source-span / trail ───────── */
+  .sec-label {
+    font-family: var(--font-head); font-size: 10px; font-weight: 600; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--on-surface-muted);
+    display: flex; align-items: center; gap: 8px; margin: var(--sp-md) 0 10px;
+  }
+  .sec-label::after { content: ""; flex: 1; height: 1px; background: var(--surface-variant); }
+  .badge { font-family: var(--font-head); font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; padding: 3px 8px; border-radius: var(--r-sm); background: var(--surface-variant); color: var(--on-surface); }
+  .badge.good { background: rgba(69,224,111,.14); color: var(--primary); }
+  .badge.warn { background: rgba(255,177,59,.14); color: var(--signal-amber); }
+  .badge.err  { background: rgba(224,82,82,.14);  color: var(--error); }
+  .badge.uncert { background: rgba(167,139,250,.14); color: var(--uncertain); }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-head);
+    font-size: 11px; font-weight: 500; padding: 5px 10px; border-radius: var(--r-full);
+    border: 1px solid var(--surface-variant); color: var(--on-surface); margin: 0 6px 6px 0; cursor: pointer;
+  }
+  .chip .sw { width: 8px; height: 8px; border-radius: var(--r-full); }
+  .span { display: block; font-family: var(--font-data); font-size: 11.5px; line-height: 1.55; color: var(--parchment); background: var(--surface-variant); border-radius: var(--r-sm); padding: 8px 10px; margin: 6px 0; }
+  .trail { display: flex; align-items: center; gap: 6px; font-family: var(--font-data); font-size: 10px; color: var(--on-surface-muted); flex-wrap: wrap; }
+
+  /* confidence: value + evidence count + independent sources (never a lone gauge) */
+  .conf { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--surface-variant); border: 1px solid var(--surface-variant); border-radius: var(--r-md); overflow: hidden; }
+  .conf .cell { background: var(--surface); padding: 10px 12px; }
+  .conf .num { font-family: var(--font-head); font-size: 20px; font-weight: 600; color: var(--on-surface); line-height: 1.1; }
+  .conf .num.good { color: var(--primary); }
+  .conf .cap { font-family: var(--font-head); font-size: 9.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--on-surface-muted); margin-top: 4px; }
+
+  /* ── SCREEN-SPECIFIC: Grand Archive · 문서 탐색 ────────────────────── */
+  /* 3-column: 좌 facets/검색 · 중 문서 목록 · 우 문서 상세 */
+  main { display: grid; grid-template-columns: 300px 1fr 380px; }
+
+  /* dedup 배지: 색 + 형태(글리프) + 라벨 (색만으로 구분 금지) */
+  .badge.root  { background: rgba(69,224,111,.14); color: var(--primary); }
+  .badge.deriv { background: rgba(89,99,106,.20); color: var(--on-surface-muted); }
+  .badge.indep { background: rgba(255,177,59,.14); color: var(--signal-amber); }
+
+  /* ── 좌: 검색·facets ─────────────────────────────────────────────── */
+  .bm25 { position: relative; margin-bottom: var(--sp-md); }
+  .bm25 input {
+    width: 100%; background: var(--surface-variant); border: 1px solid var(--surface-variant);
+    border-radius: var(--r-md); color: var(--on-surface); font-family: var(--font-body);
+    font-size: 13px; padding: 10px 12px 10px 34px; outline: none;
+  }
+  .bm25 input:focus { border-color: var(--primary); }
+  .bm25 svg { position: absolute; left: 11px; top: 11px; color: var(--on-surface-muted); }
+  .bm25 .hint {
+    font-family: var(--font-head); font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--on-surface-muted); margin-top: 6px; display: flex; gap: 6px; align-items: center;
+  }
+  .facet-count { font-family: var(--font-data); font-size: 10px; color: var(--on-surface-muted); margin-left: auto; }
+  .chip.on { border-color: var(--primary); background: rgba(69,224,111,.08); color: var(--on-surface); }
+  .chip .n { font-family: var(--font-data); font-size: 10px; color: var(--on-surface-muted); }
+  .range {
+    display: flex; align-items: center; gap: 8px; font-family: var(--font-data);
+    font-size: 11px; color: var(--on-surface); margin: 2px 0 4px;
+  }
+  .range .rt { position: relative; flex: 1; height: 4px; background: var(--surface-variant); border-radius: var(--r-full); }
+  .range .rt > .fill { position: absolute; left: 12%; right: 6%; top: 0; bottom: 0; background: var(--secondary); border-radius: var(--r-full); }
+  .range .rt > .knob { position: absolute; top: 50%; width: 11px; height: 11px; border-radius: var(--r-full); background: var(--on-surface); transform: translate(-50%,-50%); box-shadow: 0 0 0 3px var(--surface); }
+
+  /* ── 중: 문서 목록 ───────────────────────────────────────────────── */
+  .vgroup { margin-bottom: var(--sp-md); }
+  .vgroup-head {
+    display: flex; align-items: center; gap: 8px; font-family: var(--font-head);
+    font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--on-surface-muted); margin: 0 0 8px 2px;
+  }
+  .vgroup-head .url { font-family: var(--font-data); font-size: 10px; text-transform: none; letter-spacing: 0; color: var(--secondary); }
+  /* 같은 url 여러 버전: 좌측 레일로 묶음 */
+  .vstack { border-left: 2px solid var(--surface-variant); padding-left: 10px; margin-left: 3px; display: flex; flex-direction: column; gap: 8px; }
+
+  .doc {
+    border: 1px solid var(--surface-variant); border-radius: var(--r-md);
+    padding: 11px 13px; cursor: pointer; transition: border-color .15s, background .15s;
+  }
+  .doc:hover { border-color: var(--on-surface-muted); }
+  .doc.active { border-color: var(--primary); background: rgba(69,224,111,.05); }
+  .doc .id { font-family: var(--font-data); font-size: 11px; color: var(--on-surface-muted); margin-bottom: 4px; }
+  .doc .id b { color: var(--parchment); font-weight: 500; }
+  .doc .title { font-size: 13.5px; color: var(--on-surface); line-height: 1.4; margin-bottom: 9px; }
+  .doc .meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+  .doc .src {
+    display: inline-flex; align-items: center; gap: 5px; font-family: var(--font-head);
+    font-size: 10px; color: var(--on-surface); background: var(--surface-variant);
+    padding: 3px 8px; border-radius: var(--r-sm);
+  }
+  .doc .src .st { color: var(--on-surface-muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  .doc .facet { font-family: var(--font-data); font-size: 10px; color: var(--on-surface-muted); }
+  .doc .glyph { font-family: var(--font-data); }
+
+  /* ── 우: 문서 상세 ───────────────────────────────────────────────── */
+  .detail-title { font-size: 15px; font-weight: 600; color: var(--on-surface); line-height: 1.35; margin-bottom: 8px; }
+  .detail-id { font-family: var(--font-data); font-size: 11px; color: var(--on-surface-muted); }
+  .detail-id b { color: var(--parchment); font-weight: 500; }
+  .detail-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+
+  /* 버전 히스토리 (덮어쓰기 없이 보존) */
+  .ver {
+    position: relative; border: 1px solid var(--surface-variant); border-left-width: 3px;
+    border-radius: var(--r-md); padding: 9px 12px; margin-bottom: 8px;
+  }
+  .ver.current { border-left-color: var(--primary); }
+  .ver.past { border-left-color: var(--superseded); opacity: .92; }
+  .ver .vtop { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 5px; }
+  .ver .vlab { font-family: var(--font-head); font-size: 11px; font-weight: 600; color: var(--on-surface); }
+  .ver .vtime { font-family: var(--font-data); font-size: 10px; color: var(--on-surface-muted); }
+  .ver .vhash { font-family: var(--font-data); font-size: 10px; color: var(--parchment); background: var(--surface-variant); border-radius: var(--r-sm); padding: 3px 6px; display: inline-block; margin-top: 2px; }
+
+  /* parsing 결과 */
+  .parse-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1px; background: var(--surface-variant); border: 1px solid var(--surface-variant); border-radius: var(--r-md); overflow: hidden; }
+  .parse-grid .cell { background: var(--surface); padding: 9px 12px; }
+  .parse-grid .num { font-family: var(--font-head); font-size: 18px; font-weight: 600; color: var(--on-surface); }
+  .parse-grid .num.keep { color: var(--primary); }
+  .parse-grid .cap { font-family: var(--font-head); font-size: 9px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--on-surface-muted); margin-top: 3px; }
+  .parse-note { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--on-surface-muted); margin-top: 8px; }
+  .parse-note svg { flex: none; color: var(--primary); }
+
+  /* dedup cluster 시각화 */
+  .cluster-viz { border: 1px solid var(--surface-variant); border-radius: var(--r-md); background: var(--citadel-night); padding: 6px; }
+  .cluster-rule {
+    display: flex; align-items: flex-start; gap: 8px; font-size: 11px; line-height: 1.5;
+    color: var(--on-surface-muted); background: rgba(255,177,59,.06);
+    border: 1px solid rgba(255,177,59,.25); border-radius: var(--r-md); padding: 9px 11px; margin-top: 10px;
+  }
+  .cluster-rule b { color: var(--signal-amber); font-family: var(--font-head); }
+  .indep-calc {
+    font-family: var(--font-data); font-size: 11px; color: var(--on-surface);
+    text-align: center; padding: 8px; margin-top: 8px;
+    border: 1px dashed var(--signal-amber); border-radius: var(--r-md); background: rgba(255,177,59,.04);
+  }
+  .indep-calc b { color: var(--signal-amber); }
+
+  /* lineage trail (mono, raw → normalized → curated) */
+  .lineage { border: 1px solid var(--surface-variant); border-radius: var(--r-md); overflow: hidden; }
+  .lin-step { display: flex; gap: 10px; padding: 9px 12px; }
+  .lin-step + .lin-step { border-top: 1px solid var(--surface-variant); }
+  .lin-zone {
+    flex: none; width: 76px; font-family: var(--font-head); font-size: 9px; font-weight: 600;
+    letter-spacing: 0.06em; text-transform: uppercase; color: var(--on-surface-muted);
+    display: flex; align-items: center; gap: 6px;
+  }
+  .lin-zone .pip { width: 7px; height: 7px; border-radius: var(--r-full); flex: none; }
+  .lin-step.raw   .pip { background: var(--ember); }
+  .lin-step.norm  .pip { background: var(--secondary); }
+  .lin-step.cur   .pip { background: var(--primary); }
+  .lin-body { font-family: var(--font-data); font-size: 10.5px; color: var(--parchment); line-height: 1.5; min-width: 0; word-break: break-all; }
+  .lin-body .k { color: var(--on-surface-muted); }
+
+  /* deep-link 액션 */
+  .actions { display: flex; gap: 8px; margin-top: var(--sp-md); }
+  .act {
+    flex: 1; display: flex; align-items: center; justify-content: center; gap: 7px;
+    font-family: var(--font-head); font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
+    padding: 10px; border-radius: var(--r-md); border: 1px solid var(--surface-variant);
+    color: var(--on-surface); cursor: pointer;
+  }
+  .act.primary { border-color: var(--primary); color: var(--primary); background: rgba(69,224,111,.06); }
+  .act:hover { background: var(--surface-variant); }
+  .act.primary:hover { background: rgba(69,224,111,.12); }
+
+  @media (max-width: 1180px) { main { grid-template-columns: 260px 1fr 340px; } }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ══ Header (공유; wordmark→index, 현재 공간 active) ═══════════════ -->
+  <header>
+    <a class="wordmark" href="./index.html">
+      <span class="crest" aria-hidden="true">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+          <path d="M12 2 L20 6 V13 C20 18 12 22 12 22 C12 22 4 18 4 13 V6 Z" stroke="currentColor" stroke-width="1.6" fill="rgba(69,224,111,.07)"/>
+          <path d="M9 9 Q12 12 15 9 M12 11 V15" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+          <circle cx="12" cy="8" r="1.3" fill="currentColor"/>
+        </svg>
+      </span>
+      ORC&nbsp;CITADEL
+    </a>
+    <div class="space">
+      <span class="eyebrow">Grand Archive · Documents</span>
+      <span class="title">문서 탐색</span>
+    </div>
+    <div class="grow"></div>
+    <label class="search">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M20 20 L16.5 16.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <input placeholder="entity · claim · source 검색" />
+    </label>
+    <div class="spire" title="Signal Spire · 결론·confidence 변화 알림"><span class="dot"></span> Signal Spire · 3</div>
+  </header>
+
+  <!-- ══ MAIN: 3-column ═══════════════════════════════════════════════ -->
+  <main>
+
+    <!-- ── 좌: 검색·Facets ─────────────────────────────────────────── -->
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Sifter · 검색·필터</h2>
+        <span class="sub">Docs · 1,247</span>
+      </div>
+      <div class="panel-body">
+
+        <div class="bm25">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M20 20 L16.5 16.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          <input value="single supplier 공급처 다변화" />
+          <div class="hint"><span>BM25 · 전문 검색</span><span class="facet-count">42건 일치</span></div>
+        </div>
+
+        <div class="sec-label">source_type · 발행 주체</div>
+        <span class="chip on"><span class="sw" style="background:var(--primary)"></span>gov · 공시 <span class="n">· 88</span></span>
+        <span class="chip"><span class="sw" style="background:var(--parchment)"></span>official · 당사자 <span class="n">· 214</span></span>
+        <span class="chip on"><span class="sw" style="background:var(--secondary)"></span>press · 언론 <span class="n">· 903</span></span>
+        <span class="chip"><span class="sw" style="background:var(--on-surface)"></span>research · 연구 <span class="n">· 31</span></span>
+        <span class="chip"><span class="sw" style="background:var(--uncertain)"></span>exchange · 거래소 <span class="n">· 11</span></span>
+
+        <div class="sec-label">language · 언어</div>
+        <span class="chip on">ko · 한국어 <span class="n">· 612</span></span>
+        <span class="chip on">en · English <span class="n">· 635</span></span>
+
+        <div class="sec-label">publication_time · 기간</div>
+        <div class="range"><span>2024-06</span><div class="rt"><div class="fill"></div><span class="knob" style="left:12%"></span><span class="knob" style="left:94%"></span></div><span>2025-03</span></div>
+
+        <div class="sec-label">dedup status · 계보</div>
+        <span class="chip on"><span class="sw" style="background:var(--primary)"></span>● root · 근원 <span class="n">· 340</span></span>
+        <span class="chip"><span class="sw" style="background:var(--superseded)"></span>○ derived · 파생 <span class="n">· 861</span></span>
+        <span class="chip on"><span class="sw" style="background:var(--signal-amber)"></span>◆ independent · 독립추가 <span class="n">· 46</span></span>
+      </div>
+    </section>
+
+    <!-- ── 중: 문서 목록 ───────────────────────────────────────────── -->
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Stacks · 문서 목록</h2>
+        <span class="sub">정렬 · publication_time ↓</span>
+      </div>
+      <div class="panel-body">
+
+        <!-- 버전 그룹: 같은 url · 여러 doc_id (덮어쓰기 없이 보존) -->
+        <div class="vgroup">
+          <div class="vgroup-head">
+            <span>같은 URL · 2 버전</span>
+            <span class="url">data.sec.gov/…/a-corp/10-K</span>
+          </div>
+          <div class="vstack">
+            <div class="doc active">
+              <div class="id">doc-<b>9f2a1c7e4b03…c1</b></div>
+              <div class="title">A사 FY2024 연차보고서 (Form 10-K) — 공급망 위험 요인</div>
+              <div class="meta">
+                <span class="src">SEC EDGAR <span class="st">· gov</span></span>
+                <span class="facet">2025-02-15</span>
+                <span class="facet">· en</span>
+                <span class="badge root"><span class="glyph">●</span> root · 근원</span>
+              </div>
+            </div>
+            <div class="doc">
+              <div class="id">doc-<b>3b7e4a91d5f2…a4</b></div>
+              <div class="title">A사 FY2024 연차보고서 개정본 (Form 10-K/A) — 위험 요인 정정</div>
+              <div class="meta">
+                <span class="src">SEC EDGAR <span class="st">· gov</span></span>
+                <span class="facet">2025-03-02</span>
+                <span class="facet">· en</span>
+                <span class="badge deriv"><span class="glyph">○</span> derived · 파생</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 단일 문서: 보도자료 root -->
+        <div class="vgroup">
+          <div class="doc">
+            <div class="id">doc-<b>5540f2a8c19b…7d</b></div>
+            <div class="title">A사 "복수 공급처로 안정적 조달 체계 확보" 보도자료</div>
+            <div class="meta">
+              <span class="src">A사 IR <span class="st">· official</span></span>
+              <span class="facet">2025-03-14</span>
+              <span class="facet">· ko</span>
+              <span class="badge root"><span class="glyph">●</span> root · 근원</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 복제 클러스터: 파생 다수 + 독립추가 -->
+        <div class="vgroup">
+          <div class="vgroup-head">
+            <span>복제 클러스터 · clus-8Q2 · 500건</span>
+            <span class="url">근원 = doc-5540…7d</span>
+          </div>
+          <div class="vstack">
+            <div class="doc">
+              <div class="id">doc-<b>a1e83f0c62d7…9b</b></div>
+              <div class="title">"A사, 복수 공급처 확보"… 보도자료 전재 (연합 배포 +498건)</div>
+              <div class="meta">
+                <span class="src">종합일보 외 <span class="st">· press</span></span>
+                <span class="facet">2025-03-15</span>
+                <span class="facet">· ko</span>
+                <span class="badge deriv"><span class="glyph">○</span> derived · 파생</span>
+              </div>
+            </div>
+            <div class="doc">
+              <div class="id">doc-<b>7c02d9b3e5a1…f8</b></div>
+              <div class="title">A사 공급망 다변화 분석 — C사 계약 규모·집행 시점 추가 취재</div>
+              <div class="meta">
+                <span class="src">반도체저널 <span class="st">· press</span></span>
+                <span class="facet">2025-03-16</span>
+                <span class="facet">· ko</span>
+                <span class="badge indep"><span class="glyph">◆</span> independent · 독립추가</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ── 우: 문서 상세 ───────────────────────────────────────────── -->
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Codex · 문서 상세</h2>
+        <span class="sub">doc-9f2a…c1</span>
+      </div>
+      <div class="panel-body">
+
+        <div class="detail-title">A사 FY2024 연차보고서 (Form 10-K) — 공급망 위험 요인</div>
+        <div class="detail-id">doc-<b>9f2a1c7e4b03…c1</b> · content-hash 기반 ID</div>
+        <div class="detail-meta">
+          <span class="src badge">SEC EDGAR · gov</span>
+          <span class="badge">en</span>
+          <span class="badge root"><span class="glyph">●</span> root · 근원</span>
+          <span class="badge">parser v3.2.1</span>
+        </div>
+
+        <!-- (a) 버전 히스토리 -->
+        <div class="sec-label">버전 히스토리 · 같은 URL, 여러 doc_id</div>
+        <div class="ver current">
+          <div class="vtop"><span class="vlab">10-K 원본</span><span class="vtime">revision 2025-02-15</span></div>
+          <div class="detail-id">doc-<b>9f2a1c7e4b03…c1</b></div>
+          <span class="vhash">content_hash sha256:9f2a…4c1b</span>
+        </div>
+        <div class="ver past">
+          <div class="vtop"><span class="vlab">10-K/A 개정본</span><span class="vtime">revision 2025-03-02</span></div>
+          <div class="detail-id">doc-<b>3b7e4a91d5f2…a4</b></div>
+          <span class="vhash">content_hash sha256:3b7e…8a42</span>
+        </div>
+        <div class="parse-note">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M12 2 L20 6 V13 C20 18 12 22 12 22 C12 22 4 18 4 13 V6 Z" stroke="currentColor" stroke-width="1.8"/></svg>
+          변경분은 덮어쓰지 않고 새 doc_id로 전부 보존 (raw immutable · ADR-301).
+        </div>
+
+        <!-- (b) parsing 결과 -->
+        <div class="sec-label">Parsing · Normalized</div>
+        <div class="parse-grid">
+          <div class="cell"><div class="num">1,284</div><div class="cap">segments</div></div>
+          <div class="cell"><div class="num">57</div><div class="cap">paragraph</div></div>
+          <div class="cell"><div class="num keep">342</div><div class="cap">table_cell 보존</div></div>
+          <div class="cell"><div class="num keep">18</div><div class="cap">footnote 보존</div></div>
+        </div>
+        <div class="parse-note">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M20 6 L9 17 L4 12" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          표·각주 유실 없음 · 원문↔정규화 offset 양방향 매핑 (segment_id 결정적).
+        </div>
+
+        <!-- (c) dedup cluster 시각화 -->
+        <div class="sec-label">Dedup Cluster · 출처 계보</div>
+        <div class="cluster-viz">
+          <svg viewBox="0 0 348 190" width="100%" style="display:block">
+            <defs>
+              <marker id="ga-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M0 0 L10 5 L0 10 z" fill="#59636A"/>
+              </marker>
+            </defs>
+            <!-- edges: root → derived / independent -->
+            <line x1="96" y1="95" x2="236" y2="34"  stroke="#59636A" stroke-width="1.3" marker-end="url(#ga-arrow)"/>
+            <line x1="96" y1="95" x2="236" y2="95"  stroke="#59636A" stroke-width="1.3" marker-end="url(#ga-arrow)"/>
+            <line x1="96" y1="95" x2="236" y2="156" stroke="#FFB13B" stroke-width="1.6" stroke-dasharray="5 3" marker-end="url(#ga-arrow)"/>
+            <!-- root node -->
+            <g>
+              <circle cx="60" cy="95" r="34" fill="#111820" stroke="#45E06F" stroke-width="2"/>
+              <text x="60" y="88" text-anchor="middle" font-family="Space Grotesk" font-size="9" font-weight="600" fill="#45E06F">● ROOT</text>
+              <text x="60" y="101" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#C8B58E">보도자료</text>
+              <text x="60" y="113" text-anchor="middle" font-family="JetBrains Mono" font-size="8" fill="#59636A">doc-5540</text>
+            </g>
+            <!-- derived x2 (묶음: 500건) -->
+            <g>
+              <rect x="238" y="16" width="104" height="36" rx="7" fill="#111820" stroke="#26313A" stroke-width="1.4"/>
+              <text x="290" y="32" text-anchor="middle" font-family="Space Grotesk" font-size="9" font-weight="600" fill="#59636A">○ DERIVED · 파생</text>
+              <text x="290" y="45" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#59636A">복제 기사 ×500</text>
+            </g>
+            <g>
+              <rect x="238" y="77" width="104" height="36" rx="7" fill="#111820" stroke="#26313A" stroke-width="1.4"/>
+              <text x="290" y="93" text-anchor="middle" font-family="Space Grotesk" font-size="9" font-weight="600" fill="#59636A">○ DERIVED · 파생</text>
+              <text x="290" y="106" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#59636A">번역 전재 ×2</text>
+            </g>
+            <!-- independent addition -->
+            <g>
+              <rect x="238" y="138" width="104" height="38" rx="7" fill="#111820" stroke="#FFB13B" stroke-width="1.6"/>
+              <text x="290" y="155" text-anchor="middle" font-family="Space Grotesk" font-size="9" font-weight="600" fill="#FFB13B">◆ INDEPENDENT</text>
+              <text x="290" y="168" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#C8B58E">추가 취재 doc-7c02</text>
+            </g>
+          </svg>
+        </div>
+        <div class="cluster-rule">
+          <span style="font-size:14px;line-height:1">⚠</span>
+          <span><b>복제 500건 ≠ 독립 500.</b> 하나의 보도자료에서 파생된 복제 기사 500건은 <b>1개 근원 + N개 독립 추가</b>로 카운트한다 (blueprint §8.3).</span>
+        </div>
+        <div class="indep-calc">독립 증거 수 = <b>1</b> (root) + <b>1</b> (독립추가) = <b>2</b> &nbsp;≠&nbsp; 501</div>
+
+        <!-- (d) lineage trail -->
+        <div class="sec-label">Lineage Trail · Hall of Witnesses</div>
+        <div class="lineage">
+          <div class="lin-step raw">
+            <span class="lin-zone"><span class="pip"></span>raw</span>
+            <span class="lin-body">content.bin<br><span class="k">content_hash</span> sha256:9f2a…4c1b<br><span class="k">fetch.json</span> · fetched 2025-02-15T09:00Z</span>
+          </div>
+          <div class="lin-step norm">
+            <span class="lin-zone"><span class="pip"></span>normalized</span>
+            <span class="lin-body"><span class="k">doc_id</span> doc-9f2a…c1<br><span class="k">parser_version</span> v3.2.1 · char_len 214,880</span>
+          </div>
+          <div class="lin-step cur">
+            <span class="lin-zone"><span class="pip"></span>curated</span>
+            <span class="lin-body"><span class="k">segment</span> doc-9f2a…c1#p42.s3<br><span class="k">char_start–end</span> 1180–1244 · table_cell</span>
+          </div>
+        </div>
+
+        <!-- deep-link 액션 -->
+        <div class="actions">
+          <a class="act primary" href="./war-table.html" title="War Table · Temporal Evidence Graph에서 이 문서 근거 열기">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><circle cx="6" cy="6" r="2.4" stroke="currentColor" stroke-width="1.8"/><circle cx="18" cy="9" r="2.4" stroke="currentColor" stroke-width="1.8"/><circle cx="9" cy="18" r="2.4" stroke="currentColor" stroke-width="1.8"/><path d="M8 7 L16 8.5 M8 8 L9 15.5" stroke="currentColor" stroke-width="1.4"/></svg>
+            그래프에서 보기
+          </a>
+          <a class="act" href="./hall-of-witnesses.html" title="Hall of Witnesses · 원문 span·provenance로 열기">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M4 5 H20 M4 10 H20 M4 15 H14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+            증거로 보기
+          </a>
+        </div>
+
+      </div>
+    </section>
+  </main>
+
+</div>
+</body>
+</html>

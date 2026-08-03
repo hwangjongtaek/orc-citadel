@@ -1,0 +1,512 @@
+<!-- ============================================================================
+  ORC CITADEL — Hall of Witnesses · 증거 검사 (Evidence Inspection)
+  공유 셸(citadel-shell.html)의 <head>/<header> verbatim 재사용.
+  화면 고유 CSS는 <style> 맨 끝 "SCREEN-SPECIFIC" 구역에만 추가.
+  핵심: provenance 왕복 추적을 한 화면에서 — 결과→원문 3회 이내.
+============================================================================ -->
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Orc Citadel · 증거 검사 — 목업</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  /* ── Citadel Nightwatch tokens (DESIGN.md) ───────────────────────── */
+  :root {
+    --citadel-void: #07111C; --citadel-night: #0D1B2A;
+    --surface: #111820; --surface-variant: #26313A;
+    --on-surface: #D6CCB8; --on-surface-muted: #59636A; --parchment: #C8B58E;
+    --primary: #45E06F;   /* war-green — verified */
+    --secondary: #20B85A; /* seer-green — LLM candidate */
+    --ember: #E97824; --signal-amber: #FFB13B;
+    --crimson: #7B2833;
+    --error: #E05252; --uncertain: #A78BFA; --superseded: #59636A;
+    --font-display: "Cinzel", Georgia, serif;
+    --font-head: "Space Grotesk", system-ui, sans-serif;
+    --font-body: "Inter", system-ui, sans-serif;
+    --font-data: "JetBrains Mono", ui-monospace, monospace;
+    --r-sm: 4px; --r-md: 8px; --r-lg: 12px; --r-full: 9999px;
+    --sp-xs: 4px; --sp-sm: 8px; --sp-md: 16px; --sp-lg: 24px; --sp-xl: 32px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: var(--font-body); background: var(--citadel-void);
+    color: var(--on-surface); font-size: 14px; line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  .mono { font-family: var(--font-data); }
+  a { color: var(--secondary); text-decoration: none; }
+  ::selection { background: rgba(69,224,111,.25); }
+
+  /* ── App shell: header + body + optional footer ──────────────────── */
+  .app { height: 100vh; display: grid; grid-template-rows: auto 1fr auto; background: var(--citadel-night); }
+
+  /* ── Header (공유) ───────────────────────────────────────────────── */
+  header {
+    display: flex; align-items: center; gap: var(--sp-lg);
+    padding: 10px var(--sp-lg); background: var(--surface);
+    border-bottom: 1px solid var(--surface-variant);
+  }
+  .wordmark {
+    font-family: var(--font-display); font-weight: 700; font-size: 18px;
+    letter-spacing: 0.14em; color: var(--on-surface);
+    display: flex; align-items: center; gap: 10px; white-space: nowrap;
+  }
+  .crest { width: 22px; height: 22px; flex: none; display: grid; place-items: center; color: var(--primary); }
+  .space {
+    display: flex; flex-direction: column; min-width: 0;
+    padding-left: var(--sp-lg); border-left: 1px solid var(--surface-variant);
+  }
+  .space .eyebrow {
+    font-family: var(--font-head); font-size: 10px; font-weight: 600;
+    letter-spacing: 0.14em; text-transform: uppercase; color: var(--on-surface-muted);
+  }
+  .space .title {
+    font-family: var(--font-head); font-size: 15px; font-weight: 600; color: var(--on-surface);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .grow { flex: 1 1 auto; }
+  .spaces { display: flex; gap: 2px; }
+  .spaces a {
+    font-family: var(--font-head); font-size: 11px; font-weight: 500; color: var(--on-surface-muted);
+    padding: 6px 10px; border-radius: var(--r-md); white-space: nowrap;
+  }
+  .spaces a:hover { color: var(--on-surface); background: var(--surface-variant); }
+  .spaces a.active { color: var(--primary); background: rgba(69,224,111,.08); }
+  .search {
+    display: flex; align-items: center; gap: 8px; background: var(--surface-variant);
+    border: 1px solid transparent; border-radius: var(--r-md);
+    padding: 8px 12px; width: 300px; max-width: 32vw; color: var(--on-surface-muted);
+  }
+  .search input { background: none; border: none; outline: none; color: var(--on-surface); font-family: var(--font-body); font-size: 13px; width: 100%; }
+  .search input::placeholder { color: var(--on-surface-muted); }
+  .spire {
+    position: relative; display: flex; align-items: center; gap: 8px;
+    font-family: var(--font-head); font-size: 12px; font-weight: 600; color: var(--signal-amber);
+    background: rgba(255,177,59,.08); border: 1px solid rgba(255,177,59,.3);
+    padding: 8px 12px; border-radius: var(--r-md); cursor: pointer;
+  }
+  .spire .dot { width: 7px; height: 7px; border-radius: var(--r-full); background: var(--signal-amber); box-shadow: 0 0 8px 1px var(--signal-amber); }
+
+  /* ── Panel (공유) ────────────────────────────────────────────────── */
+  main { min-height: 0; }
+  .panel { background: var(--surface); display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+  .panel + .panel { border-left: 1px solid var(--surface-variant); }
+  .panel-head { display: flex; align-items: center; justify-content: space-between; padding: 12px var(--sp-md); border-bottom: 1px solid var(--surface-variant); }
+  .panel-head h2 { font-family: var(--font-head); font-size: 12px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--on-surface); }
+  .panel-head .sub { font-family: var(--font-head); font-size: 10px; letter-spacing: 0.08em; color: var(--on-surface-muted); text-transform: uppercase; }
+  .panel-body { overflow-y: auto; padding: var(--sp-md); }
+  .panel-body::-webkit-scrollbar { width: 8px; }
+  .panel-body::-webkit-scrollbar-thumb { background: var(--surface-variant); border-radius: var(--r-full); }
+
+  /* ── 공통 원자 ───────────────────────────────────────────────────── */
+  .sec-label {
+    font-family: var(--font-head); font-size: 10px; font-weight: 600; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--on-surface-muted);
+    display: flex; align-items: center; gap: 8px; margin: var(--sp-md) 0 10px;
+  }
+  .sec-label::after { content: ""; flex: 1; height: 1px; background: var(--surface-variant); }
+  .badge { font-family: var(--font-head); font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; padding: 3px 8px; border-radius: var(--r-sm); background: var(--surface-variant); color: var(--on-surface); }
+  .badge.good { background: rgba(69,224,111,.14); color: var(--primary); }
+  .badge.warn { background: rgba(255,177,59,.14); color: var(--signal-amber); }
+  .badge.err  { background: rgba(224,82,82,.14);  color: var(--error); }
+  .badge.uncert { background: rgba(167,139,250,.14); color: var(--uncertain); }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-head);
+    font-size: 11px; font-weight: 500; padding: 5px 10px; border-radius: var(--r-full);
+    border: 1px solid var(--surface-variant); color: var(--on-surface); margin: 0 6px 6px 0; cursor: pointer;
+  }
+  .chip .sw { width: 8px; height: 8px; border-radius: var(--r-full); }
+  .span { display: block; font-family: var(--font-data); font-size: 11.5px; line-height: 1.55; color: var(--parchment); background: var(--surface-variant); border-radius: var(--r-sm); padding: 8px 10px; margin: 6px 0; }
+  .trail { display: flex; align-items: center; gap: 6px; font-family: var(--font-data); font-size: 10px; color: var(--on-surface-muted); flex-wrap: wrap; }
+
+  .conf { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--surface-variant); border: 1px solid var(--surface-variant); border-radius: var(--r-md); overflow: hidden; }
+  .conf .cell { background: var(--surface); padding: 10px 12px; }
+  .conf .num { font-family: var(--font-head); font-size: 20px; font-weight: 600; color: var(--on-surface); line-height: 1.1; }
+  .conf .num.good { color: var(--primary); }
+  .conf .cap { font-family: var(--font-head); font-size: 9.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--on-surface-muted); margin-top: 4px; }
+
+  /* ── SCREEN-SPECIFIC: Hall of Witnesses ──────────────────────────── */
+  /* 3-column: 좌 claim 목록 · 중 증거+provenance trail · 우 원문 문서 뷰 */
+  main { display: grid; grid-template-columns: 292px 1fr 384px; }
+
+  /* ── 좌: Claim 목록 ──────────────────────────────────────────────── */
+  .claim-row {
+    padding: 11px 12px; border-radius: var(--r-md); border: 1px solid var(--surface-variant);
+    margin-bottom: 10px; cursor: pointer; transition: border-color .15s, background .15s;
+  }
+  .claim-row:hover { border-color: var(--on-surface-muted); }
+  .claim-row.active { border-color: var(--primary); background: rgba(69,224,111,.06); }
+  .claim-row .q { font-size: 13px; color: var(--on-surface); margin-bottom: 8px; line-height: 1.45; }
+  .claim-row .cid { font-family: var(--font-data); font-size: 10px; color: var(--on-surface-muted); margin-bottom: 8px; }
+  .claim-row .foot { display: flex; align-items: center; gap: 8px; }
+  /* modality 배지 — 색+라벨로 구분 (색만 의존 금지) */
+  .mod { font-family: var(--font-head); font-size: 9px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; padding: 2px 7px; border-radius: var(--r-sm); border: 1px solid; }
+  .mod.fact       { color: var(--primary);      border-color: rgba(69,224,111,.5);  background: rgba(69,224,111,.08); }
+  .mod.asserted   { color: var(--on-surface);    border-color: var(--surface-variant); background: var(--surface-variant); }
+  .mod.opinion    { color: var(--signal-amber);  border-color: rgba(255,177,59,.5);  background: rgba(255,177,59,.08); }
+  .mod.prediction { color: var(--uncertain);     border-color: rgba(167,139,250,.5); background: rgba(167,139,250,.08); }
+  /* confidence mini — 값 + 독립출처 도트 (단일 게이지 아님) */
+  .cmini { display: flex; align-items: center; gap: 6px; margin-left: auto; font-family: var(--font-data); font-size: 11px; color: var(--on-surface-muted); }
+  .cmini b { color: var(--on-surface); font-weight: 500; }
+  .dots { display: inline-flex; gap: 2px; }
+  .dots i { width: 5px; height: 5px; border-radius: var(--r-full); background: var(--primary); display: block; }
+  .dots i.off { background: var(--surface-variant); }
+
+  /* ── 중: 증거 구조 + provenance trail ────────────────────────────── */
+  .mid-body { overflow-y: auto; padding: var(--sp-md) var(--sp-lg); }
+  .mid-body::-webkit-scrollbar { width: 8px; }
+  .mid-body::-webkit-scrollbar-thumb { background: var(--surface-variant); border-radius: var(--r-full); }
+
+  .claim-card { border: 1px solid var(--primary); background: rgba(69,224,111,.05); border-radius: var(--r-md); padding: 14px; margin-bottom: var(--sp-md); }
+  .claim-card .kicker { display: flex; align-items: center; gap: 8px; margin-bottom: 9px; }
+  .claim-card .text { font-size: 15px; line-height: 1.5; color: var(--on-surface); }
+  .claim-card .meta { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 10px; font-family: var(--font-data); font-size: 10.5px; color: var(--on-surface-muted); }
+  .claim-card .meta b { color: var(--on-surface); font-weight: 500; }
+
+  .indep { display: flex; align-items: flex-start; gap: 10px; font-size: 11.5px; color: var(--on-surface-muted); background: rgba(255,177,59,.06); border: 1px solid rgba(255,177,59,.25); border-radius: var(--r-md); padding: 10px 12px; margin: var(--sp-md) 0; line-height: 1.5; }
+  .indep b { color: var(--signal-amber); font-family: var(--font-head); }
+  .indep svg { flex: none; margin-top: 1px; }
+
+  .ev { border: 1px solid var(--surface-variant); border-radius: var(--r-md); padding: 11px 13px; margin-bottom: 11px; border-left-width: 3px; cursor: pointer; transition: border-color .15s; }
+  .ev:hover { border-color: var(--on-surface-muted); }
+  .ev.support { border-left-color: var(--primary); }
+  .ev.contra  { border-left-color: var(--error); border-left-style: double; border-left-width: 4px; }
+  .ev.active { box-shadow: 0 0 0 1px var(--primary) inset; }
+  .ev .top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+  .ev .rel { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-head); font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+  .ev.support .rel { color: var(--primary); }
+  .ev.contra  .rel { color: var(--error); }
+  .ev .src { font-family: var(--font-head); font-size: 10px; color: var(--on-surface-muted); }
+  .ev .span b { color: #D6CCB8; }
+  .ev .trail { margin-top: 8px; }
+  .ev .trail a { color: var(--secondary); }
+  /* 관계 형태 마커 (색만 의존 금지) */
+  .relmark { width: 22px; height: 8px; }
+
+  /* Provenance Trail — 완전 체인 (blueprint §6.5) */
+  .prov { margin-top: 4px; border: 1px solid var(--surface-variant); border-radius: var(--r-md); overflow: hidden; }
+  .prov-step { display: flex; gap: 12px; padding: 11px 13px; border-bottom: 1px solid var(--surface-variant); cursor: pointer; transition: background .15s; }
+  .prov-step:last-child { border-bottom: none; }
+  .prov-step:hover { background: var(--surface-variant); }
+  .prov-rail { display: flex; flex-direction: column; align-items: center; flex: none; padding-top: 2px; }
+  .prov-rail .node { width: 11px; height: 11px; border-radius: var(--r-full); border: 2px solid var(--secondary); background: var(--surface); flex: none; z-index: 1; }
+  .prov-step:first-child .prov-rail .node { border-color: var(--primary); background: var(--primary); }
+  .prov-rail .link { flex: 1; width: 2px; background: var(--surface-variant); margin: 2px 0 -13px; }
+  .prov-step:last-child .prov-rail .link { display: none; }
+  .prov-main { min-width: 0; flex: 1; }
+  .prov-main .lbl { font-family: var(--font-head); font-size: 9.5px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--on-surface-muted); }
+  .prov-main .val { font-family: var(--font-data); font-size: 12px; color: var(--on-surface); margin-top: 2px; word-break: break-all; }
+  .prov-main .fields { font-family: var(--font-data); font-size: 10.5px; color: var(--on-surface-muted); margin-top: 4px; line-height: 1.6; }
+  .prov-main .fields span { display: inline-block; margin-right: 12px; }
+  .prov-main .fields b { color: var(--parchment); font-weight: 400; }
+  .prov-step .go { flex: none; align-self: center; color: var(--on-surface-muted); }
+
+  /* ── 우: 원문 문서 뷰 (parchment) ────────────────────────────────── */
+  .doc-panel { background: var(--surface); }
+  .doc-toolbar { display: flex; align-items: center; gap: 8px; padding: 10px var(--sp-md); border-bottom: 1px solid var(--surface-variant); flex-wrap: wrap; }
+  .doc-toolbar .dmeta { font-family: var(--font-data); font-size: 10.5px; color: var(--on-surface-muted); }
+  .doc-toolbar .dmeta b { color: var(--on-surface); }
+  .deep { font-family: var(--font-head); font-size: 10px; font-weight: 600; letter-spacing: 0.04em; padding: 5px 9px; border-radius: var(--r-sm); border: 1px solid var(--surface-variant); color: var(--on-surface); display: inline-flex; align-items: center; gap: 5px; }
+  .deep:hover { border-color: var(--secondary); color: var(--secondary); }
+  .doc-scroll { overflow-y: auto; padding: var(--sp-md); flex: 1; }
+  .doc-scroll::-webkit-scrollbar { width: 8px; }
+  .doc-scroll::-webkit-scrollbar-thumb { background: var(--surface-variant); border-radius: var(--r-full); }
+  /* parchment 표면: 원문 문단 */
+  .parch {
+    background: linear-gradient(180deg, #EFE4C7, #E4D6B3);
+    color: #2A2417; border-radius: var(--r-md); padding: 18px 18px 16px;
+    font-family: Georgia, "Times New Roman", serif; font-size: 13.5px; line-height: 1.75;
+    box-shadow: 0 1px 0 rgba(0,0,0,.35), inset 0 0 40px rgba(123,40,51,.05);
+  }
+  .parch .doc-title { font-family: var(--font-head); font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #6B5836; border-bottom: 1px solid rgba(123,40,51,.25); padding-bottom: 8px; margin-bottom: 12px; }
+  .parch p { margin-bottom: 12px; position: relative; }
+  .parch .off { font-family: var(--font-data); font-size: 9px; color: #9A7F52; user-select: none; }
+  /* evidence span 하이라이트 — supports=green underline, contradicts=red double */
+  .hl { border-radius: 2px; padding: 1px 2px; font-weight: 600; position: relative; }
+  .hl.support { background: rgba(69,224,111,.28); box-shadow: inset 0 -2px 0 var(--secondary); }
+  .hl.contra  { background: rgba(224,82,82,.22); box-shadow: inset 0 -3px 0 -1px var(--error), inset 0 -1px 0 var(--error); }
+  .hl .tag { position: absolute; top: -16px; left: 0; font-family: var(--font-data); font-size: 8.5px; letter-spacing: .04em; text-transform: uppercase; white-space: nowrap; padding: 1px 4px; border-radius: 2px; }
+  .hl.support .tag { background: var(--secondary); color: #06210E; }
+  .hl.contra  .tag { background: var(--error); color: #2A0D0D; }
+  .doc-legend { display: flex; gap: var(--sp-md); flex-wrap: wrap; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--surface-variant); }
+  .doc-legend .lg { display: flex; align-items: center; gap: 6px; font-family: var(--font-head); font-size: 10px; color: var(--on-surface-muted); }
+  .doc-legend .lg .m { width: 20px; height: 8px; border-radius: 2px; }
+  .doc-legend .lg .m.support { background: rgba(69,224,111,.28); box-shadow: inset 0 -2px 0 var(--secondary); }
+  .doc-legend .lg .m.contra  { background: rgba(224,82,82,.22); box-shadow: inset 0 -2px 0 var(--error); }
+
+  /* ── 하단: 왕복 힌트 바 ──────────────────────────────────────────── */
+  .roundtrip { background: var(--surface); border-top: 1px solid var(--surface-variant); padding: 9px var(--sp-lg); display: flex; align-items: center; gap: var(--sp-md); font-family: var(--font-head); font-size: 11px; color: var(--on-surface-muted); }
+  .roundtrip .lead { font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--on-surface); font-size: 10px; }
+  .roundtrip .hop { display: inline-flex; align-items: center; gap: 6px; }
+  .roundtrip .hop .n { width: 16px; height: 16px; border-radius: var(--r-full); background: rgba(69,224,111,.12); color: var(--primary); display: grid; place-items: center; font-family: var(--font-data); font-size: 9px; font-weight: 500; }
+  .roundtrip .arr { color: var(--on-surface-muted); }
+  .roundtrip .goal { margin-left: auto; color: var(--primary); font-family: var(--font-data); font-size: 10.5px; }
+
+  @media (max-width: 1240px) { main { grid-template-columns: 240px 1fr 320px; } }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ══ Header (공유; wordmark→index) ═══════════════════════════════ -->
+  <header>
+    <a class="wordmark" href="./index.html">
+      <span class="crest" aria-hidden="true">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+          <path d="M12 2 L20 6 V13 C20 18 12 22 12 22 C12 22 4 18 4 13 V6 Z" stroke="currentColor" stroke-width="1.6" fill="rgba(69,224,111,.07)"/>
+          <path d="M9 9 Q12 12 15 9 M12 11 V15" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+          <circle cx="12" cy="8" r="1.3" fill="currentColor"/>
+        </svg>
+      </span>
+      ORC&nbsp;CITADEL
+    </a>
+    <div class="space">
+      <span class="eyebrow">Hall of Witnesses · Evidence</span>
+      <span class="title">증거 검사</span>
+    </div>
+    <div class="grow"></div>
+    <label class="search">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M20 20 L16.5 16.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <input placeholder="entity · claim · source 검색" />
+    </label>
+    <div class="spire" title="Signal Spire · 결론·confidence 변화 알림"><span class="dot"></span> Signal Spire · 3</div>
+  </header>
+
+  <!-- ══ MAIN: 3-column ═══════════════════════════════════════════════ -->
+  <main>
+
+    <!-- ── 좌: Claim 목록 ──────────────────────────────────────────── -->
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Claims</h2>
+        <span class="sub">조사 내 · 6</span>
+      </div>
+      <div class="panel-body">
+
+        <div class="claim-row active">
+          <div class="q">A사는 AI 가속기 부품을 B사에 주로 의존한다.</div>
+          <div class="cid">claim-123 · depends_on</div>
+          <div class="foot">
+            <span class="mod asserted">Asserted</span>
+            <span class="cmini"><b>0.61</b><span class="dots" title="독립 출처 2 / 표시 4"><i></i><i></i><i class="off"></i><i class="off"></i></span></span>
+          </div>
+        </div>
+
+        <div class="claim-row">
+          <div class="q">A사는 2025-03 C사와 신규 공급 계약을 체결했다.</div>
+          <div class="cid">claim-201 · contracts_with</div>
+          <div class="foot">
+            <span class="mod fact">Fact</span>
+            <span class="cmini"><b>0.78</b><span class="dots"><i></i><i></i><i></i><i class="off"></i></span></span>
+          </div>
+        </div>
+
+        <div class="claim-row">
+          <div class="q">공급망 다변화가 A사 리스크를 실질적으로 낮출 것이다.</div>
+          <div class="cid">claim-244 · reduces_risk</div>
+          <div class="foot">
+            <span class="mod prediction">Prediction</span>
+            <span class="cmini"><b>0.33</b><span class="dots"><i></i><i class="off"></i><i class="off"></i><i class="off"></i></span></span>
+          </div>
+        </div>
+
+        <div class="claim-row">
+          <div class="q">B사 단일 의존은 지정학적으로 위험하다.</div>
+          <div class="cid">claim-260 · opinion_on</div>
+          <div class="foot">
+            <span class="mod opinion">Opinion</span>
+            <span class="cmini"><b>0.40</b><span class="dots"><i></i><i class="off"></i><i class="off"></i><i class="off"></i></span></span>
+          </div>
+        </div>
+
+        <div class="claim-row">
+          <div class="q">C사 계약은 발표에 그치지 않고 실제 집행되었다.</div>
+          <div class="cid">claim-262 · executed</div>
+          <div class="foot">
+            <span class="mod asserted">Asserted</span>
+            <span class="cmini"><b>0.52</b><span class="dots"><i></i><i></i><i class="off"></i><i class="off"></i></span></span>
+          </div>
+        </div>
+
+        <div class="filters-label sec-label">Modality</div>
+        <span class="chip"><span class="sw" style="background:var(--primary)"></span>fact</span>
+        <span class="chip"><span class="sw" style="background:var(--on-surface)"></span>asserted</span>
+        <span class="chip"><span class="sw" style="background:var(--signal-amber)"></span>opinion</span>
+        <span class="chip"><span class="sw" style="background:var(--uncertain)"></span>prediction</span>
+      </div>
+    </section>
+
+    <!-- ── 중: 증거 구조 + Provenance Trail ────────────────────────── -->
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Evidence &amp; Provenance</h2>
+        <span class="sub">claim-123 · 왕복 추적</span>
+      </div>
+      <div class="mid-body">
+
+        <!-- Claim 카드 -->
+        <div class="claim-card">
+          <div class="kicker"><span class="badge good">Claim · asserted</span><span class="badge">valid 2025-01-01 →</span></div>
+          <div class="text">A사는 AI 가속기 부품을 B사에 주로 의존한다.</div>
+          <div class="meta">
+            <span>id <b>claim-123</b></span>
+            <span>predicate <b>depends_on</b></span>
+            <span>subj <b>A사</b></span>
+            <span>obj <b>B사</b></span>
+          </div>
+        </div>
+
+        <!-- confidence: 값 + 근거 수 + 독립 출처 (단일 게이지 금지) -->
+        <div class="conf">
+          <div class="cell"><div class="num good">0.61</div><div class="cap">Confidence</div></div>
+          <div class="cell"><div class="num">7</div><div class="cap">Evidence</div></div>
+          <div class="cell"><div class="num">2</div><div class="cap">독립 출처</div></div>
+        </div>
+
+        <!-- 독립성 보정 -->
+        <div class="indep">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 3 L21 7 V12 C21 17 12 21 12 21 C12 21 3 17 3 12 V7 Z" stroke="#FFB13B" stroke-width="1.6"/></svg>
+          <div><b>독립성 보정</b> — 지지 근거 5건 중 4건이 동일 보도자료(<span class="mono">doc-5540</span>)에서 파생(<span class="mono">dup_cluster: dc-77</span>). 유효 독립 출처 <b>2</b>건으로 집계. 근거 수만으로 confidence를 부풀리지 않음.</div>
+        </div>
+
+        <!-- Supporting -->
+        <div class="sec-label">Supporting Evidence · 지지</div>
+        <div class="ev support active">
+          <div class="top">
+            <span class="rel"><svg class="relmark" viewBox="0 0 22 8"><line x1="0" y1="4" x2="22" y2="4" stroke="#45E06F" stroke-width="2.2"/></svg> supports · 실선</span>
+            <span class="src">SEC 10-K · 1차 자료</span>
+          </div>
+          <span class="span">"...substantially all of our AI accelerator components are sourced from <b>a single supplier</b>..."</span>
+          <div class="trail"><span>evd-456</span><span>›</span><a href="#">doc-2291</a><span>›</span><span>seg-2291-p42-s3</span><span>·</span><span>char 1180–1244</span></div>
+        </div>
+
+        <!-- Contradicting -->
+        <div class="sec-label">Contradicting Evidence · 반증</div>
+        <div class="ev contra">
+          <div class="top">
+            <span class="rel"><svg class="relmark" viewBox="0 0 22 8"><line x1="0" y1="2.5" x2="22" y2="2.5" stroke="#E05252" stroke-width="1.5"/><line x1="0" y1="5.5" x2="22" y2="5.5" stroke="#E05252" stroke-width="1.5"/></svg> contradicts · 이중선</span>
+            <span class="src">보도자료 · 당사자</span>
+          </div>
+          <span class="span">"A사는 <b>복수의 공급처</b>를 통해 안정적 조달 체계를 갖췄다"</span>
+          <div class="trail"><span>evd-789</span><span>›</span><a href="#">doc-5540</a><span>›</span><span>seg-5540-p3-s1</span><span>·</span><span>char 88–140</span></div>
+        </div>
+        <p style="font-size:11px;color:var(--on-surface-muted);margin:-2px 0 4px;line-height:1.5">반증이 곧 "거짓"은 아님 — 시점·화자·범위가 다른 진술로 병렬 보존되며, supersedes 판정은 Council이 별도 심의.</p>
+
+        <!-- Provenance Trail (완전 경로 · blueprint §6.5) -->
+        <div class="sec-label">Provenance Trail · evd-456 → 원문</div>
+        <div class="prov">
+
+          <div class="prov-step">
+            <div class="prov-rail"><span class="node"></span><span class="link"></span></div>
+            <div class="prov-main">
+              <div class="lbl">① Graph Element</div>
+              <div class="val">evd-456 · SUPPORTS claim-123</div>
+              <div class="fields"><span>type <b>Evidence</b></span><span>rel <b>supports</b></span></div>
+            </div>
+            <span class="go"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M9 6 L15 12 L9 18" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          </div>
+
+          <div class="prov-step">
+            <div class="prov-rail"><span class="node"></span><span class="link"></span></div>
+            <div class="prov-main">
+              <div class="lbl">② Extraction Record</div>
+              <div class="val">ext-01J9Q7F2K3XZ</div>
+              <div class="fields"><span>model_id <b>seer-extract-v3</b></span><span>prompt_hash <b>a91f…d20</b></span><span>schema <b>v0.4.2</b></span><span>preproc <b>pp-1.7</b></span></div>
+            </div>
+            <span class="go"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M9 6 L15 12 L9 18" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          </div>
+
+          <div class="prov-step">
+            <div class="prov-rail"><span class="node"></span><span class="link"></span></div>
+            <div class="prov-main">
+              <div class="lbl">③ Normalized Document</div>
+              <div class="val">doc-2291 · v2</div>
+              <div class="fields"><span>parser <b>html2md-4.1</b></span><span>lang <b>en</b></span><span>offset map <b>bidirectional</b></span></div>
+            </div>
+            <span class="go"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M9 6 L15 12 L9 18" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          </div>
+
+          <div class="prov-step">
+            <div class="prov-rail"><span class="node"></span><span class="link"></span></div>
+            <div class="prov-main">
+              <div class="lbl">④ Source Span</div>
+              <div class="val">seg-2291-p42-s3</div>
+              <div class="fields"><span>char_start <b>1180</b></span><span>char_end <b>1244</b></span><span>p.42 · para 3</span></div>
+            </div>
+            <span class="go"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M9 6 L15 12 L9 18" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          </div>
+
+          <div class="prov-step">
+            <div class="prov-rail"><span class="node"></span><span class="link"></span></div>
+            <div class="prov-main">
+              <div class="lbl">⑤ Immutable Raw</div>
+              <div class="val">raw/2024/a-corp/10-K/content.bin</div>
+              <div class="fields"><span>content_hash <b>sha256:7c4a…e1b9</b></span><span>fetched_at <b>2024-06-11T04:22Z</b></span></div>
+            </div>
+            <span class="go"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M9 6 L15 12 L9 18" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          </div>
+
+          <div class="prov-step">
+            <div class="prov-rail"><span class="node"></span></div>
+            <div class="prov-main">
+              <div class="lbl">⑥ Source URL · Fetch Metadata</div>
+              <div class="val">sec.gov/…/a-corp-10k-2024.htm</div>
+              <div class="fields"><span>published_at <b>2024-05-30</b></span><span>http <b>200</b></span><span>robots <b>allow</b></span></div>
+            </div>
+            <span class="go"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M14 3 H21 V10 M21 3 L11 13 M19 14 V20 H4 V5 H10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- ── 우: 원문 문서 뷰 (parchment) ────────────────────────────── -->
+    <section class="panel doc-panel">
+      <div class="doc-toolbar">
+        <span class="dmeta"><b>doc-2291</b> · v2 · <span class="mono">seg-2291-p42-s3</span> 강조</span>
+        <div class="grow"></div>
+        <a class="deep" href="./war-table.html" title="이 evidence를 그래프 맥락에서 열기">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><circle cx="6" cy="6" r="2.4" stroke="currentColor" stroke-width="1.8"/><circle cx="18" cy="6" r="2.4" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="18" r="2.4" stroke="currentColor" stroke-width="1.8"/><path d="M7.6 7.6 L11 15 M16.4 7.6 L13 15" stroke="currentColor" stroke-width="1.5"/></svg>
+          그래프에서 보기
+        </a>
+        <a class="deep" href="./grand-archive.html" title="Grand Archive 원본 문서 열기">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M4 5 H15 L20 10 V19 H4 Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M15 5 V10 H20" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+          문서 원본
+        </a>
+      </div>
+      <div class="doc-scroll">
+        <div class="parch">
+          <div class="doc-title">A-Corp · Form 10-K (FY2024) · Item 1A. Risk Factors</div>
+          <p><span class="off">[p.42 · char 1100]</span> Our business depends on a limited number of suppliers for key components. We do not have long-term volume commitments from all of them, and qualifying alternative sources can take significant time.</p>
+          <p><span class="off">[char 1180]</span> As of the fiscal year end, <span class="hl support">substantially all of our AI accelerator components are sourced from a single supplier<span class="tag">supports · evd-456</span></span>. <span class="off">[char 1244]</span> A disruption in this supplier's operations could materially and adversely affect our results of operations.</p>
+          <p><span class="off">[char 1320]</span> We are actively pursuing supply diversification, but there can be no assurance that such efforts will succeed within the periods we anticipate.</p>
+          <p style="margin-top:16px;padding-top:12px;border-top:1px dashed rgba(123,40,51,.3)"><span class="off">[doc-5540 · para 3 · char 88]</span> 별도 문서(보도자료) 대조: <span class="hl contra">A사는 복수의 공급처를 통해 안정적 조달 체계를 갖췄다<span class="tag">contradicts · evd-789</span></span> <span class="off">[char 140]</span> — 발표 시점·화자가 다른 병렬 진술.</p>
+          <div class="doc-legend">
+            <span class="lg"><span class="m support"></span>supports 하이라이트</span>
+            <span class="lg"><span class="m contra"></span>contradicts 하이라이트</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ══ 하단: 결과→원문 왕복 힌트 (3-hop 목표) ═══════════════════════ -->
+  <div class="roundtrip">
+    <span class="lead">Round-trip</span>
+    <span class="hop"><span class="n">1</span> Claim 선택</span>
+    <span class="arr">→</span>
+    <span class="hop"><span class="n">2</span> Evidence · Trail</span>
+    <span class="arr">→</span>
+    <span class="hop"><span class="n">3</span> 원문 span 하이라이트</span>
+    <span class="goal">결과 → 원문 3-hop 이내 · provenance 완전</span>
+  </div>
+
+</div>
+</body>
+</html>
