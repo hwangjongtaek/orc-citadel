@@ -102,14 +102,35 @@ blueprint §8.1의 우선순위 **API › RSS › sitemap › download**를 sour
 
 | source_type | 대표 소스 | 우선 strategy | 변경 탐지 | 라이선스 기본값 |
 | --- | --- | --- | --- | --- |
-| `gov` | SEC/공정위/규제기관 공시 | API(구조화 filing) → download(PDF/XBRL) | filing index cursor + `last_modified` | `gov-public` |
-| `official` | 기업 IR·공식 블로그·보도자료 | RSS → sitemap → HTML | feed entry id + `content_hash` | `proprietary`(요약·인용 한정) |
-| `press` | 뉴스·전문 매체 | RSS → sitemap | RSS pubDate + `content_hash` | `proprietary` |
-| `research` | 논문·프리프린트(arXiv 등) | API(메타+PDF) → download | API updated 필드 | `cc-by` 등 소스별 |
+| `gov` | **SEC EDGAR**, **CHIPS/NIST** 공시 | API(구조화 filing) → download(PDF/XBRL) | filing index cursor + `last_modified` | `gov-public` |
+| `official` | 기업 IR·공식 블로그·보도자료 (초기: **NVIDIA Newsroom**) | RSS → sitemap → HTML | feed entry id + `content_hash` | `proprietary`(요약·인용 한정) |
+| `press` | 뉴스·전문 매체 (초기: **SemiEngineering**) | RSS → sitemap | RSS pubDate + `content_hash` | `proprietary` |
+| `research` | 논문·프리프린트 (**arXiv**) | API(메타+PDF) → download | API updated 필드 | `cc-by` 등 소스별 |
 | `exchange` | 거래소·가격·시세 데이터 | API | API cursor/timestamp | 소스별(재배포 제한 주의) |
 
+- **초기 Scout 5종**은 Phase 0에서 선정·확정된 세부 표를 §1.4에 둔다 (source config 구체 스키마·라이선스·접근 방식).
 - 어떤 전략이든 `politeness`를 우회할 수 없다. rate limit 초과·`429`/`503`은 `backoff`(exponential + jitter)로 물러난 뒤 재시도한다(§6).
 - `download`(PDF/바이너리)는 원본 bytes를 그대로 S2에 저장하고 파싱은 S3로 미룬다. 수집 단계에서 본문을 재작성하지 않는다.
+
+### 1.4 초기 Scout 5종 (Phase 0 선정)
+
+미국 중심 AI 반도체·데이터센터 공급망 도메인의 최초 커넥터 세트. 전 source가 공식 API/RSS로 수집 가능하며(Easy), 라이선스 재배포는 전 source에서 제한한다(`allow_redistribute=false`, [`11`](./11-observability-and-governance.md) §5.4 정합). 구체·보류(候補)·추가 후보는 ROADMAP §6 Q1 해소 기록 참조.
+
+| # | Source | `source_type` | 접근 | 라이선스 자세 | 변경 탐지 |
+| --- | --- | --- | --- | --- | --- |
+| 1 | **SEC EDGAR** | `gov` | 공식 API `efts.sec.gov`(full-text)·`data.sec.gov/submissions/{CIK}.json`(무료, no-key) | store·paraphrase 안전, 재배포 제한 | filing index cursor + `last_modified` |
+| 2 | **arXiv** | `research` | 공식 API `export.arxiv.org/api/query` + **S3 bulk mirror** (metadata) | metadata **CC0**(재배포 가능), PDF는 연구용 저장만·재배포 제한 | API updated 필드 |
+| 3 | **CHIPS/NIST** | `gov` | 공식 RSS `nist.gov/news-events/electronics/rss.xml` | `gov-public` | RSS pubDate + `content_hash` |
+| 4 | **NVIDIA Newsroom** | `official` | 공식 RSS `nvidianews.nvidia.com/rss.xml` | store 허용, 재배포 제한 | RSS pubDate + `content_hash` |
+| 5 | **SemiEngineering** | `press` | RSS `semiengineering.com/feed/` | store 허용, 재배포 제한(라이선스 문구 미검증) | RSS pubDate + `content_hash` |
+
+- **수집 제한 요약 (Phase 0 확인):**
+  - SEC: **최대 10 req/sec**, 선언형 User-Agent 필수(`Name ContactEmail`), default HTTP client(WebFetch 포함)는 403 차단 → **curl + UA 사용**.
+  - arXiv: **1 req/3초**, 단일 연결. metadata는 S3 bulk로 본문 제한 회피 가능.
+  - 상업 테크 프레스(EE Times·The Register·TechCrunch)는 robots.txt가 **AI 크롤러(`anthropic-ai`/`ClaudeBot`)를 명시 차단** → Phase 0 초기 세트에서 제외. SemiEngineering만 개방.
+  - TSMC 프로미스룸(`pr.tsmc.com`)은 Cloudflare 403 → 1차 세트 제외.
+- **미확정 항목:** SEC 필링 내용의 정확한 법적 public-domain 프레이밍(SEC 저작권 페이지 404) · SemiEngineering/EE Times/TechCrunch 공식 라이선스 문구 — 실무상 store-only로 취급하고, 확정 시 `compliance.license`·`license_url` 갱신.
+- **추가 후보(Phase 1+):** BIS 수출통제(도메인 가치 최고, RSS 없어 scraping Medium), AMD IR RSS(공식 2nd).
 
 ## 2. Fetch stage (S1) 계약
 

@@ -12,7 +12,7 @@
 | 트랙 | 상태 | 비고 |
 | --- | --- | --- |
 | 상세 설계 (Design SSOT) | 🟡 Review | 12개 문서 Review 승격. 리뷰 패스 완료(BLOCKER 3 + MAJOR 36 해소, 상호 일관성 재검증 전항목 PASS). Stable 확정 대기 |
-| 도메인·소스 선정 | ⬜ 예정 | AI 반도체·데이터센터 공급망 확정, source 3~5개 미선정 |
+| 도메인·소스 선정 | ✅ 완료 | AI 반도체·데이터센터 공급망 확정, 초기 Scout 5종 선정(04 §1.4) |
 | 1만 문서 샘플 | ⬜ 예정 | Phase 0 완료 조건 |
 | Prototype 구현 | ⬜ 예정 | provenance·bitemporal prototype |
 
@@ -47,9 +47,9 @@
 
 | 작업 | 담당 스펙 | 상태 |
 | --- | --- | :---: |
-| 초기 도메인·source 3~5개 선정 | [04](./design/04-ingestion-and-parsing.md) | ⬜ |
+| 초기 도메인·source 3~5개 선정 | [04](./design/04-ingestion-and-parsing.md) | ✅(5종 확정) |
 | 최소 ontology 정의 | [02](./design/02-ontology.md) | ✅(v1.0.0 초안) |
-| 데이터 이용 조건(라이선스) 검토 | [11](./design/11-observability-and-governance.md) | ⬜ |
+| 데이터 이용 조건(라이선스) 검토 | [11](./design/11-observability-and-governance.md) | ✅(04 §1.4 반영) |
 | 1만 문서 샘플 확보 | [04](./design/04-ingestion-and-parsing.md) | ⬜ |
 | provenance·bitemporal 모델 prototype | [03](./design/03-storage-and-data-model.md) | ⬜ |
 
@@ -129,6 +129,7 @@
 가장 최신이 위로. 스펙·설계 변경만 기록한다 (구현 커밋은 git 이력).
 
 ### 2026-08-03
+- **초기 Scout 5종 선정 (Q1 해소).** 미국 중심 AI 반도체·데이터센터 공급망 도메인의 초기 소스를 웹 리서치(실제 API/RSS 검증)로 선정: **SEC EDGAR**(gov)·**arXiv**(research)·**CHIPS/NIST**(gov)·**NVIDIA Newsroom**(official)·**SemiEngineering**(press). 전 source 공식 API/RSS로 수집 가능(Easy), 재배포 전면 제한(`allow_redistribute=false`, 11 §5.4 정합). 상업 테크 프레스(EE Times·The Register·TechCrunch)는 robots.txt가 AI 크롤러(`anthropic-ai`/`ClaudeBot`)를 차단해 초기 세트 제외, TSMC는 Cloudflare 403 제외. 구체 스키마·라이선스·수집 제약은 [04 §1.4](./design/04-ingestion-and-parsing.md) 정본. Open Question Q1 해소.
 - **설계 문서 Review 승격 (리뷰 패스 완료).** 12개 문서를 blueprint 충실도·7 불변식·상호참조·구현가능성 기준으로 병렬 심층 리뷰(문서별 11 + 상호 일관성 스윕 1). BLOCKER 3 + MAJOR 36 + MINOR 다수를 문서에 직접 반영 후 독립 재검증(전항목 PASS). 상태 `Draft`→`Review`. Spec은 0.1.0 유지(Stable 변경 아님).
   - **BLOCKER 해소:** (1) 06 Applier에 `unmerge` op 분기 추가(merge 가역성·불변식 3·4) (2) 02 미정의 `TimeInterval` 노드/`VALID_DURING` 엣지 폐기, valid time을 inline 속성 단일 표현(ADR-206) (3) 02 `Assertion` 속성표 신설 + Claim→Assertion materialization 계약(ADR-207).
   - **교차 결정(사용자 확정):** 독립 증거 수 = **출처(source) 단위**(11 §1.4 정본, 04 위임, 09 `independent_source_count`); ER LLM '동일' 판정 → **`POSSIBLY_SAME_AS` 후보만, 확정 병합은 인간확인/결정적 식별자로만**(precision-first, 05 ADR-507).
@@ -147,11 +148,10 @@
 
 ## 6. 열린 질문 (Open Questions)
 
-설계 확정 전 해소가 필요한 항목. 해소 시 해당 design 문서 ADR로 이전한다.
+설계 확정 전 해소가 필요한 항목. 해소 시 해당 design 문서 ADR로 이전한다. (Q1은 2026-08-03 해소 → [04](./design/04-ingestion-and-parsing.md) §1.4로 이전.)
 
 | # | 질문 | 관련 스펙 |
 | --- | --- | --- |
-| Q1 | 초기 source 3~5개 구체 선정(공시/뉴스/정부/연구) 및 각 라이선스 | 04, 11 |
 | Q2 | near-duplicate 방법: MinHash vs 임베딩 임계값 실측 필요 | 04 |
 | Q3 | Entity Resolution accept/reject 임계값 도메인 실측 | 05, 10 |
 | Q4 | 그래프 DB: Neo4j Community 한계 도달 시점(노드 수·query latency) | 06, 01 |

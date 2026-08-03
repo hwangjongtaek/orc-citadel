@@ -120,6 +120,8 @@ Blueprint §17을 스펙 수준의 강제 규칙으로 승격한 것이다. 모�
 
 첫 버전 도메인은 **AI 반도체·데이터센터 공급망**이다 (blueprint §4). 온톨로지·골든 데이터셋·소스 커넥터는 이 도메인을 기준으로 구체화한다. 도메인 확장은 온톨로지 버전 migration으로 처리한다.
 
+**초기 Scout 5종** (Phase 0 확정) — SEC EDGAR · arXiv · CHIPS/NIST · NVIDIA Newsroom · SemiEngineering. 구체 스키마·라이선스·접근·수집 제약은 [`04`](./04-ingestion-and-parsing.md) §1.4가 정본이다.
+
 ## 5. 용어집 (세계관 ↔ 기술)
 
 | 세계관 | 기술 개념 | 정본 문서 |
