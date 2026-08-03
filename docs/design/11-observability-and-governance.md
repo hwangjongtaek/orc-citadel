@@ -1,0 +1,261 @@
+# 11 · 관측·거버넌스 (Watchtower · Signal Spire)
+
+> **상태:** Draft · **Spec:** 0.1.0 · **Blueprint 매핑:** §11, §13, §14
+> 상위 규약: [README](./README.md) · 관련: [01-architecture](./01-architecture.md), [03-storage](./03-storage-and-data-model.md), [04-ingestion](./04-ingestion-and-parsing.md)
+
+Watchtower(Observability)와 Signal Spire(Alerting)의 계약, 그리고 출처 신뢰도·독립성 모델과 안전·거버넌스 규칙을 확정한다. 본 문서는 파이프라인 **전 stage를 관통하는 correlation·SLO·감사** 계약(→ [01](./01-architecture.md) §3-3, §4)과, 저장 계층의 삭제 전파·provenance 게이트(→ [03](./03-storage-and-data-model.md) §8)를 운영 절차로 구체화한다.
+
+---
+
+## 1. 출처 신뢰도·독립성 (Blueprint §11)
+
+### 1.1 원칙: 단일 점수 환원 금지
+
+출처 신뢰도를 하나의 고정 점수(`source_reputation = 0.7` 같은 스칼라)로 **환원하지 않는다**. 그런 스칼라는 "공식 발표는 직접성은 높지만 이해관계가 있고, 언론 보도는 독립성은 높지만 2차 자료"라는 상충 구조를 뭉개기 때문이다. 대신 서로 독립적으로 판단해야 하는 **차원(dimension)** 을 분리 저장한다.
+
+- **최종 confidence는 source reputation이 아니라 claim별 증거 구조로 계산한다.** 출처 차원은 증거 가중치의 입력일 뿐, 그 자체가 결론이 아니다 (→ [02](./02-ontology.md) §2.4 `Claim.confidence` ≠ `certainty`, ADR-202).
+
+### 1.2 신뢰도 차원 (Source dimensions)
+
+blueprint §11의 7개 판단 축을 독립 차원으로 확정한다. 각 차원은 스칼라로 합산되지 않고 **개별 조회·필터 가능**해야 한다.
+
+| 차원 키 | 축 (blueprint §11) | 값 도메인 | 판정 근거 |
+| --- | --- | --- | --- |
+| `directness` | 사건의 직접 당사자인가 | `direct_party` / `witness` / `third_party` | 발행 주체 ↔ 사건 관계 |
+| `primacy` | 1차 자료 vs 2차 해석 | `primary` / `secondary` / `mixed` | 원문 유형·인용 구조 |
+| `cites_others` | 다른 자료를 명시적 인용하는가 | bool + `cited_doc_ids[]` | `CITES` 엣지(→ [02](./02-ontology.md)) |
+| `correction_history` | 과거 정정 이력 | count + `correction_refs[]` | supersession 이벤트 |
+| `conflict_of_interest` | 주장과 이해관계 | `none` / `financial` / `affiliated` / `unknown` | ownership·소속 매핑 |
+| `method_disclosure` | 데이터·방법 공개 여부 | `full` / `partial` / `none` | 원문 구조 분석 |
+| `independent_acquisition` | 독립 취득 여부 | `independent` / `derived` / `unknown` | `dup_clusters`(→ [03](./03-storage-and-data-model.md) §4.3) |
+
+### 1.3 `Source.dimensions{}` 스키마
+
+[02](./02-ontology.md) §2.3의 `Source.dimensions{}`를 확정한다. 각 차원은 **값 + 판정 근거(evidence) + 판정 주체(judged_by) + 버전**을 함께 가진다(단일 점수 환원 금지의 스키마적 강제).
+
+```json
+{
+  "source_id": "src-01J9...",
+  "dimensions": {
+    "directness":  { "value": "direct_party", "evidence_ref": ["ext-..."], "judged_by": "rule:ownership-map", "assessed_at": "2026-08-03T00:00:00Z" },
+    "primacy":     { "value": "primary",      "evidence_ref": ["ext-..."], "judged_by": "llm:claude-sonnet-5" },
+    "cites_others":{ "value": true,  "cited_doc_ids": ["doc-...", "doc-..."], "judged_by": "pipeline:cite-extractor" },
+    "correction_history": { "count": 2, "correction_refs": ["mut-...", "mut-..."] },
+    "conflict_of_interest": { "value": "financial", "rationale": "발행 주체가 주장 대상의 지분 보유", "judged_by": "human:analyst-3" },
+    "method_disclosure": { "value": "partial", "judged_by": "llm:claude-sonnet-5" },
+    "independent_acquisition": { "value": "derived", "cluster_id": "clus-...", "judged_by": "pipeline:dedup" }
+  },
+  "assessment_version": { "ontology_version": "1.0.0", "schema_version": "0.1.0" }
+}
+```
+
+- `dimensions{}`는 **결론이 아니라 신호**다. 조회 시 UI는 단일 게이지 대신 차원별 값과 근거 수를 함께 노출한다 (blueprint §1.4 접근성: "confidence는 단일 색상 게이지 대신 값·근거 수·독립 출처 수를 함께 표시").
+
+### 1.4 독립 증거 수 보정 (dup_clusters 연동)
+
+동일 근원에서 파생된 복제 기사 500건을 독립 증거 500개로 계산하지 않는다. [03](./03-storage-and-data-model.md) §4.3 `dup_clusters`를 근거로 다음을 계산한다.
+
+```text
+independent_evidence_count(claim)
+  = distinct( root_source of each supporting document )
+  + count( independent_addition_doc_ids that add new evidence )
+```
+
+- 클러스터 하나(root + 파생)는 **독립 증거 1**로 축소한다. `independent_addition_doc_ids[]`(독립적 추가 정보 보유 문서)만 추가 카운트한다.
+- 이 보정값은 investigation 결과의 `evidence coverage` 대시보드(§2)와 Signal Spire의 "신규 독립 출처" 트리거(§5)에 직접 사용된다.
+- 상세 dedup·계보 판정은 [04](./04-ingestion-and-parsing.md) §중복·계보가 소유한다(exact/near/semantic 3수준).
+
+---
+
+## 2. 관측 가능성 (Blueprint §14) — Watchtower
+
+### 2.1 공통 Correlation ID 전파
+
+파이프라인 각 작업에 공통 `correlation_id`를 부여하고 전 stage로 전파한다 (→ [01](./01-architecture.md) §3-3, [03](./03-storage-and-data-model.md) §7.1 `graph_mutations.correlation_id`와 정합).
+
+```text
+source fetch (S1)
+  → document version (S2, doc_id)
+  → parse/normalize (S3)
+  → extract candidates (S5)
+  → resolution decision (S6, res-…)
+  → graph mutation (S7, mut-…, correlation_id 컬럼)
+  → investigation result (S9, inv-…)
+```
+
+- `correlation_id`는 fetch에서 최초 생성되고(→ [03](./03-storage-and-data-model.md) §2.2 `fetch.json.fetch_correlation_id`), 이후 모든 stage 산출물·이벤트·로그·metric에 부착된다.
+- **정합 계약:** `graph_mutations` 이벤트의 `correlation_id`는 그 mutation을 유발한 fetch까지 왕복 추적 가능해야 한다. 이로써 "이 그래프 변경은 어느 문서 수집에서 비롯됐나"를 감사할 수 있다 (Trail, blueprint §1.2).
+- 한 fetch가 여러 mutation을 낳거나(1:N) 여러 문서가 하나의 canonical claim에 기여(N:1)할 수 있으므로 `correlation_id`는 **전파되되 재작성되지 않는다**. 분기 시 `parent_correlation_id`로 계보를 남긴다.
+
+### 2.2 주요 대시보드
+
+blueprint §14의 대시보드 목록을 지표 계약으로 확정한다.
+
+| # | 대시보드 | 핵심 지표 | 소스 | 대응 화면 |
+| --- | --- | --- | --- | --- |
+| D1 | Source 수집 상태 | source별 수집 성공률, freshness(마지막 성공 fetch 이후 경과), robots/license 위반 시도 | fetch 로그 | Watchtower |
+| D2 | Stage throughput·backlog | stage별 처리량(docs/s), 큐 backlog, 재실행율 | stage runner metric | Watchtower |
+| D3 | 모델 호출 | 모델별 호출량·토큰·비용·오류율·p95 지연 | LLM 게이트웨이(→ [07](./07-llm-and-agents.md)) | Watchtower |
+| D4 | Schema validation | validation 실패 유형별 건수(provenance 누락/predicate 미등록/reference 무결성/시간 정합) | S7 검증기(→ [02](./02-ontology.md) §4) | Watchtower |
+| D5 | Quarantine | quarantine 규모, 사유별 분포, 체류 시간(중앙값·p95), 승격·폐기율 | quarantine graph(→ [05](./05-resolution-and-extraction.md), [06](./06-graph-service.md)) | Hall of Witnesses |
+| D6 | 버전별 품질 | ontology·모델 버전별 추출·resolution 품질 변화(회귀) | 골든 평가(→ [10](./10-evaluation-and-testing.md)) | — |
+| D7 | Graph 규모·성능 | 노드·엣지 수, graph query p50/p95/p99 | graph service(→ [06](./06-graph-service.md)) | War Table |
+| D8 | Investigation | investigation별 evidence coverage, 독립 증거 수(§1.4), 비용·latency | agent runtime(→ [07](./07-llm-and-agents.md)) | Council Chamber |
+
+- 모든 대시보드 metric은 `correlation_id`·`version_tuple`로 분해(drill-down) 가능해야 한다(D6 회귀 분석의 전제).
+- 초기 구성은 PostgreSQL + Grafana, 확장 시 ClickHouse + Grafana (→ [01](./01-architecture.md) §5, 승격 트리거: 분석 쿼리 지연).
+
+### 2.3 SLO 정의
+
+목표치는 **placeholder이며 실측 후 확정**한다(측정 없는 목표는 신뢰하지 않는다, blueprint §20 "수치로 답한다"). 각 SLO는 측정 창(rolling window)과 상태를 명시한다.
+
+| SLO ID | 지표 | 목표(placeholder) | 측정 창 | 상태 |
+| --- | --- | --- | --- | --- |
+| SLO-01 | 신규 문서 → graph 반영 지연(p95) | `≤ 30 min` (TBD) | 7d rolling | 측정 후 확정 |
+| SLO-02 | graph query latency p50 | `≤ 50 ms` (TBD) | 1d rolling | 측정 후 확정 |
+| SLO-03 | graph query latency p95 | `≤ 200 ms` (TBD) | 1d rolling | 측정 후 확정 |
+| SLO-04 | graph query latency p99 | `≤ 500 ms` (TBD) | 1d rolling | 측정 후 확정 |
+| SLO-05 | source 수집 성공률 | `≥ 99%` (TBD) | 7d rolling | 측정 후 확정 |
+| SLO-06 | schema validation 통과율 | `≥ 95%` (TBD) | 7d rolling | 측정 후 확정 |
+| SLO-07 | quarantine 체류 시간(중앙값) | `≤ 3d` (TBD) | 30d rolling | 측정 후 확정 |
+| SLO-08 | 100만 문서 전체 재처리 시간 | 벤치마크 공개 | 릴리스 | 측정 후 확정 |
+
+- SLO-01은 blueprint §16 Phase 4 완료 조건("신규 문서가 목표 SLO 안에 graph에 반영")과 직접 연결된다.
+- SLO 위반은 자동으로 Signal Spire 운영 알림이 아니라 **Watchtower 운영 경보**로 라우팅한다(§5.3 결론 알림과 구분).
+
+---
+
+## 3. Idempotency·재시도 운영 (불변식 §3-6)
+
+모든 stage 작업은 idempotency key를 가지며, retry해도 동일 graph mutation을 중복 생성하지 않는다 (→ [README](./README.md) §3-6, [01](./01-architecture.md) §4 stage별 key, [03](./03-storage-and-data-model.md) §7.1 `idempotency_key` unique).
+
+### 3.1 재시도·dead-letter 정책
+
+| 항목 | 규칙 |
+| --- | --- |
+| Idempotency key | stage별로 [01](./01-architecture.md) §4 표에 정의(예: S7 = `graph_mutations.idempotency_key`(stage input 해시; `mut-` PK와 별개), S5 = `doc_id+prompt_hash+model_id`) |
+| Retry | exponential backoff + jitter, stage별 최대 재시도 횟수 상한. source별 rate limit 준수(→ [04](./04-ingestion-and-parsing.md)) |
+| Dead-letter | 상한 초과 시 DLQ로 이동, 원본 payload·오류·`correlation_id` 보존. **폐기하지 않는다** |
+| 중복 mutation 방지 | 동일 `idempotency_key` 재수신 시 `graph_mutations`가 **no-op**(→ [03](./03-storage-and-data-model.md) §7.2) |
+| 재실행 검증 | 동일 raw corpus + 동일 version tuple → 동일 materialized graph(재현성, blueprint §21-2). integration test로 강제(→ [10](./10-evaluation-and-testing.md)) |
+
+- **중복 mutation 방지 확인 계약:** retry·부분 재처리 후 `graph_mutations`를 `idempotency_key`로 그룹핑했을 때 중복 적용이 0건임을 D4/D2 대시보드에서 관측 가능해야 한다.
+- retry율·dead-letter율은 blueprint §12.4 시스템 성능 지표로 D2에 노출한다.
+
+---
+
+## 4. Signal Spire (알림)
+
+### 4.1 트리거 (Blueprint §5.3)
+
+Signal Spire는 **결론과 confidence의 중요한 변화**만 알린다(운영 경보와 구분). 트리거는 다음으로 한정한다.
+
+| 트리거 | 조건 | 근거 데이터 |
+| --- | --- | --- |
+| `contradicting_evidence` | 기존 결론을 뒤집는 반대 증거 발견 | 신규 `CONTRADICTS` 엣지(→ [02](./02-ontology.md)) |
+| `claim_changed` | 기업·인물의 기존 주장이 변경됨 | `SUPERSEDES` 이벤트 |
+| `plan_to_execution` | 계획으로만 발표된 내용의 실행 증거 발견 | `Event.status` planned→confirmed |
+| `new_independent_source` | 서로 독립적인 새 출처 추가 | 독립 증거 수 증가(§1.4) |
+| `confidence_threshold` | confidence가 임계값 이상 변함 | claim confidence Δ |
+
+### 4.2 1회 점화 (과잉 알림 금지)
+
+- Signal Spire는 중요한 변화에 한해 **한 번 점화(fire-once)** 하며 무한 반복하지 않는다 (blueprint §1.4 모션 원칙: "중요한 변화에 한해 한 번 점화").
+- 동일 (campaign, trigger_type, target) 조합은 **dedup key**로 묶어 이미 점화된 변화를 재알림하지 않는다. 상태가 재차 유의미하게 변할 때만(예: confidence가 반대 방향으로 임계 재돌파) 새 알림을 만든다.
+- 알림은 investigation을 Campaign으로 등록한 사용자에게만, 관련 War Table subgraph 갱신 시 후보로 생성된다 (blueprint §5.3).
+
+### 4.3 Alert 스키마
+
+```json
+{
+  "alert_id": "alt-01J9...",
+  "campaign_id": "inv-01J9...",
+  "trigger_type": "contradicting_evidence",
+  "severity": "material",
+  "dedup_key": "inv-01J9...:contradicting_evidence:clm-01J9...",
+  "target": { "claim_id": "clm-01J9...", "canonical_claim_id": "ccl-01J9..." },
+  "delta": {
+    "before": { "confidence": 0.83, "conclusion": "supports" },
+    "after":  { "confidence": 0.41, "conclusion": "contested" }
+  },
+  "cause": {
+    "mutation_ids": ["mut-01J9..."],
+    "correlation_id": "...",
+    "new_document_ids": ["doc-..."],
+    "independent_evidence_count": 3
+  },
+  "fired_at": "2026-08-03T09:00:00Z",
+  "fire_count": 1,
+  "acknowledged": false
+}
+```
+
+- `cause`는 provenance 게이트를 통과한 근거만 담는다. **알림 역시 감사 가능**해야 하며, 사용자는 알림에서 mutation → evidence → 원문 span까지 추적할 수 있어야 한다(Trail).
+- `severity`는 결론 변화 크기 기준(`material`/`minor`)이며, 색·아이콘이 아니라 값과 delta로 표현한다(blueprint §1.4 접근성).
+
+---
+
+## 5. 안전·거버넌스 (Blueprint §13)
+
+### 5.1 수집·개인정보·retention
+
+| 규칙 | 강제 지점 |
+| --- | --- |
+| 공개적으로 허용된 자료만 수집 | fetch 시 `robots_allowed`·`license` 검사(→ [03](./03-storage-and-data-model.md) §2.2 `fetch.json`), 위반 시 수집 거부 + D1 기록 |
+| 개인정보·민감정보 최소화 | 추출 단계에서 불필요 PII 저장 억제, 민감 필드 태깅 |
+| Retention 정책 | 개인정보·민감정보는 별도 retention 클래스, 만료 시 삭제 전파(§5.2) 트리거 |
+| 사람 대상 부정적 주장 | **복수 독립 출처 + 높은 검증 기준**. 단일 출처면 authoritative graph 진입 금지 → quarantine(§1.4 독립 증거 수 연동) |
+
+### 5.2 삭제 요청 파생 전파 (03 §8.4 구체화)
+
+삭제 요청·원천 문서 제거는 파생 데이터까지 전파해야 한다 (blueprint §13, [03](./03-storage-and-data-model.md) §8.4). raw→normalized→curated→graph **역방향** 절차를 확정한다.
+
+```text
+Deletion request (doc_id | source_id | subject entity)
+  1. raw zone       : content.bin tombstone (객체 삭제/무효화, fetch.json에 deletion_ref 기록)
+  2. normalized     : 해당 doc_id의 documents/segments 파생 무효화
+  3. curated        : mentions / claim_candidates / evidence_candidates / dup_clusters 재계산
+                      (근원 문서 삭제 시 클러스터의 root 재지정 또는 클러스터 해체)
+  4. graph          : provenance_ref가 삭제 대상만을 가리키는 element에 대해
+                      `delete` / `quarantine` mutation 발행 (append-only, → 03 §7)
+```
+
+- **전파 규칙:** graph element의 `provenance_ref`가 **오직 삭제 대상 문서만** 가리키면 `delete` mutation, 다른 유효 근거가 남으면 해당 근거만 제거하고 element는 재평가(→ quarantine 후 재검증).
+- 삭제는 raw immutability와 충돌하지 않는다: 원본을 물리적으로 지우되 **삭제 사실 자체는 append-only 이벤트로 기록**(tombstone)하여 "무엇을 왜 지웠는가"는 감사 가능하게 남긴다.
+- 삭제 전파는 idempotent해야 한다(재요청 시 no-op). integration test로 검증한다(blueprint §15 "삭제 요청의 파생 데이터 전파", → [10](./10-evaluation-and-testing.md)).
+
+### 5.3 무출처 사실 저장 금지 (불변식 §3-2)
+
+- source span 없는 모델 생성 사실은 authoritative graph에 저장하지 않는다. provenance 게이트 미충족 element는 quarantine으로 라우팅한다 (→ [03](./03-storage-and-data-model.md) §8.3, [02](./02-ontology.md) §4-1).
+- 그래프에 없는 정보를 모델 사전 지식으로 보충한 경우 별도 표시하고 기본적으로 최종 결론에 포함하지 않는다 (blueprint §10).
+
+### 5.4 불확실성 표시·감사 로그
+
+| 규칙 | 구현 |
+| --- | --- |
+| 결론에 불확실성·출처 한계·미조사 영역 표시 | investigation 결과에 evidence coverage(§2 D8)·독립 증거 수·미조사 subclaim 필수 노출(blueprint §5.2) |
+| 그래프 변경·수동 교정 감사 로그 | 모든 변경은 `graph_mutations`에 `actor`(pipeline/llm/human)·`version_tuple`·`correlation_id`와 함께 기록(→ [03](./03-storage-and-data-model.md) §7.1). human review는 원 모델 출력·수정·이유를 함께 저장(불변식 §3-7) |
+| source별 크롤링정책·라이선스·재배포 관리 | source config에 crawl policy·license·redistribution 플래그. 원문 재배포는 라이선스 허용 source로 한정(blueprint §18 데이터 라이선스 위험) |
+
+### 5.5 감사(Trail) 계약
+
+모든 authoritative claim·결론 문장·알림은 다음 경로로 원문까지 왕복 추적 가능해야 한다(blueprint §1.2 Trail, §21-8).
+
+```text
+report sentence | alert → claim → evidence (source_span)
+  → extraction_record (ext-…) → normalized doc (doc_id, parser_version)
+  → raw content.bin (content_hash) → fetch.json (url, license, correlation_id)
+```
+
+---
+
+## 6. 의사결정 로그 (ADR-11xx)
+
+| ID | 결정 | 근거 | 상태 |
+| --- | --- | --- | --- |
+| ADR-1101 | 출처 신뢰도를 단일 점수로 환원하지 않고 7개 차원(`Source.dimensions{}`)으로 분리 저장, 최종 confidence는 claim별 증거 구조로 계산 | 상충하는 신뢰 신호 보존, confidence 과대평가 방지(blueprint §11, §18) | Accepted |
+| ADR-1102 | `correlation_id`를 fetch에서 생성해 전 stage로 전파(재작성 금지, 분기 시 `parent_correlation_id`), `graph_mutations`와 정합 | end-to-end Trail 감사·SLO drill-down(blueprint §14, [03](./03-storage-and-data-model.md) §7.1) | Accepted |
+| ADR-1103 | 삭제 전파를 raw→normalized→curated→graph 역방향 절차로 확정, 원본은 물리 삭제하되 삭제 사실은 append-only tombstone으로 기록 | 파생 데이터까지 전파 + 감사성 유지(blueprint §13, [03](./03-storage-and-data-model.md) §8.4) | Accepted |
+| ADR-1104 | Signal Spire는 결론 변화만 알리고 fire-once(dedup key), 운영 경보(SLO 위반)와 채널 분리 | 과잉 알림 금지(blueprint §5.3, §1.4) | Accepted |
+| ADR-1105 | 독립 증거 수는 `dup_clusters` 기반 root source 축소로 보정 | 동일 근원 복제의 confidence 과대평가 차단(blueprint §8.3, §11) | Accepted |
+| ADR-1106 | SLO 목표치는 placeholder로 두고 실측 후 확정(측정 창·상태 명시) | 측정 기반 운영, 근거 없는 목표 배제(blueprint §20) | Accepted |

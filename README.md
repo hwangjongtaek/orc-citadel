@@ -147,6 +147,10 @@ Orc Citadel은 [`orc-camp`](https://github.com/hwangjongtaek/orc-camp)와 오크
 
 ## 문서
 
-- **청사진 명세 (전문)** → [`docs/blueprint.md`](docs/blueprint.md)
-  Knowledge Graph 설계, 처리 파이프라인, LLM/Agent 구성, 평가 체계, UI 디자인 원칙, 거버넌스, 위험 대응까지 전체 명세를 담고 있다.
+- **청사진 명세 (비전 전문)** → [`docs/blueprint.md`](docs/blueprint.md)
+  Knowledge Graph 설계, 처리 파이프라인, LLM/Agent 구성, 평가 체계, UI 디자인 원칙, 거버넌스, 위험 대응까지 전체 비전을 담고 있다.
+- **상세 설계 (스펙 SSOT)** → [`docs/design/`](docs/design/README.md)
+  blueprint를 구현 가능한 계약으로 분해한 12개 문서(아키텍처·온톨로지·저장/데이터모델·수집·해소·그래프·LLM/에이전트·검색·API·평가/테스트·관측/거버넌스). 스키마·계약·의사결정의 Single Source of Truth.
+- **로드맵 & 진행 관리** → [`docs/ROADMAP.md`](docs/ROADMAP.md) (단계별 DoD·MVP 성공 기준 추적·Changelog)
+- **디자인 시스템** → [`DESIGN.md`](DESIGN.md) (Citadel Nightwatch 토큰)
 - **코딩 에이전트 가이드라인** → [`AGENTS.md`](AGENTS.md) (LLM 행동 원칙 + TDD/Tidy First)
