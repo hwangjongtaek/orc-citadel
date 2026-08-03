@@ -1,0 +1,22 @@
+{
+  "mcpServers": {
+    "pixellab": {
+      "command": "npx",
+      "args": [
+        "mcp-remote@latest",
+        "https://api.pixellab.ai/mcp",
+        "--transport",
+        "http-only",
+        "--header",
+        "Authorization:Bearer ${PIXELLAB_AUTH_HEADER}"
+      ]
+    },
+    "github": {
+      "type": "http",
+      "url": "https://api.githubcopilot.com/mcp/",
+      "headers": {
+        "Authorization": "Bearer ${GITHUB_TOKEN}"
+      }
+    }
+  }
+}
