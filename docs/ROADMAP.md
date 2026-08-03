@@ -133,6 +133,12 @@
 - 하위 스펙 04–11 초안 작성 (수집·해소·그래프·LLM/에이전트·검색·API·평가·관측/거버넌스).
 - **상호 참조 일관성 검수 완료.** 불변식 위반 없음. 수정 반영: (a) `graph_mutations.op` enum에 `unmerge` 추가(03/08/09) (b) Signal Spire 트리거 enum 09↔11 통일(정본 11 §4.1) (c) S7 idempotency key를 `mutation_id`→`idempotency_key`(stage input 해시)로 정정(01/11) (d) `MEMBER_OF` 엣지 02 §3 등재 (e) `segments.norm_char_end` 추가(양방향 offset 매핑) (f) `clus-` 접두사·운영 ID·버전 필드명 별칭 정합.
 - **UI 목업 세분화.** 설계(blueprint §1.4 공간계층)에 따라 War Table 단일 목업을 8개 Citadel 공간 화면으로 세분화(`docs/mockups/`): index + Citadel Gate·Watchtower·Grand Archive·Hall of Witnesses·War Table·Council Chamber·Chronicle Vault·Signal Spire. 공유 셸 재사용, 렌더링 검증 완료. 일러스트 생성 프롬프트(`docs/mockups/illustration-prompts.md`) 추가.
+- **목업 시각화 완료(마무리).** 자산 22종 연결·검증 완료:
+  - 브랜드 문장 `crest-hero`(index·Gate), 화면 히어로/masthead 8종(pixel-art, `orc-citadel-hero.png` 스타일).
+  - 캐릭터 초상 5종(orc-camp 복사): Council 8-Agent roster 아바타 + Gate 온보딩 + Hall 안내.
+  - 빈 상태 6종 → `empty-states.html` 갤러리(no-data 조건부라 갤러리로 통합).
+  - 처리 상태 2종: orc-camp 애니메이션 재사용(CSS `steps()`, `prefers-reduced-motion` 정지) — Watchtower 수집·Council 추론.
+  - 일러스트 프롬프트 전량 픽셀아트·복붙용(preamble 인라인)으로 통일. 전 목업 asset 참조·링크·파싱 최종 검증 통과.
 - 본 로드맵 신설.
 
 ## 6. 열린 질문 (Open Questions)
