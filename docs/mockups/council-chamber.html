@@ -161,6 +161,11 @@
   .agent .nm .wn { font-family: var(--font-head); font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--on-surface-muted); }
   .agent .task { font-size: 11px; color: var(--on-surface-muted); line-height: 1.45; }
   .agent .task b { color: var(--on-surface); font-weight: 500; }
+  /* orc-camp 캐릭터 초상 아바타 (프레임) */
+  .agent .row1 { justify-content: flex-start; }
+  .agent .st { margin-left: auto; }
+  .agent .av { width: 34px; height: 34px; border-radius: 6px; object-fit: cover;
+    border: 1px solid var(--surface-variant); flex: none; }
 
   /* 상태: 색 + 형태(아이콘) + 라벨 3중 부호화 */
   .st { display: inline-flex; align-items: center; gap: 5px; font-family: var(--font-head); font-size: 9.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; padding: 3px 7px; border-radius: var(--r-full); white-space: nowrap; }
@@ -320,7 +325,7 @@
         <!-- Planner -->
         <div class="agent done">
           <div class="row1">
-            <div class="nm"><span class="fn">Investigation Planner</span><span class="wn">조사 설계관</span></div>
+            <img class="av" src="./assets/char-warchief.png" alt="Investigation Planner 오크 초상"><div class="nm"><span class="fn">Investigation Planner</span><span class="wn">조사 설계관</span></div>
             <span class="st done"><svg width="9" height="9" viewBox="0 0 12 12"><path d="M2 6.5 L5 9 L10 3" stroke="#45E06F" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>done</span>
           </div>
           <div class="task"><b>subclaim 8개</b> 분해 · known/gap 라벨 부착</div>
@@ -330,7 +335,7 @@
         <!-- Graph Explorer -->
         <div class="agent done">
           <div class="row1">
-            <div class="nm"><span class="fn">Graph Explorer</span><span class="wn">지도 탐색관</span></div>
+            <img class="av" src="./assets/char-seer.png" alt="Graph Explorer 오크 초상"><div class="nm"><span class="fn">Graph Explorer</span><span class="wn">지도 탐색관</span></div>
             <span class="st done"><svg width="9" height="9" viewBox="0 0 12 12"><path d="M2 6.5 L5 9 L10 3" stroke="#45E06F" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>done</span>
           </div>
           <div class="task">War Table subgraph 조회 · read-only · 관계 경로 3</div>
@@ -340,7 +345,7 @@
         <!-- Retrieval -->
         <div class="agent done">
           <div class="row1">
-            <div class="nm"><span class="fn">Retrieval Agent</span><span class="wn">수색대</span></div>
+            <img class="av" src="./assets/char-scout.png" alt="Retrieval Agent 오크 초상"><div class="nm"><span class="fn">Retrieval Agent</span><span class="wn">수색대</span></div>
             <span class="st done"><svg width="9" height="9" viewBox="0 0 12 12"><path d="M2 6.5 L5 9 L10 3" stroke="#45E06F" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>done</span>
           </div>
           <div class="task">hybrid 검색 · 후보 <b>span 12건</b> 반환 (문서 아님)</div>
@@ -350,7 +355,7 @@
         <!-- Evidence Extractor -->
         <div class="agent run">
           <div class="row1">
-            <div class="nm"><span class="fn">Evidence Extractor</span><span class="wn">증언 채록관</span></div>
+            <img class="av" src="./assets/char-archivist.png" alt="Evidence Extractor 오크 초상"><div class="nm"><span class="fn">Evidence Extractor</span><span class="wn">증언 채록관</span></div>
             <span class="st run"><svg width="9" height="9" viewBox="0 0 12 12"><circle cx="6" cy="6" r="3.2" fill="#20B85A"/></svg>running</span>
           </div>
           <div class="task">span → claim/evidence 후보 추출 · strict JSON · <b>batch</b></div>
@@ -360,7 +365,7 @@
         <!-- Counter-Evidence -->
         <div class="agent run">
           <div class="row1">
-            <div class="nm"><span class="fn">Counter-Evidence</span><span class="wn">반증 심문관</span></div>
+            <img class="av" src="./assets/char-seer.png" alt="Counter-Evidence 오크 초상"><div class="nm"><span class="fn">Counter-Evidence</span><span class="wn">반증 심문관</span></div>
             <span class="st run"><svg width="9" height="9" viewBox="0 0 12 12"><circle cx="6" cy="6" r="3.2" fill="#20B85A"/></svg>running</span>
           </div>
           <div class="task">반대 가설·부정 검색질의 생성 · 모순 후보 판정</div>
@@ -370,7 +375,7 @@
         <!-- Source Independence Judge -->
         <div class="agent idle">
           <div class="row1">
-            <div class="nm"><span class="fn">Source Independence Judge</span><span class="wn">출처 독립성 판관</span></div>
+            <img class="av" src="./assets/char-sentinel.png" alt="Source Independence Judge 오크 초상"><div class="nm"><span class="fn">Source Independence Judge</span><span class="wn">출처 독립성 판관</span></div>
             <span class="st idle"><svg width="9" height="9" viewBox="0 0 12 12"><circle cx="6" cy="6" r="3.4" stroke="#59636A" stroke-width="1.6" fill="none"/></svg>idle</span>
           </div>
           <div class="task">복제본 → 독립 근거 수 보정 · root/derived 분해</div>
@@ -380,7 +385,7 @@
         <!-- Synthesis -->
         <div class="agent idle">
           <div class="row1">
-            <div class="nm"><span class="fn">Synthesis Agent</span><span class="wn">종합 서기관</span></div>
+            <img class="av" src="./assets/char-warchief.png" alt="Synthesis Agent 오크 초상"><div class="nm"><span class="fn">Synthesis Agent</span><span class="wn">종합 서기관</span></div>
             <span class="st idle"><svg width="9" height="9" viewBox="0 0 12 12"><circle cx="6" cy="6" r="3.4" stroke="#59636A" stroke-width="1.6" fill="none"/></svg>idle</span>
           </div>
           <div class="task">검증 subgraph 확정 후에만 문장 생성 · 사실/주장/추론/예측 구분</div>
@@ -390,7 +395,7 @@
         <!-- Audit -->
         <div class="agent idle">
           <div class="row1">
-            <div class="nm"><span class="fn">Audit Agent</span><span class="wn">감사관</span></div>
+            <img class="av" src="./assets/char-sentinel.png" alt="Audit Agent 오크 초상"><div class="nm"><span class="fn">Audit Agent</span><span class="wn">감사관</span></div>
             <span class="st idle"><svg width="9" height="9" viewBox="0 0 12 12"><circle cx="6" cy="6" r="3.4" stroke="#59636A" stroke-width="1.6" fill="none"/></svg>idle</span>
           </div>
           <div class="task">문장 → claim+source span 역추적 · 무출처 문장 차단</div>
