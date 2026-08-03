@@ -99,6 +99,10 @@
   .panel-head { display: flex; align-items: center; justify-content: space-between; padding: 12px var(--sp-md); border-bottom: 1px solid var(--surface-variant); }
   .panel-head h2 { font-family: var(--font-head); font-size: 12px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--on-surface); }
   .panel-head .sub { font-family: var(--font-head); font-size: 10px; letter-spacing: 0.08em; color: var(--on-surface-muted); text-transform: uppercase; }
+  /* Lorekeeper 안내 아바타 (orc-camp 초상) */
+  .ph-guide { display: flex; align-items: center; gap: 8px; }
+  .ph-guide .guide-av { width: 26px; height: 26px; border-radius: 5px; object-fit: cover;
+    border: 1px solid var(--surface-variant); flex: none; }
   .panel-body { overflow-y: auto; padding: var(--sp-md); }
   .panel-body::-webkit-scrollbar { width: 8px; }
   .panel-body::-webkit-scrollbar-thumb { background: var(--surface-variant); border-radius: var(--r-full); }
@@ -313,7 +317,10 @@
     <!-- ── 좌: Claim 목록 ──────────────────────────────────────────── -->
     <section class="panel">
       <div class="panel-head">
-        <h2>Claims</h2>
+        <div class="ph-guide">
+          <img class="guide-av" src="./assets/char-archivist.png" alt="Lorekeeper 오크 초상" title="Lorekeeper · 해소·정규화 안내">
+          <h2>Claims</h2>
+        </div>
         <span class="sub">조사 내 · 6</span>
       </div>
       <div class="panel-body">

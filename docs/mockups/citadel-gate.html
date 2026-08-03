@@ -339,6 +339,17 @@
   @media (max-width: 680px) {
     .camp-grid, .tiles, .spaces-grid { grid-template-columns: 1fr; }
   }
+
+  /* onboarding 흐름 스트립 (orc-camp 초상) */
+  .onboard { display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 10px 12px; margin-bottom: 14px; border: 1px solid var(--surface-variant);
+    border-radius: var(--r-md); background: rgba(38,49,58,.22); }
+  .onboard .step { display: flex; align-items: center; gap: 8px; }
+  .onboard .av { width: 32px; height: 32px; border-radius: 6px; object-fit: cover;
+    border: 1px solid var(--surface-variant); flex: none; }
+  .onboard .lb { font-family: var(--font-head); font-size: 11.5px; font-weight: 600; color: var(--on-surface); line-height: 1.15; }
+  .onboard .lb small { display: block; color: var(--on-surface-muted); font-size: 9.5px; font-weight: 500; letter-spacing: 0.04em; }
+  .onboard .arr { color: var(--on-surface-muted); font-size: 13px; }
 </style>
 </head>
 <body>
@@ -390,6 +401,13 @@
             <span class="hsub">자연어 질문 → Council이 계획을 세우고 Scouts가 근거를 수집</span>
           </div>
           <span class="badge good">Council 대기</span>
+        </div>
+        <div class="onboard" aria-label="조사 흐름">
+          <div class="step"><img class="av" src="./assets/char-scout.png" alt="Scout 오크 초상"><span class="lb">Scouts<small>근거 수집</small></span></div>
+          <span class="arr">→</span>
+          <div class="step"><img class="av" src="./assets/char-seer.png" alt="Seer 오크 초상"><span class="lb">Seers · Council<small>그래프 조사 · 반증</small></span></div>
+          <span class="arr">→</span>
+          <div class="step"><img class="av" src="./assets/char-warchief.png" alt="Warchief 오크 초상"><span class="lb">보고서<small>근거로 답</small></span></div>
         </div>
         <div class="compose">
           <textarea placeholder="2024년 이후 A사의 AI 가속기 공급망 다변화가 실제로 진행되었는지 조사하라. 공식 발표와 실제 계약·공시를 구분하고 반대 증거도 포함하라."></textarea>
