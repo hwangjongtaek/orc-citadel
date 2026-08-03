@@ -26,13 +26,93 @@
 
 - 사양: 512×512, 투명 PNG, 중앙 정렬.
 
-## 2. 히어로 씬 (Citadel Gate) — `gate-hero.png`
+## 2. 화면별 씬(히어로) 프롬프트 (복붙용)
 
-**용도:** `citadel-gate.html` 상단 히어로 배경/일러스트. (기존 `orc-citadel-hero.png` 재사용도 가능 — 이건 UI 최적화 와이드 변형.)
+각 화면 상단 히어로/배경 이미지의 생성 프롬프트. **preamble을 각 프롬프트에 포함**했으므로 아래 코드블록을 그대로 복사해 쓰면 된다(반복 무관). 모두 `gate-hero.png`와 동일한 시네마틱 다크 전술-아카이브 스타일.
 
-> `{공통 preamble} Wide cinematic scene: a dark basalt fortress "Citadel" at night seen from within its great hall. In the center foreground, a glowing "War Table" — a horizontal tactical table displaying a faint constellation of connected nodes and lines in emerald #45E06F (a knowledge graph, not a neon dashboard). Small orc scout silhouettes arrive from distant dark territories at the edges, carrying scrolls (ember #E97824 lantern accents). Signal spires in the far background with faint amber #FFB13B beacons. Weight of the composition is on data and evidence, not characters. Muted, atmospheric, low excessive glow. 16:6 wide banner, opaque background.`
+- **파일명:** `docs/mockups/assets/<screen>-hero.png`
+- **사양:** 1920×720 (16:6 와이드), 불투명 PNG. **상단은 어둡게** — 워드마크/제목을 오버레이할 여백(스크림)을 위해.
+- **연결:** 각 화면의 히어로/헤더 배경으로 `center bottom / cover` + 다크 스크림(→ `citadel-gate.html` §hero 참고).
 
-- 사양: 2400×900, 불투명 PNG.
+### 2.0 Citadel Gate — `gate-hero.png` ✅ (제공·연결 완료)
+
+```text
+Dark tactical-archive game UI art for "Orc Citadel", a temporal evidence intelligence platform. Basalt (#111820) and black-iron surfaces on a near-black navy background (#07111C to #0D1B2A). Emerald light (#45E06F) reserved ONLY for verified knowledge/graph accents, used sparingly as a focal glow, never filling the frame. Muted stone (#D6CCB8) and parchment (#C8B58E) for foreground. Restrained, serious, audit-grade mood. No excessive glow, no fire particles, no ornate frames, no stone-texture noise. Original design — do NOT imitate Warcraft or any existing game IP.
+
+Wide cinematic scene: a dark basalt fortress "Citadel" at night seen from within its great hall. In the center foreground, a glowing "War Table" — a horizontal tactical table displaying a faint constellation of connected nodes and lines in emerald #45E06F (a knowledge graph, not a neon dashboard). Small orc scout silhouettes arrive from distant dark territories at the edges, carrying scrolls with ember #E97824 lantern accents. Signal spires in the far background with faint amber #FFB13B beacons. Weight of the composition is on data and evidence, not characters.
+
+Wide cinematic 16:6 banner, ~1920x720, opaque background, dark upper region to leave room for overlaid title text.
+```
+
+### 2.1 Watchtower — `watchtower-hero.png`
+
+```text
+Dark tactical-archive game UI art for "Orc Citadel", a temporal evidence intelligence platform. Basalt (#111820) and black-iron surfaces on a near-black navy background (#07111C to #0D1B2A). Emerald light (#45E06F) reserved ONLY for verified knowledge/graph accents, used sparingly as a focal glow, never filling the frame. Muted stone (#D6CCB8) and parchment (#C8B58E) for foreground. Restrained, serious, audit-grade mood. No excessive glow, no fire particles, no ornate frames, no stone-texture noise. Original design — do NOT imitate Warcraft or any existing game IP.
+
+Wide cinematic scene inside the Citadel's Watchtower at night: a tall dark basalt observation tower where armored orc sentinels keep watch over a wall of small glowing status panels showing incoming source feeds. Far below, from distant dark territories along a river, tiny orc scout silhouettes approach carrying scrolls lit by faint ember #E97824 lanterns. A few steady (not blinking) amber #FFB13B signal beacons on distant spires. Emerald #45E06F appears only on a small feed-status readout. Vigilant, orderly ingestion-monitoring mood.
+
+Wide cinematic 16:6 banner, ~1920x720, opaque background, dark upper region to leave room for overlaid title text.
+```
+
+### 2.2 Grand Archive — `grand-archive-hero.png`
+
+```text
+Dark tactical-archive game UI art for "Orc Citadel", a temporal evidence intelligence platform. Basalt (#111820) and black-iron surfaces on a near-black navy background (#07111C to #0D1B2A). Emerald light (#45E06F) reserved ONLY for verified knowledge/graph accents, used sparingly as a focal glow, never filling the frame. Muted stone (#D6CCB8) and parchment (#C8B58E) for foreground. Restrained, serious, audit-grade mood. No excessive glow, no fire particles, no ornate frames, no stone-texture noise. Original design — do NOT imitate Warcraft or any existing game IP.
+
+Wide cinematic scene of the Citadel's Grand Archive: a vast dark basalt library hall with towering black-iron shelves of rolled parchment #C8B58E scrolls, ledgers and stacked document tablets receding into shadow. Dim pools of lantern light; one hooded archivist orc consulting a scroll at a reading stand. A single faint emerald #45E06F thread of light traces a lineage between a few shelves, used sparingly. Immense, quiet, ordered preservation / document-lakehouse mood.
+
+Wide cinematic 16:6 banner, ~1920x720, opaque background, dark upper region to leave room for overlaid title text.
+```
+
+### 2.3 Hall of Witnesses — `hall-of-witnesses-hero.png`
+
+```text
+Dark tactical-archive game UI art for "Orc Citadel", a temporal evidence intelligence platform. Basalt (#111820) and black-iron surfaces on a near-black navy background (#07111C to #0D1B2A). Emerald light (#45E06F) reserved ONLY for verified knowledge/graph accents, used sparingly as a focal glow, never filling the frame. Muted stone (#D6CCB8) and parchment (#C8B58E) for foreground. Restrained, serious, audit-grade mood. No excessive glow, no fire particles, no ornate frames, no stone-texture noise. Original design — do NOT imitate Warcraft or any existing game IP.
+
+Wide cinematic scene of the Citadel's Hall of Witnesses: a solemn dark basalt chamber with a single central lit pedestal holding an open parchment #C8B58E document, one line of its text softly glowing. Two thin threads of light rise from the pedestal to two facing evidence stands — one emerald #45E06F (supporting) and one dull red #E05252 (contradicting). Grave, precise, focused-on-a-single-claim evidence-inspection / provenance mood.
+
+Wide cinematic 16:6 banner, ~1920x720, opaque background, dark upper region to leave room for overlaid title text.
+```
+
+### 2.4 War Table — `war-table-hero.png`
+
+```text
+Dark tactical-archive game UI art for "Orc Citadel", a temporal evidence intelligence platform. Basalt (#111820) and black-iron surfaces on a near-black navy background (#07111C to #0D1B2A). Emerald light (#45E06F) reserved ONLY for verified knowledge/graph accents, used sparingly as a focal glow, never filling the frame. Muted stone (#D6CCB8) and parchment (#C8B58E) for foreground. Restrained, serious, audit-grade mood. No excessive glow, no fire particles, no ornate frames, no stone-texture noise. Original design — do NOT imitate Warcraft or any existing game IP.
+
+Wide cinematic close view of the Citadel's War Table: a large horizontal black-basalt tactical table displaying a temporal knowledge graph of connected nodes and edges glowing emerald #45E06F, with a few edges in dull red #E05252 (contradiction) and amber #FFB13B (qualifier). One orc leans over the table studying a single highlighted path; iron markers and parchment scrolls at the table edge. A restrained knowledge map, not a neon dashboard. Analytical, commanding core-workspace mood.
+
+Wide cinematic 16:6 banner, ~1920x720, opaque background, dark upper region to leave room for overlaid title text.
+```
+
+### 2.5 Council Chamber — `council-chamber-hero.png`
+
+```text
+Dark tactical-archive game UI art for "Orc Citadel", a temporal evidence intelligence platform. Basalt (#111820) and black-iron surfaces on a near-black navy background (#07111C to #0D1B2A). Emerald light (#45E06F) reserved ONLY for verified knowledge/graph accents, used sparingly as a focal glow, never filling the frame. Muted stone (#D6CCB8) and parchment (#C8B58E) for foreground. Restrained, serious, audit-grade mood. No excessive glow, no fire particles, no ornate frames, no stone-texture noise. Original design — do NOT imitate Warcraft or any existing game IP.
+
+Wide cinematic scene of the Citadel's Council Chamber: several orc figures of a war-council gathered around the glowing emerald #45E06F War Table in a dark basalt round chamber, mid-deliberation. One robed seer holds a small restrained emerald orb; a warchief leans on the table; scrolls and ledgers before them. Warm ember #E97824 lantern light falls on the figures while emerald stays only on the table graph. Deliberative, serious, evidence-driven multi-agent investigation mood — a council, not a battle.
+
+Wide cinematic 16:6 banner, ~1920x720, opaque background, dark upper region to leave room for overlaid title text.
+```
+
+### 2.6 Chronicle Vault — `chronicle-vault-hero.png`
+
+```text
+Dark tactical-archive game UI art for "Orc Citadel", a temporal evidence intelligence platform. Basalt (#111820) and black-iron surfaces on a near-black navy background (#07111C to #0D1B2A). Emerald light (#45E06F) reserved ONLY for verified knowledge/graph accents, used sparingly as a focal glow, never filling the frame. Muted stone (#D6CCB8) and parchment (#C8B58E) for foreground. Restrained, serious, audit-grade mood. No excessive glow, no fire particles, no ornate frames, no stone-texture noise. Original design — do NOT imitate Warcraft or any existing game IP.
+
+Wide cinematic scene of the Citadel's Chronicle Vault: a deep dark basalt vault with a long horizontal time-rail receding into shadow, lined with rows of stacked stone record-tablets and ledgers layered like sediment. Faint markers spaced sparingly along the rail — emerald #45E06F for verified events, amber #FFB13B for changes, iron-gray for superseded versions — suggesting two overlaid timelines. Layered, archival, still bitemporal-history mood.
+
+Wide cinematic 16:6 banner, ~1920x720, opaque background, dark upper region to leave room for overlaid title text.
+```
+
+### 2.7 Signal Spire — `signal-spire-hero.png`
+
+```text
+Dark tactical-archive game UI art for "Orc Citadel", a temporal evidence intelligence platform. Basalt (#111820) and black-iron surfaces on a near-black navy background (#07111C to #0D1B2A). Emerald light (#45E06F) reserved ONLY for verified knowledge/graph accents, used sparingly as a focal glow, never filling the frame. Muted stone (#D6CCB8) and parchment (#C8B58E) for foreground. Restrained, serious, audit-grade mood. No excessive glow, no fire particles, no ornate frames, no stone-texture noise. Original design — do NOT imitate Warcraft or any existing game IP.
+
+Wide cinematic scene of the Citadel's Signal Spire at night: a single tall dark basalt spire whose amber #FFB13B beacon has just ignited once at its tip, casting a restrained glow over the dark citadel and the distant territories below. Other spires remain unlit. One thin thread of emerald #45E06F light runs from the citadel's graph toward the spire, marking a single material change. A single meaningful signal, calm and sparse — not a fireworks display. Alert-center mood.
+
+Wide cinematic 16:6 banner, ~1920x720, opaque background, dark upper region to leave room for overlaid title text.
+```
 
 ## 3. 캐릭터 — `char-*.png` (Orc Camp 초상 복사)
 
@@ -84,17 +164,24 @@
 | `citadel-gate.html` | `gate-hero.png` | §2 | 히어로 배경/일러스트 | ★ |
 | `citadel-gate.html` | `crest-hero.png` | §1 | 히어로 워드마크 | |
 | `citadel-gate.html` | `char-scout.png`, `char-seer.png` | §3 | 온보딩 안내(최초 방문·result summary, 상시 금지) | |
+| `watchtower.html` | `watchtower-hero.png` | §2.1 | 헤더/히어로 배경 | |
 | `watchtower.html` | `char-sentinel.png` | §3 | 관제 헤더/빈 상태 아바타 | |
 | `watchtower.html` | `empty-watchtower.png` | §4 | "모든 소스 정상" 빈 상태 | |
 | `watchtower.html` | `proc-scout.png` | §5 | 수집 진행(ingesting) 표시 | |
+| `grand-archive.html` | `grand-archive-hero.png` | §2.2 | 헤더/히어로 배경 | |
 | `grand-archive.html` | `empty-archive.png` | §4 | "검색 결과 없음" 빈 상태 | |
+| `hall-of-witnesses.html` | `hall-of-witnesses-hero.png` | §2.3 | 헤더/히어로 배경 | |
 | `hall-of-witnesses.html` | `empty-witnesses.png` | §4 | "claim 미선택" 빈 상태 | |
 | `hall-of-witnesses.html` | `char-archivist.png` | §3 | 안내/헤더 스팟(선택) | |
+| `war-table.html` | `war-table-hero.png` | §2.4 | 헤더/히어로 배경(또는 빈 상태) | |
 | `war-table.html` | `empty-wartable.png` | §4 | "조사 미선택" 빈 상태 | ★ |
 | `war-table.html` | `proc-seer.png` | §5 | 조사 진행(reasoning) 표시 | |
+| `council-chamber.html` | `council-chamber-hero.png` | §2.5 | 헤더/히어로 배경 | |
 | `council-chamber.html` | `char-scout.png`·`char-archivist.png`·`char-seer.png`·`char-warchief.png` | §3 | 8-Agent roster 아바타(Scout→Retrieval/수집, Archivist→Lorekeeper, Seer→추론계열, Warchief→Council) | |
 | `council-chamber.html` | `proc-seer.png` | §5 | 조사 루프 진행 표시 | |
+| `chronicle-vault.html` | `chronicle-vault-hero.png` | §2.6 | 헤더/히어로 배경 | |
 | `chronicle-vault.html` | `empty-chronicle.png` | §4 | "이력 없음" 빈 상태 | |
+| `signal-spire.html` | `signal-spire-hero.png` | §2.7 | 헤더/히어로 배경 | |
 | `signal-spire.html` | `empty-spire.png` | §4 | "새 알림 없음" 빈 상태 | |
 
 > **읽는 법:** "프롬프트 위치" 열의 §번호가 이 문서 안에서 해당 이미지의 실제 생성 프롬프트가 있는 섹션이다. 예: `empty-wartable.png` → §4 표의 해당 행 프롬프트.
