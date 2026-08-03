@@ -1,0 +1,16 @@
+[project]
+name = "orc-citadel-prototype"
+version = "0.1.0"
+description = "Orc Citadel provenance & idempotency model prototype (Phase 0, design 03)"
+requires-python = ">=3.11"
+dependencies = [
+    "duckdb",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
