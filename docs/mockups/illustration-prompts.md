@@ -250,7 +250,9 @@ Small pixel-art sprite, transparent background, ~200px, strong dithering / chunk
 | `signal-spire.html` | `signal-spire-hero.png` | §2.7 | 헤더/히어로 배경 | |
 | `signal-spire.html` | `empty-spire.png` | §4 | "새 알림 없음" 빈 상태 | |
 
-> **읽는 법:** "프롬프트 위치" 열의 §번호가 이 문서 안에서 해당 이미지의 실제 생성 프롬프트가 있는 섹션이다. 예: `empty-wartable.png` → §4 표의 해당 행 프롬프트.
+> **읽는 법:** "프롬프트 위치" 열의 §번호가 이 문서 안에서 해당 이미지의 실제 생성 프롬프트가 있는 섹션이다. 예: `empty-wartable.png` → §4.x 코드블록.
+>
+> **빈 상태 아트(§4, 6종) 등록 완료.** 각 화면의 no-data 조건부 렌더라 populated 데모에 끼우지 않고, [`empty-states.html`](./empty-states.html) 갤러리(index에서 링크)로 모아 확인한다.
 
 ## 7. 연결 계획 (이미지 전달 후)
 

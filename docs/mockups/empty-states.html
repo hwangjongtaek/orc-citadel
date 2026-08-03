@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Orc Citadel · 빈 상태 아트 (Empty States)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --citadel-void: #07111C; --citadel-night: #0D1B2A;
+    --surface: #111820; --surface-variant: #26313A;
+    --on-surface: #D6CCB8; --on-surface-muted: #59636A; --parchment: #C8B58E;
+    --primary: #45E06F; --secondary: #20B85A;
+    --ember: #E97824; --signal-amber: #FFB13B; --crimson: #7B2833;
+    --error: #E05252; --uncertain: #A78BFA;
+    --font-display: "Cinzel", Georgia, serif;
+    --font-head: "Space Grotesk", system-ui, sans-serif;
+    --font-body: "Inter", system-ui, sans-serif;
+    --font-data: "JetBrains Mono", ui-monospace, monospace;
+    --r-sm: 4px; --r-md: 8px; --r-lg: 12px; --r-full: 9999px;
+    --sp-md: 16px; --sp-lg: 24px; --sp-xl: 32px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: var(--font-body); background: var(--citadel-void); color: var(--on-surface); font-size: 14px; line-height: 1.5; -webkit-font-smoothing: antialiased; min-height: 100vh; }
+  a { color: inherit; text-decoration: none; }
+  .mono { font-family: var(--font-data); }
+
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 48px var(--sp-lg) 72px; }
+
+  .top { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+  .top a.back { font-family: var(--font-head); font-size: 12px; color: var(--secondary); }
+  h1 { font-family: var(--font-head); font-size: 26px; font-weight: 600; letter-spacing: -0.01em; color: var(--on-surface); }
+  .lede { color: var(--on-surface-muted); max-width: 760px; margin: 10px 0 32px; }
+  .lede b { color: var(--on-surface); font-weight: 600; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: var(--sp-md); }
+  .card { display: flex; flex-direction: column; background: var(--surface);
+    border: 1px solid var(--surface-variant); border-radius: var(--r-lg); overflow: hidden;
+    transition: border-color .15s, transform .15s; }
+  .card:hover { border-color: var(--primary); transform: translateY(-2px); }
+  .art { position: relative; aspect-ratio: 16 / 10; display: grid; place-items: center;
+    background:
+      radial-gradient(300px 200px at 50% 45%, rgba(38,49,58,.5), transparent 70%),
+      var(--citadel-night);
+    border-bottom: 1px solid var(--surface-variant); }
+  .art img { width: 62%; max-width: 220px; image-rendering: pixelated; }
+  .art .trig { position: absolute; top: 10px; left: 10px;
+    font-family: var(--font-head); font-size: 10px; font-weight: 600; letter-spacing: 0.06em;
+    text-transform: uppercase; color: var(--on-surface-muted);
+    background: rgba(7,17,28,.7); border: 1px solid var(--surface-variant);
+    padding: 3px 8px; border-radius: var(--r-sm); }
+  .meta { padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 4px; }
+  .meta .space { font-family: var(--font-head); font-weight: 600; font-size: 15px; color: var(--on-surface); }
+  .meta .func { font-family: var(--font-head); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--on-surface-muted); }
+  .meta .file { font-family: var(--font-data); font-size: 10px; color: var(--parchment); margin-top: 6px; }
+  .meta .go { font-family: var(--font-head); font-size: 11px; font-weight: 600; color: var(--primary); margin-top: 8px; }
+
+  .foot-note { margin-top: 40px; padding-top: var(--sp-lg); border-top: 1px solid var(--surface-variant);
+    font-size: 12px; color: var(--on-surface-muted); display: flex; gap: 18px; flex-wrap: wrap; }
+  .foot-note a { color: var(--secondary); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="top"><a class="back" href="./index.html">‹ 목업 인덱스</a></div>
+  <h1>빈 상태 아트 · Empty States</h1>
+  <p class="lede">각 Citadel 공간의 <b>데이터 없음(no-data)</b> 상태에 표시되는 픽셀아트 스팟 일러스트. 실제 화면에서는 해당 조건에서만 조건부로 렌더되므로, 여기서 한데 모아 확인한다. 프롬프트는 <a href="./illustration-prompts.md">illustration-prompts.md</a> §4.</p>
+
+  <div class="grid">
+
+    <a class="card" href="./war-table.html">
+      <div class="art"><span class="trig">조사 미선택</span><img src="./assets/empty-wartable.png" alt="War Table 빈 상태 — 어두운 원탁에 미점등 노드"></div>
+      <div class="meta"><span class="space">War Table</span><span class="func">Graph · 그래프 탐색</span><span class="file mono">empty-wartable.png</span><span class="go">화면 열기 ›</span></div>
+    </a>
+
+    <a class="card" href="./watchtower.html">
+      <div class="art"><span class="trig">모든 소스 정상</span><img src="./assets/empty-watchtower.png" alt="Watchtower 빈 상태 — 정상 체크 패널과 쉬는 초병"></div>
+      <div class="meta"><span class="space">Watchtower</span><span class="func">Ingestion · 수집 관제</span><span class="file mono">empty-watchtower.png</span><span class="go">화면 열기 ›</span></div>
+    </a>
+
+    <a class="card" href="./grand-archive.html">
+      <div class="art"><span class="trig">검색 결과 없음</span><img src="./assets/empty-archive.png" alt="Grand Archive 빈 상태 — 빈 슬롯이 있는 서가와 돋보기"></div>
+      <div class="meta"><span class="space">Grand Archive</span><span class="func">Documents · 문서 탐색</span><span class="file mono">empty-archive.png</span><span class="go">화면 열기 ›</span></div>
+    </a>
+
+    <a class="card" href="./hall-of-witnesses.html">
+      <div class="art"><span class="trig">claim 미선택</span><img src="./assets/empty-witnesses.png" alt="Hall of Witnesses 빈 상태 — 닫힌 책이 놓인 빈 증거 단상"></div>
+      <div class="meta"><span class="space">Hall of Witnesses</span><span class="func">Evidence · 증거 검사</span><span class="file mono">empty-witnesses.png</span><span class="go">화면 열기 ›</span></div>
+    </a>
+
+    <a class="card" href="./chronicle-vault.html">
+      <div class="art"><span class="trig">이력 없음</span><img src="./assets/empty-chronicle.png" alt="Chronicle Vault 빈 상태 — 표식 없는 시간 레일과 랜턴"></div>
+      <div class="meta"><span class="space">Chronicle Vault</span><span class="func">History · 시간 탐색</span><span class="file mono">empty-chronicle.png</span><span class="go">화면 열기 ›</span></div>
+    </a>
+
+    <a class="card" href="./signal-spire.html">
+      <div class="art"><span class="trig">새 알림 없음</span><img src="./assets/empty-spire.png" alt="Signal Spire 빈 상태 — 봉화가 꺼진 첨탑과 초승달"></div>
+      <div class="meta"><span class="space">Signal Spire</span><span class="func">Alerts · 알림 센터</span><span class="file mono">empty-spire.png</span><span class="go">화면 열기 ›</span></div>
+    </a>
+
+  </div>
+
+  <div class="foot-note">
+    <span>인덱스: <a href="./index.html">목업 홈</a></span>
+    <span>프롬프트: <a href="./illustration-prompts.md">illustration-prompts.md §4</a></span>
+    <span class="mono">투명 배경 · 각 화면의 no-data 조건부 렌더</span>
+  </div>
+
+</div>
+</body>
+</html>
