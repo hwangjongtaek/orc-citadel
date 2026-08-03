@@ -45,6 +45,12 @@
 
   /* ── App shell: header + body + optional footer ──────────────────── */
   .app { height: 100vh; display: grid; grid-template-rows: auto 1fr auto; background: var(--citadel-night); }
+  /* space masthead (hero band) */
+  .app { grid-template-rows: auto auto 1fr; }
+  .masthead { position: relative; height: 132px; overflow: hidden; border-bottom: 1px solid var(--surface-variant); display: flex; align-items: center; padding: 0 var(--sp-lg);
+    background: linear-gradient(90deg, rgba(7,17,28,.92) 0%, rgba(7,17,28,.6) 42%, rgba(7,17,28,.32) 100%), url('./assets/council-chamber-hero.png') center 42% / cover no-repeat, var(--citadel-night); }
+  .masthead h1 { font-family: var(--font-head); font-size: 22px; font-weight: 600; color: var(--on-surface); letter-spacing: -0.01em; text-shadow: 0 2px 14px rgba(7,17,28,.9); }
+  .masthead p { font-family: var(--font-head); font-size: 11px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--parchment); margin-top: 5px; text-shadow: 0 2px 14px rgba(7,17,28,.9); }
 
   /* ── Header (공유) ───────────────────────────────────────────────── */
   header {
@@ -291,6 +297,14 @@
     </label>
     <div class="spire" title="Signal Spire · 결론·confidence 변화 알림"><span class="dot"></span> Signal Spire · 3</div>
   </header>
+
+  <!-- ══ Masthead (space hero band) ═══════════════════════════════════ -->
+  <div class="masthead">
+    <div class="mh-txt">
+      <h1>Council Chamber · 조사 실행</h1>
+      <p>Agent 계획 · 토론 · 반증 · 종합 · 조사 루프 · 비용</p>
+    </div>
+  </div>
 
   <!-- ══ MAIN: 3-column Council Chamber ═══════════════════════════════ -->
   <main class="council">
