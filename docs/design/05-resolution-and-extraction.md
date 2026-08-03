@@ -1,6 +1,6 @@
 # 05 · 해소·추출 (Lorekeepers)
 
-> **상태:** Draft · **Spec:** 0.1.0 · **Blueprint 매핑:** §8.4–§8.9
+> **상태:** Review · **Spec:** 0.1.0 · **Blueprint 매핑:** §8.4–§8.9
 > 상위 규약: [README](./README.md) · 관련: [02-ontology](./02-ontology.md), [03-storage](./03-storage-and-data-model.md), [06-graph](./06-graph-service.md), [10-eval](./10-evaluation-and-testing.md)
 
 Lorekeepers는 normalized zone의 문서를 받아 **entity mention → 해소된 entity**, **claim candidate → canonical claim → assertion**으로 정제하는 파이프라인이다. 이 문서는 blueprint §8.4–§8.9를 구현 계약으로 확정한다. 산출물은 모두 curated zone([`03`](./03-storage-and-data-model.md) §4)에 머물다가 §7 그래프 반영 게이트를 통과해야 authoritative graph([`06`](./06-graph-service.md))에 진입한다.
@@ -13,7 +13,7 @@ Lorekeepers는 normalized zone의 문서를 받아 **entity mention → 해소�
 - **Human review as data** (불변식 §3-7). 사람의 교정은 원 모델 출력·수정 결과·이유를 함께 저장하는 골든셋 소스다 (§8, [`10`](./10-evaluation-and-testing.md)).
 - **Deterministic-first.** 규칙·사전으로 판정 가능한 것은 LLM에 보내지 않는다. LLM은 모호·복합 사례에만 투입한다 (비용 통제, blueprint §9.2).
 
-파이프라인 stage 개요 (blueprint §7.4의 S5–S7):
+파이프라인 stage 개요 (blueprint §8.4–§8.9):
 
 ```text
 normalized documents
@@ -49,7 +49,7 @@ normalized documents
 
 ```json
 {
-  "mention_id": "01J9...",
+  "mention_id": "men-01J9...",
   "doc_id": "doc-9f2a...c1",
   "segment_id": "doc-9f2a...c1#p3.s2",
   "surface_text": "TSMC",
@@ -101,33 +101,41 @@ O(n²) 비교를 피하기 위해 **blocking key**로 같은 버킷의 후보만
 ### 2.2 단계별 판정 (임계값은 pseudo, [`10`](./10-evaluation-and-testing.md)에서 튜닝)
 
 ```text
-resolve(mention m, candidate c) -> ACCEPT | REJECT | LLM | QUARANTINE
+resolve(mention m, candidate c) -> ACCEPT | POSSIBLY | LLM | REJECT | QUARANTINE
+# ACCEPT   = 결정적 외부식별자 exact match → SAME_AS 자동 병합 허용 (G4 유일 자동 경로)
+# POSSIBLY = 비결정적 고신뢰 후보 → POSSIBLY_SAME_AS, 확정은 human/rule (자동 병합 금지)
 
-# 1) identifier matching — 가장 강한 신호
-if shared_identifier(m, c):            return ACCEPT      # 결정적, LLM 불필요
+# 1) identifier matching — 가장 강한 신호 (결정적 외부식별자 exact match)
+if shared_identifier(m, c):            return ACCEPT      # 결정적, LLM 불필요 → SAME_AS
 
 # 2) lexical matching
 lex = jaro_winkler(norm_name(m), norm_name(c))
-if lex >= 0.97 and type(m) == type(c): return ACCEPT
+if lex >= 0.97 and type(m) == type(c): return POSSIBLY    # 강한 이름 일치이나 비결정적 → 후보 유지
 if lex <  0.60:                        return REJECT
 
 # 3) embedding reranking — name+context 임베딩
 emb = cosine(embed(m.context), embed(c.context))
 score = 0.5*lex + 0.5*emb
 
-# 4) rule-based accept / reject (precision 우선: accept 문턱을 높게)
-if score >= 0.92 and not type_conflict and not hard_negative(m, c): return ACCEPT
+# 4) rule-based (precision 우선: 문턱을 높게)
+if score >= 0.92 and not type_conflict and not hard_negative(m, c): return POSSIBLY  # 고신뢰 후보, 자동 병합 금지
 if score <  0.55 or  type_conflict:                                 return REJECT
 
-# 5) 그 사이(0.55 ≤ score < 0.92)는 모호 → LLM judge
+# 5) 중간 신뢰 [0.75, 0.92) → LLM judge (모호 사례만 LLM 투입)
 if 0.75 <= score < 0.92:               return LLM
 
-# 6) 그 외 애매·저신뢰 → quarantine, POSSIBLY_SAME_AS 유지
+# 6) 저신뢰 [0.55, 0.75) 및 그 외 → quarantine (POSSIBLY_SAME_AS 유지)
 return QUARANTINE
 ```
 
 - `hard_negative`: 상충하는 식별자(다른 ticker/LEI), 양립 불가한 jurisdiction 등 → 즉시 REJECT.
-- **precision > recall 원칙**: accept 문턱(0.92)을 reject 문턱보다 훨씬 높게 둔다. 애매하면 병합하지 **않고** 후보로 남긴다 (불변식 §3-4, blueprint §8.5·§17).
+- **precision > recall 원칙**: 자동 `SAME_AS` 병합은 **결정적 외부식별자 exact match(1단계)로만** 한다. 점수 기반 고신뢰(≥0.92)·강한 이름 일치(lex≥0.97)는 `ACCEPT`가 아니라 `POSSIBLY_SAME_AS` 후보로만 남기고, 확정은 인간 확인 또는 식별자 매칭을 요구한다 (G4, ADR-507). 애매하면 병합하지 **않고** 후보로 남긴다 (불변식 §3-4, blueprint §8.5·§17).
+
+**Arbitration (다중 후보 조정).** `resolve(m, c)`는 pair 단위 판정이라, 한 mention이 여러 candidate에 대해 상충하는 결과를 낼 수 있다. 병합 전 mention별로 결과를 집계한다 (전이 병합으로 인한 불변식4 위반 방지):
+
+- 결정적 `ACCEPT`가 **정확히 하나**면 그 entity로 `SAME_AS` 병합한다.
+- 결정적 `ACCEPT`가 **둘 이상**이고 대상 entity들이 서로 `SAME_AS`로 이미 연결돼 있지 **않으면** → **병합 금지**. 전원 `POSSIBLY_SAME_AS`로 강등하고 quarantine(`ambiguous_merge`, §7)로 보낸다.
+- `ACCEPT`가 없고 `POSSIBLY`/`LLM` 후보만 있으면, 자동 병합하지 않고 후보들을 `POSSIBLY_SAME_AS`로 유지한다(최고점 후보를 대표 후보로 표시하되 확정하지 않음).
 
 ### 2.3 LLM judge I/O (structured output)
 
@@ -151,19 +159,22 @@ return QUARANTINE
 }
 ```
 
-- `decision=same` ∧ `confidence ≥ 임계` → ACCEPT. `uncertain` 또는 저신뢰 → QUARANTINE.
+- `decision=same` ∧ `confidence ≥ 임계` → **`POSSIBLY_SAME_AS` 후보 생성(`create_edge`)**. LLM 판정만으로 `SAME_AS` 자동 병합하지 않는다 — 확정은 인간 확인 또는 결정적 외부식별자 exact match로만 (G4, ADR-507).
+- `decision=different` → REJECT. `uncertain` 또는 저신뢰 → QUARANTINE (`POSSIBLY_SAME_AS` 유지).
 - LLM 출력에도 `evidence_spans`를 요구해 provenance를 유지한다.
 
 ### 2.4 Merge를 event로 저장·reversible
 
 해소 결과는 두 종류의 event로 기록된다 (불변식 §3-3, [`03`](./03-storage-and-data-model.md) §7, [`06`](./06-graph-service.md)).
 
-| 판정 | 그래프 표현 | mutation `op` | 되돌리기 |
+| 판정 경로 | 그래프 표현 | mutation `op` | 되돌리기 |
 | --- | --- | --- | --- |
-| ACCEPT (확정) | `SAME_AS` edge + canonical 대표 지정 | `merge_entity` | `unmerge` 역이벤트 |
-| LLM/QUARANTINE (미확정) | `POSSIBLY_SAME_AS` edge (`score`, `blocking_key`) | `create_edge` | `delete` |
-| REJECT | (no edge) | — | — |
+| ACCEPT — 결정적 외부식별자 exact match **또는** 인간 확인(§8) | `SAME_AS` edge + canonical 대표 지정 | `merge_entity` | `unmerge` 역이벤트 |
+| POSSIBLY — 점수 고신뢰(≥0.92)·lexical(≥0.97) 후보 | `POSSIBLY_SAME_AS` edge (`score`, `blocking_key`) | `create_edge` | `delete` |
+| LLM `same` / QUARANTINE (미확정) | `POSSIBLY_SAME_AS` edge (`score`, `blocking_key`, `judged_by`) | `create_edge` | `delete` |
+| REJECT / `different` | (no edge) | — | — |
 
+- **`SAME_AS`(+`merge_entity`)는 두 경로로만 확정된다** (G4, ADR-507): (a) 결정적 외부식별자 exact match, (b) 인간 확인(§8 review의 `approve`/`correct`). LLM·점수·이름 기반 고신뢰는 모두 `POSSIBLY_SAME_AS` 후보에 머문다.
 - **`SAME_AS` 확정 전에는 `POSSIBLY_SAME_AS`를 사용한다** (blueprint §8.5, [`02`](./02-ontology.md) §3). 후보 관계는 War Table에서 `edge-uncertain`(점선+?)으로 표시된다 ([`02`](./02-ontology.md) §3.2).
 - 모든 판정은 `resolution_decisions`(`res-<ULID>`)에 근거를 남기고, `graph_mutations.resolution_ref`가 이를 가리킨다 ([`03`](./03-storage-and-data-model.md) §7.1).
 - ID는 재작성하지 않는다. 병합은 `SAME_AS`/canonical 매핑으로만 표현한다 ([`README`](./README.md) §2.2, [`02`](./02-ontology.md) §4-5).
@@ -180,7 +191,7 @@ return QUARANTINE
 | `actor` | `pipeline`/`llm:<model>`/`human:<user>` |
 | `rationale` | 판정 이유 (LLM/사람) |
 | `review_history[]` | 사람 교정 이력 (→ §8) |
-| `version_tuple` | ontology/schema/prompt/model |
+| `version_tuple` | ontology/schema/prompt/model/extraction_code_version (README §2.3 5축) |
 
 ---
 
@@ -236,6 +247,7 @@ LLM은 문서를 자유 형식으로 요약하지 않는다. **source span에 �
 
 - **`confidence`(모델)와 `certainty`(화자)는 별개다** ([`02`](./02-ontology.md) §2.4 주의). 스키마에서 분리 강제.
 - `subject`/`object`/`speaker`는 §2 해소를 거쳐 entity ID로 치환된 뒤에만 promotion 대상이 된다 (Reference 무결성, [`02`](./02-ontology.md) §4-3).
+- **Evidence(`evd-`)는 별도 추출 stage가 아니라 source span 그 자체다**: claim의 `source_span`이 `extraction_records`([`03`](./03-storage-and-data-model.md) §8.2)로 물질화되며, 이것이 evidence 참조의 정본이다. 별도 evd- 생성 파이프라인은 두지 않는다.
 
 ---
 
@@ -348,6 +360,7 @@ candidate (claim_candidates / mentions / edges)
 | Reference 무결성 위반 (미해소 subject/object) | quarantine, §2 재해소 대기 |
 | schema/time 정합성 위반 | reject 또는 quarantine |
 
+- **promotion 임계값(게이트 (4))은 element 종류(claim/edge/mention)별로 다르며, 구체 값과 튜닝은 [`10`](./10-evaluation-and-testing.md)이 소유한다** (이 문서는 게이트 규칙만 정의하고 값은 위임).
 - **승인된 변경은 append-only event로만 기록**한다: `create_node`/`create_edge`/`merge_entity`/`supersede` ([`03`](./03-storage-and-data-model.md) §7). materialized graph는 event log replay로 재구축 가능해야 한다 (불변식 §3-1·§3-3).
 - 게이트 통과·실패 모두 `correlation_id`로 end-to-end 추적된다 ([`03`](./03-storage-and-data-model.md) §7.1, [`11`](./11-observability-and-governance.md)).
 
@@ -355,7 +368,7 @@ candidate (claim_candidates / mentions / edges)
 
 ## 7. Quarantine Graph
 
-quarantine은 "버리는 곳"이 아니라 **격리·검토·학습 소스**다. authoritative graph와 물리적으로 분리된 별도 그래프에 적재된다 ([`06`](./06-graph-service.md)).
+quarantine은 "버리는 곳"이 아니라 **격리·검토·학습 소스**다. 지금은 authoritative graph와 **논리적으로 분리**(상태 라벨 `:Quarantine` vs `:Authoritative`)하며, 확장 시 물리적으로 분리된 별도 그래프(Memgraph)로 이전한다 ([`06`](./06-graph-service.md) §4.1 ADR-603).
 
 ### 7.1 진입 조건 (요약)
 
@@ -421,9 +434,10 @@ pending ──assign──► in_review ──┬─ approve ──► promoted 
 
 | ID | 결정 | 근거 | 상태 |
 | --- | --- | --- | --- |
-| ADR-501 | Entity Resolution accept 임계(≈0.92)를 reject 임계보다 높게 두는 **precision-first threshold** | 오병합은 연결된 전 claim을 오염시킴; 불확실은 병합 대신 후보 유지 (불변식 §3-4, blueprint §8.5·§17) | Accepted |
+| ADR-501 | Entity Resolution positive-link 후보 임계(≈0.92)를 reject 임계보다 높게 두는 **precision-first threshold** | 오병합은 연결된 전 claim을 오염시킴; 불확실은 병합 대신 후보 유지 (불변식 §3-4, blueprint §8.5·§17) | Accepted |
 | ADR-502 | 확정(`SAME_AS`) 전 **`POSSIBLY_SAME_AS`** 후보 관계 사용, merge는 `merge_entity` event로 reversible | reversible merge·audit (불변식 §3-3, [`03`](./03-storage-and-data-model.md) §7.2, [`02`](./02-ontology.md) §3) | Accepted |
 | ADR-503 | Canonicalization 라벨셋을 7종(equivalent/more_specific/more_general/supports/contradicts/unrelated/temporally_superseded)으로 고정 | blueprint §8.7 명세와 정합, temporal supersession을 모순과 분리 | Accepted |
 | ADR-504 | Contradiction은 binary 아님 — `conflict_type`(value_conflict/temporal/scope) + `rationale` 필수 저장 | 시간차·범위차를 모순으로 오판 방지 ([`02`](./02-ontology.md) §3.1, blueprint §8.8) | Accepted |
 | ADR-505 | 추출 스키마에서 `confidence`(모델)와 `certainty`(화자)를 분리 강제, 미해소 subject/object는 promotion 차단 | 신뢰도 과대평가·reference 무결성 위반 방지 ([`02`](./02-ontology.md) ADR-202·§4-3) | Accepted |
 | ADR-506 | quarantine 진입 원소와 사람 검토 결정을 **원 모델출력+수정결과+이유**로 저장해 골든셋화 | human review as data (불변식 §3-7, [`10`](./10-evaluation-and-testing.md)) | Accepted |
+| ADR-507 | ER 확정 병합(`SAME_AS`+`merge_entity`)은 **결정적 외부식별자 exact match 또는 인간 확인으로만**. LLM `same`·점수/이름 기반 고신뢰는 `POSSIBLY_SAME_AS` 후보에 머물고 자동 병합하지 않는다. 다중 후보는 arbitration으로 조정(충돌 시 병합 금지→quarantine) | 오병합은 전이적으로 연결된 claim을 오염(불변식4); LLM·유사도는 비결정적 → 후보 유지가 precision-first에 부합 (G4, 불변식 §3-4, blueprint §8.5) | Accepted |

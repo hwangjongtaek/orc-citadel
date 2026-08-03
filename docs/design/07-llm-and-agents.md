@@ -1,6 +1,6 @@
 # 07 · LLM·에이전트 (Warchief's Council · Seers)
 
-> **상태:** Draft · **Spec:** 0.1.0 · **Blueprint 매핑:** §9
+> **상태:** Review · **Spec:** 0.1.0 · **Blueprint 매핑:** §9
 > 상위 규약: [README](./README.md) · 관련: [01-architecture](./01-architecture.md), [05-resolution](./05-resolution-and-extraction.md), [06-graph](./06-graph-service.md), [08-search](./08-search-and-graphrag.md)
 
 LLM·에이전트 계층(Seers, Warchief's Council)의 사용 영역, 모델 계층화·라우팅, Agent 명세, 조사 루프(investigation loop), evidence-first 생성 계약, prompt/모델 버전 관리, structured output 계약을 정의한다. 본 문서는 blueprint §9를 구현 계약으로 확정하며, README §3 설계 불변식(특히 §3-3 agent는 graph mutate 직접 금지, §3-5 evidence-first)과 [01-architecture](./01-architecture.md) Agent Runtime 경계(§3, S9, ADR-103)를 위반할 수 없다.
@@ -10,7 +10,7 @@ LLM·에이전트 계층(Seers, Warchief's Council)의 사용 영역, 모델 계
 1. **Agent는 graph read-only.** 조사에 필요한 provisional 변경조차 Lorekeepers → Graph Service의 mutation event 경로를 거친다 ([01](./01-architecture.md) ADR-103, README §3-3).
 2. **Evidence-first.** 검증된 subgraph를 먼저 확정하고, 그 범위 안에서만 보고서 문장을 생성한다 (README §3-5).
 3. **계층화.** 최고 비용 모델을 모든 데이터에 쓰지 않는다. deterministic code → 소형 → 검색 → 중급 LLM → 고성능 LLM → 고성능 reasoning 순으로 승급한다 (blueprint §9.2).
-4. **재현성.** 모든 LLM 산출물은 버전 4축(README §2.3)을 부착하며, 모델 교체는 골든셋 회귀 후 단계 승격한다 (blueprint §9.5, → [10](./10-evaluation-and-testing.md)).
+4. **재현성.** 모든 LLM 산출물은 버전 5축(README §2.3: ontology/schema/prompt/model/extraction_code_version)을 부착하며, 모델 교체는 골든셋 회귀 후 단계 승격한다 (blueprint §9.5, → [10](./10-evaluation-and-testing.md)).
 
 ---
 
@@ -43,13 +43,15 @@ blueprint §9.2를 스펙으로 고정한다. **우선 처리 수단이 충분�
 | 단계 | 처리 목적 | 우선 처리 수단 | tier | Claude 모델 id | 비용 특성 |
 | --- | --- | --- | --- | --- | --- |
 | L0 | 해시·언어·포맷 판별 | deterministic code | — | (LLM 미사용) | 결정적, 최저 |
-| L1 | 기본 분류·NER·mention 추출 | 소형 모델 또는 규칙 | 소형 | `claude-haiku-4-5-20251001` | 저비용, 고throughput |
+| L1 | 기본 분류·NER·mention 추출 | 소형 모델 또는 규칙 | 소형 | `claude-haiku-4-5` | 저비용, 고throughput |
 | L2 | 후보 검색·reranking | BM25 + embedding + reranker | 검색 (비생성) | (embedding/reranker; → [08](./08-search-and-graphrag.md)) | 중저 |
 | L3 | 구조화 추출 (claim/evidence 후보) | batch 가능한 중간급 LLM | 중급 | `claude-sonnet-5` | 중, batch 50% 절감 |
 | L4 | 모호한 병합·모순 판정 | 고성능 LLM | 고성능 | `claude-opus-4-8` | 고 |
 | L5 | 조사 종합·반증·계획 | 고성능 reasoning model | 고성능 reasoning | `claude-opus-4-8` (adaptive thinking, `effort: high`~`xhigh`) | 최고 |
 
-> **주석:** L4·L5는 모두 최상위 tier(`claude-opus-4-8`)이나 **호출 형태**로 구분한다 — L4는 단발 판정(structured output, low~medium effort), L5는 tool 사용·다단계 reasoning(adaptive thinking + high/xhigh effort, task budget). 모델 id는 [README §2.3](./README.md) 버전 4축의 `model_id` 필드로 산출물에 기록된다. provider·id는 교체 가능하며, blueprint가 "소형/중급/고성능"으로 지정한 계층 의미는 provider-neutral로 유지한다.
+> **주석:** L4·L5는 모두 최상위 tier(`claude-opus-4-8`)이나 **호출 형태**로 구분한다 — L4는 단발 판정(structured output, low~medium effort), L5는 tool 사용·다단계 reasoning(adaptive thinking + high/xhigh effort, task budget). 모델 id는 [README §2.3](./README.md) 버전 5축의 `model_id` 필드로 산출물에 기록된다. provider·id는 교체 가능하며, blueprint가 "소형/중급/고성능"으로 지정한 계층 의미는 provider-neutral로 유지한다.
+
+> **model_id 핀 정책:** 본 문서 본문·ADR은 3개 tier를 모두 **alias**(`claude-haiku-4-5` / `claude-sonnet-5` / `claude-opus-4-8`)로 표기해 표기를 통일한다. 재현성(§6)이 요구하는 결정적 스냅샷 핀은 산출물의 `model_id` 필드에 배포 시점 dated snapshot(가용한 경우, 예: `claude-haiku-4-5-20251001`; dated snapshot이 없는 alias는 alias 그대로)으로 기록한다. 문서는 alias, 산출물은 배포-시점 핀 — 두 층을 분리한다.
 
 ### 2.2 LLM routing 기준
 
@@ -83,13 +85,27 @@ route(task):
 - **batch 우선:** L3 대량 추출은 Message Batches(비latency-민감, 50% 절감)로 처리한다. 대화형 조사 경로(L5)는 streaming.
 - **prompt caching:** 조사 세션 내 고정 prefix(ontology 요약, tool 정의, 시스템 프롬프트)는 cache_control로 캐시한다. 모델·tool 교체는 캐시를 무효화하므로 세션 중 tier 전환은 subagent로 분리한다.
 
+### 2.3 승급 임계·추정법 (ADR-706)
+
+승급 게이트의 `τ_tier`(하위 tier 산출물 confidence 임계)와 정보가치·비용 추정 방식을 초기 기본값으로 고정한다. **모든 값은 placeholder이며 골든셋([10](./10-evaluation-and-testing.md)) 실측으로 조정한다.**
+
+| 파라미터 | 정의 | 초기 기본값 |
+| --- | --- | --- |
+| `τ_L1→L3` | 소형(L1) 산출물 confidence 하한, 미만 시 L3 재시도 | 0.75 |
+| `τ_L3→L4` | 중급(L3) 판정 confidence 하한, 미만 시 L4 승급 | 0.70 |
+| `τ_L4→L5` | 고성능 단발(L4) 판정 confidence 하한, 미만 시 L5 reasoning 승급 | 0.65 |
+
+- **`expected_info_gain` 추정(coverage-delta 휴리스틱):** 호출 전후 evidence coverage(§4.3 A) 예상 증가분 `Δcoverage`와 대상 claim confidence 분산의 곱으로 근사한다 — `expected_info_gain ≈ Δcoverage_est × var(confidence)`. `Δcoverage_est`는 미충족 subclaim이 이 호출로 채워질 것으로 추정되는 비율(planner의 gap 라벨 기준).
+- **`call_cost` 추정(토큰 추정):** `call_cost ≈ (예상 input_token + 예상 output_token) × tier_단가`. 예상 token은 prompt 템플릿 고정분 + 대상 span/subgraph 크기로 산정하고, 남은 budget 대비 정규화한다.
+- **승급 결정:** `expected_info_gain > call_cost` 이고 `budget_remaining > cost(next_tier)`일 때만 승급한다(§2.2 규칙과 동일).
+
 ---
 
 ## 3. Agent 명세 (§9.3)
 
-Warchief's Council의 8개 Agent를 소절로 정의한다. **공통 불변식:** 모든 Agent는 Graph Service·Search Service의 **read API만** 사용하며, 그래프 변경은 Lorekeepers → Graph Service의 mutation event 경로만 거친다 ([01](./01-architecture.md) §3 경계 규칙, ADR-103, README §3-3). 모든 산출물에 버전 4축(README §2.3)과 correlation ID를 부착한다.
+Warchief's Council의 8개 Agent를 소절로 정의한다. **공통 불변식:** 모든 Agent는 Graph Service·Search Service의 **read API만** 사용하며, 그래프 변경은 Lorekeepers → Graph Service의 mutation event 경로만 거친다 ([01](./01-architecture.md) §3 경계 규칙, ADR-103, README §3-3). 모든 산출물에 버전 5축(README §2.3)과 correlation ID를 부착한다.
 
-**도구 표기:** `graph:read`(War Table 조회), `search`(BM25+vector, → [08](./08-search-and-graphrag.md)), `sql:read`(curated lakehouse 조회), `mutation:propose`(Lorekeepers 경로로 provisional 변경 **제안**만; 직접 apply 아님).
+**도구 표기:** `graph:read`(War Table 조회), `search`(BM25+vector, → [08](./08-search-and-graphrag.md)), `sql:read`(curated lakehouse 조회). 그래프 변경은 **agent tool이 아니라** Lorekeepers → Graph Service handoff로만 이뤄진다(§7.1, ADR-103) — Agent는 후보를 제안할 뿐 mutate tool을 호출하지 않는다.
 
 ### 3.1 Agent I/O 요약 표
 
@@ -101,7 +117,7 @@ Warchief's Council의 8개 Agent를 소절로 정의한다. **공통 불변식:*
 | Evidence Extractor | 신규 문서 span | claim/evidence 후보(강제 JSON schema) + source span 필수 | `search`(문맥) | 중급 batch (L3) | source span 없는 추출 폐기 |
 | Counter-Evidence Agent | 현재 결론·claim | 반대 가설, 부정 검색 질의, 모순 후보 | `search`, `graph:read` | 고성능 reasoning (L5) | 반박은 근거+판정 이유와 함께 |
 | Source Independence Judge | 문서 클러스터, 계보 후보 | 독립 근거 수 보정, root/derived 구분 | `graph:read`, `sql:read` | 고성능 LLM (L4) | 복제본을 독립 증거로 계산 금지 |
-| Synthesis Agent | 검증 확정된 subgraph | 보고서(사실/주장/추론/예측 구분) | `graph:read` | 고성능 reasoning (L5) | 검증 subgraph 밖 문장 생성 금지 |
+| Synthesis Agent | 검증 확정된 subgraph | 보고서(`modality`: fact/asserted/opinion/prediction 구분) | `graph:read` | 고성능 reasoning (L5) | 검증 subgraph 밖 문장 생성 금지 |
 | Audit Agent | 보고서 문장 + subgraph | 문장별 claim+source span 매핑, 무출처 문장 차단 리스트 | `graph:read`, `sql:read` | 중급 LLM + deterministic (L3) | 모든 검증가능 문장이 span으로 역추적되어야 통과 |
 
 ### 3.2 Investigation Planner
@@ -150,23 +166,25 @@ Warchief's Council의 8개 Agent를 소절로 정의한다. **공통 불변식:*
 
 ### 3.8 Synthesis Agent
 
-- **역할:** **검증된 subgraph만** 사용해 보고서를 작성하고 사실·당사자 주장·시스템 추론·예측을 명시적으로 구분한다.
-- **입력:** `{verified_subgraph}` → **출력:** `{report_sentences: [{text, kind: fact|claim|inference|forecast, supporting_claim_ids[]}], confidence}`.
+- **역할:** **검증된 subgraph만** 사용해 보고서를 작성하고 문장을 `modality`(fact/asserted/opinion/prediction)로 명시 구분한다. 모델 사전 지식 기반 추론은 별도 modality 값이 아니라 `model_prior` 플래그로 표기하며 기본적으로 결론에서 제외한다(별도 `inference` modality는 신설하지 않음 — [09-api](./09-api.md) §3 정합).
+- **입력:** `{verified_subgraph}` → **출력:** [09-api](./09-api.md) §3 Report 스키마와 동일한 필드명 — `{report: {sections: [{title, statements: [{text, modality: fact|asserted|opinion|prediction, claim_ref, speaker_id?}]}]}, confidence}`. (`forecast`→`prediction`, `claim`→`asserted`로 정본화; 이전 `kind`·`supporting_claim_ids[]` 표기 폐기.)
 - **도구:** `graph:read`. **tier:** L5.
-- **불변식(§3-5):** 검증 subgraph 밖의 문장을 생성하지 않는다. 각 문장은 supporting claim id를 반드시 참조한다.
+- **불변식(§3-5):** 검증 subgraph 밖의 문장을 생성하지 않는다. `fact`/`asserted` 문장은 반드시 `claim_ref`를 참조한다(무출처는 `claim_ref=null` 이면서 `prediction`/`opinion`만 허용, [09-api](./09-api.md) §3 Audit 계약).
 
 ### 3.9 Audit Agent
 
 - **역할:** 최종 보고서의 모든 검증 가능 문장을 claim·source span으로 역추적하고 무출처 문장·과도한 일반화를 차단한다.
-- **입력:** `{report_sentences[], verified_subgraph}` → **출력:** `{trace: [{sentence_id, claim_id, source_span, verified: bool}], blocked_sentences[]}`.
+- **입력:** `{report.statements[], verified_subgraph}`(Synthesis 출력 §3.8과 동일 필드명) → **출력:** `{trace: [{statement_ref, claim_ref, source_span, verified: bool}], blocked_statements[]}`.
 - **도구:** `graph:read`, `sql:read`(provenance chain, → [03](./03-storage-and-data-model.md) §provenance). **tier:** L3 LLM + deterministic span 대조.
-- **불변식(§3-5):** 모든 검증가능 문장이 span으로 역추적되어야 보고서가 통과한다. 실패 문장은 `blocked_sentences`로 반환되고 보고서에서 제거되거나 "unsupported"로 명시 표기된다.
+- **불변식(§3-5):** 모든 검증가능 문장이 span으로 역추적되어야 보고서가 통과한다. 실패 문장은 `blocked_statements`로 반환되고 보고서에서 제거되거나 "unsupported"로 명시 표기된다.
 
 ---
 
 ## 4. 조사 루프 (§9.4)
 
 blueprint §9.4 파이프라인을 **상태 기계(state machine)**로 확정한다. Agent Runtime은 stage S9 (`inv_id + step_id` idempotency)로 실행되며 각 step은 재실행 안전하다 ([01](./01-architecture.md) §4).
+
+> **step ID 스킴:** 각 조사 step은 investigation(`inv-`) 범위 내 transient ID `step-<seq>`를 가진다(순번, 예: `step-014` — [09-api](./09-api.md) agent_process 노출과 일치). `step-`은 조사 세션 내에서만 유효한 transient 식별자로, 영속 저장은 investigation step record의 correlation ID(`corr-`)로 승격된다(→ [11](./11-observability-and-governance.md)).
 
 ### 4.1 상태 전이
 
@@ -217,7 +235,7 @@ blueprint §9.4 파이프라인을 **상태 기계(state machine)**로 확정한
 | B | 신규 독립 증거 발견률 감소 | 최근 N step의 신규 독립 증거 증가율 | < ε (예: 0.05) |
 | C | contradiction 조사 완료 | 발견된 모순 후보가 모두 판정(모순/시간차/범위차)됨 | 미해결 = 0 |
 | D | budget (hard stop) | 누적 비용·시간·step 수 | budget 소진 시 즉시 종료 |
-| — | confidence 변화 폭 | 최근 step 간 결론 confidence 변화 | < δ 이면 수렴 신호(A·B 보강) |
+| — | confidence 변화 폭 | 최근 step 간 결론 confidence 변화 | < δ (초기 기본값 0.02) 이면 수렴 신호(A·B 보강) |
 
 - **종료 로직:** `A ∧ B ∧ C` 충족 → 정상 종료(SYNTHESIZE). `D` 도달 → 조기 종료(현재까지 verified subgraph로 SYNTHESIZE, 불확실성 명시). confidence 변화 폭은 A·B 수렴 판단의 보조 신호로 사용한다.
 - **task budget:** L5 조사 루프는 token task budget(고성능 reasoning의 self-pacing)을 설정해 예산 내에서 우아하게 마무리하게 한다. `max_tokens`는 별도 hard ceiling.
@@ -231,7 +249,7 @@ blueprint §17 "Evidence-first Generation"을 스펙 강제 규칙으로 승격�
 **계약 3단계:**
 
 1. **검증 subgraph 확정.** SYNTHESIZE 진입 전, 조사 루프는 verified subgraph를 확정한다 — provenance를 가지며 schema/독립성 검사를 통과한 claim·evidence·assertion만 포함한다 (README §3-2, [03](./03-storage-and-data-model.md) §provenance).
-2. **범위 내 생성.** Synthesis Agent는 이 subgraph의 요소만 참조해 문장을 생성한다. 각 문장은 `supporting_claim_ids`를 부착하며, subgraph 밖 사실을 도입하지 않는다. 모델 사전 지식으로 채운 내용은 별도 표기하고 기본적으로 결론에서 제외한다 (blueprint §10).
+2. **범위 내 생성.** Synthesis Agent는 이 subgraph의 요소만 참조해 문장을 생성한다. 각 문장은 [09-api](./09-api.md) §3 스키마의 `claim_ref`(→ provenance)를 부착하며, subgraph 밖 사실을 도입하지 않는다. 모델 사전 지식으로 채운 내용은 `model_prior` 플래그로 표기하고 기본적으로 결론에서 제외한다 (blueprint §10).
 3. **역추적 감사.** Audit Agent가 모든 **검증 가능한** 문장을 `claim → source span → normalized doc version → raw document → source URL`의 provenance chain으로 역추적한다 (blueprint §6.5). 역추적 실패 문장(무출처·과도한 일반화)은 차단되어 보고서에서 제거되거나 "unsupported"로 명시 표기된다.
 
 **출력 계약:** 최종 조사 결과는 blueprint §1의 3요소를 함께 제공한다 — (1) 조사 보고서, (2) Evidence Graph(verified subgraph), (3) 모든 주장·원문 구절 간 provenance(Audit trace). 검증가능 문장에 source span이 연결되지 않으면 보고서는 완료로 간주하지 않는다 (blueprint §16 Phase 1·§21-8 완료 조건).
@@ -240,9 +258,9 @@ blueprint §17 "Evidence-first Generation"을 스펙 강제 규칙으로 승격�
 
 ## 6. Prompt·모델 버전 관리 (§9.5)
 
-### 6.1 저장 필드 (README §2.3 4축과 정합)
+### 6.1 저장 필드 (README §2.3 5축과 정합)
 
-모든 LLM 산출물(extraction record, resolution decision, investigation step)에는 다음 버전 튜플을 부착한다 (blueprint §9.5). README §2.3의 버전 4축(ontology/schema/prompt/model)을 세부 필드로 전개한다.
+모든 LLM 산출물(extraction record, resolution decision, investigation step)에는 다음 버전 튜플을 부착한다 (blueprint §9.5). README §2.3의 버전 5축(ontology/schema/prompt/model/extraction_code_version)을 세부 필드로 전개한다.
 
 ```json
 {
@@ -251,21 +269,23 @@ blueprint §17 "Evidence-first Generation"을 스펙 강제 규칙으로 승격�
   "prompt_template_hash": "sha256:...",
   "output_schema_version": "0.1.0",
   "ontology_version": "1.0.0",
+  "extraction_code_version": "0.1.0",
   "inference_params": { "temperature": 0.0, "effort": "medium", "thinking": "adaptive" },
   "tool_version": "search:1.2.0,graph:1.0.0"
 }
 ```
 
-| 필드 | README §2.3 4축 매핑 | 목적 |
+| 필드 | README §2.3 5축 매핑 | 목적 |
 | --- | --- | --- |
 | `model_provider` + `model_id` | model | 모델 재현·교체 추적 |
 | `prompt_template_hash` | prompt | 프롬프트 변경 감지 (템플릿 sha256) |
 | `output_schema_version` | schema | structured output 스키마 버전 (→ [03](./03-storage-and-data-model.md)) |
 | `ontology_version` | ontology | 온톨로지 정합성 (→ [02-ontology](./02-ontology.md) §거버넌스) |
+| `extraction_code_version` | extraction_code_version | 추출·판정 코드 버전 (graph_mutations.version_tuple 5번째 축, → [03](./03-storage-and-data-model.md) §7.1) |
 | `inference_params` | (model 부속) | temperature/effort/thinking 등 결정론 파라미터 |
 | `tool_version` | (schema 부속) | 사용 tool 계약 버전 |
 
-> **정합 규칙:** blueprint §9.5의 6개 필드는 README §2.3의 4축을 상위 개념으로 하며 상충하지 않는다. `inference_params`·`tool_version`은 각각 model·schema 축의 세부 항목이다.
+> **정합 규칙:** blueprint §9.5의 필드는 README §2.3의 5축을 상위 개념으로 하며 상충하지 않는다. `inference_params`·`tool_version`은 각각 model·schema 축의 세부 항목이다.
 
 ### 6.2 모델·프롬프트 교체 절차
 
@@ -290,7 +310,7 @@ propose(new model/prompt)
 
 - **강제 방식:** `output_config.format`(json_schema, `additionalProperties: false` + `required`) 또는 strict tool use(`strict: true`)를 사용한다. prefill 방식은 현행 모델에서 금지되므로 사용하지 않는다.
 - **파싱:** 산출 JSON은 항상 파서로 역직렬화하며 raw string 매칭을 하지 않는다. schema validation·provenance 검사 실패 시 quarantine으로 보낸다 (blueprint §8.9, → [05](./05-resolution-and-extraction.md), [06](./06-graph-service.md)).
-- **스키마 버전:** 산출 스키마는 `output_schema_version`으로 버전 관리되며 [03](./03-storage-and-data-model.md) 저장 스키마와 정합해야 한다 (contract test 대상, blueprint §15).
+- **스키마 버전:** 산출 스키마는 `output_schema_version`으로 버전 관리되며 [03](./03-storage-and-data-model.md) 저장 스키마와 정합해야 한다 (contract test 대상, blueprint §15). **TBD:** 각 tool별(Extractor claim schema, judge decision schema, Synthesis report schema 등) 구체 JSON schema 본문은 미확정 — `0.1.0` 초기 버전으로 [03](./03-storage-and-data-model.md)·[09](./09-api.md)와 함께 확정 예정.
 
 ### 7.1 tool 사용 계획
 
@@ -301,7 +321,8 @@ Agent Runtime은 도구를 계층별로 노출한다. Agent가 그래프를 muta
 | `graph:read` | War Table read API (→ [06](./06-graph-service.md)) | Planner, Explorer, Counter-Evidence, Judge, Synthesis, Audit | auto |
 | `search` | BM25+vector hybrid (→ [08](./08-search-and-graphrag.md)) | Retrieval, Counter-Evidence, Extractor | auto |
 | `sql:read` | curated lakehouse read (→ [03](./03-storage-and-data-model.md)) | Retrieval, Judge, Audit | auto |
-| `mutation:propose` | Lorekeepers 경로에 provisional 변경 **제안** | (RESOLVE/UPDATE는 Lorekeepers가 수행) | — |
+
+> **주석:** 그래프 변경 tool은 표에 없다 — provisional 변경은 Agent가 호출하는 tool이 아니라 Lorekeepers → Graph Service **handoff 채널**로 처리된다(RESOLVE/UPDATE_PROVISIONAL, §4.2). Agent는 후보를 제안하고 read-back으로 확인만 한다 (ADR-103, ADR-702).
 
 - **계획:** Planner·Retrieval Agent가 도구 사용 순서를 계획한다 — entity lookup + temporal constraint + relation traversal + claim similarity + source-type filter로 질문을 분해한다 (blueprint §10). 최종 context는 전체 문서가 아닌 span·claim·provenance·주변 그래프로 구성한다.
 - **server-tool 미사용:** 외부 web search 등 server-side tool은 조사 결론에 사용하지 않는다 — 모든 근거는 수집·검증된 corpus에서 온다 (blueprint §3.2, §13).
@@ -312,8 +333,10 @@ Agent Runtime은 도구를 계층별로 노출한다. Agent가 그래프를 muta
 
 | ID | 결정 | 근거 | 상태 |
 | --- | --- | --- | --- |
-| ADR-701 | 모델 tier를 소형=`claude-haiku-4-5-20251001` / 중급=`claude-sonnet-5` / 고성능·reasoning=`claude-opus-4-8`로 매핑, provider-neutral 계층 의미 유지 | 최고 비용 모델 남용 방지, 비용 폭증 위험 대응 (blueprint §9.2, §18) | Accepted |
+| ADR-701 | 모델 tier를 소형=`claude-haiku-4-5` / 중급=`claude-sonnet-5` / 고성능·reasoning=`claude-opus-4-8`로 매핑(alias 표기 통일, 산출물 핀은 §2.1 정책), provider-neutral 계층 의미 유지 | 최고 비용 모델 남용 방지, 비용 폭증 위험 대응 (blueprint §9.2, §18) | Accepted |
 | ADR-702 | Agent는 그래프 read-only, mutation은 Lorekeepers→Graph Service 경로만 (ADR-103 재확인) | event-driven·rollback 가능성 강제 (README §3-3) | Accepted |
 | ADR-703 | Evidence-first 강제: verified subgraph 확정 후에만 문장 생성, Audit Agent 역추적 미통과 문장 차단 | 무출처 사실 방지, 감사 가능성 (README §3-5, blueprint §17, §21-8) | Accepted |
 | ADR-704 | 추출·판정은 강제 JSON schema(`output_config.format`/strict tool use), prefill 금지 | 자유 요약 금지·contract test 정합 (blueprint §8.6, §15) | Accepted |
 | ADR-705 | 모델·프롬프트 교체는 골든셋 회귀 통과 후 단계 승격, 버전 튜플·ROADMAP 기록 | 재현성·회귀 방지 (blueprint §9.5, §12.5, → [10](./10-evaluation-and-testing.md)) | Accepted |
+| ADR-706 | routing 승급 임계 `τ_tier`(0.75/0.70/0.65)·종료 수렴 `δ`(0.02)를 초기 기본값으로 고정, `expected_info_gain`=coverage-delta 휴리스틱·`call_cost`=토큰 추정으로 산정(§2.3, §4.3) | 미측정 양 의존 제거해 라우팅/종료 구현 가능화; placeholder는 [10](./10-evaluation-and-testing.md) 실측 조정 | Accepted |
+| ADR-707 | 보고서 문장 분류를 정본 `modality {fact,asserted,opinion,prediction}`로 통일(`kind` 폐기, `forecast`→`prediction`, `claim`→`asserted`), 필드명 09 정합(`report.statements[].claim_ref`); 모델 추론은 `inference` modality 신설 대신 `model_prior` 플래그 | 07↔09/02 vocab·필드 drift 제거, contract test 정합 (G5, → [09](./09-api.md) §3, [02](./02-ontology.md) §5.3) | Accepted |

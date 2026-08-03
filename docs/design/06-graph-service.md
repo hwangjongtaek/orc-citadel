@@ -1,6 +1,6 @@
 # 06 · 그래프 서비스 (War Table)
 
-> **상태:** Draft · **Spec:** 0.1.0 · **Blueprint 매핑:** §8.9, §17
+> **상태:** Review · **Spec:** 0.1.0 · **Blueprint 매핑:** §8.9, §17
 > 상위 규약: [README](./README.md) · 관련: [02-ontology](./02-ontology.md), [03-storage](./03-storage-and-data-model.md), [05-resolution](./05-resolution-and-extraction.md)
 
 War Table은 조사자가 시간·근거·관계를 탐색하는 **serving 그래프**다. 본 문서는 [`02-ontology`](./02-ontology.md)의 시맨틱 레이어를 물리 그래프 DB로 매핑하고, [`03-storage`](./03-storage-and-data-model.md)의 `graph_mutations` 이벤트를 소비해 materialized graph를 구성·재구축하는 계약을 확정한다.
@@ -43,27 +43,35 @@ War Table은 조사자가 시간·근거·관계를 탐색하는 **serving 그�
 (:Evidence {id:'evd-1'})-[:SUPPORTS {strength:0.8, rationale:'…', judged_by:'llm:claude-sonnet-5'}]->(:Claim {id:'clm-1'})
 ```
 
-- [`02-ontology`](./02-ontology.md) §3 엣지 표를 관계타입에 1:1 매핑: `MENTIONS`, `PUBLISHED_BY`, `MADE_CLAIM`, `SUBJECT`, `OBJECT`, `ABOUT`, `SUPPORTS`, `CONTRADICTS`, `QUALIFIES`, `SUPERSEDES`, `DERIVED_FROM`, `CITES`, `PARTICIPATED_IN`, `PRECEDES`, `SAME_AS`, `POSSIBLY_SAME_AS`, `VALID_DURING`.
-- `SUPPORTS`/`CONTRADICTS`는 `strength`/`rationale`/`judged_by`(및 `conflict_type`)를 관계 속성으로 필수 저장한다([`02-ontology`](./02-ontology.md) §3.1).
+- [`02-ontology`](./02-ontology.md) §3 엣지 표를 관계타입에 1:1 매핑: `MENTIONS`, `PUBLISHED_BY`, `MADE_CLAIM`, `SUBJECT`, `OBJECT`, `ABOUT`, `MEMBER_OF`, `SUPPORTS`, `CONTRADICTS`, `QUALIFIES`, `SUPERSEDES`, `DERIVED_FROM`, `CITES`, `PARTICIPATED_IN`, `PRECEDES`, `SAME_AS`, `POSSIBLY_SAME_AS`. (valid time은 `VALID_DURING` 엣지 없이 노드 inline 속성 `valid_from`/`valid_to`/`time_precision`으로 표현 — [`02`](./02-ontology.md) ADR-206)
+- `SUPPORTS`는 `strength`/`rationale`/`judged_by`를 관계 속성으로 필수 저장한다. `CONTRADICTS`는 여기에 더해 `conflict_type`을 필수로 가진다(`conflict_type`은 `CONTRADICTS` 전용, [`02-ontology`](./02-ontology.md) §3.1).
 - 관계 속성은 UI 토큰 매핑([`02-ontology`](./02-ontology.md) §3.2)에 그대로 노출된다(색만으로 전달 금지).
 
 ### 2.3 필수 인덱스·제약
 
 ```cypher
-// 전역 id 유일성 (모든 노드)
-CREATE CONSTRAINT node_id_unique IF NOT EXISTS
-  FOR (n:Entity) REQUIRE n.id IS UNIQUE;   // Claim/Evidence/Assertion/Document/Source/Event/CanonicalClaim에도 각각 선언
+// 전역 id 유일성 — Neo4j 제약은 라벨 단위이므로 전 라벨에 각각 선언
+CREATE CONSTRAINT entity_id_unique          IF NOT EXISTS FOR (n:Entity)         REQUIRE n.id IS UNIQUE;
+CREATE CONSTRAINT claim_id_unique           IF NOT EXISTS FOR (n:Claim)          REQUIRE n.id IS UNIQUE;
+CREATE CONSTRAINT canonicalclaim_id_unique  IF NOT EXISTS FOR (n:CanonicalClaim) REQUIRE n.id IS UNIQUE;
+CREATE CONSTRAINT evidence_id_unique        IF NOT EXISTS FOR (n:Evidence)       REQUIRE n.id IS UNIQUE;
+CREATE CONSTRAINT assertion_id_unique       IF NOT EXISTS FOR (n:Assertion)      REQUIRE n.id IS UNIQUE;
+CREATE CONSTRAINT document_id_unique        IF NOT EXISTS FOR (n:Document)       REQUIRE n.id IS UNIQUE;
+CREATE CONSTRAINT source_id_unique          IF NOT EXISTS FOR (n:Source)         REQUIRE n.id IS UNIQUE;
+CREATE CONSTRAINT event_id_unique           IF NOT EXISTS FOR (n:Event)          REQUIRE n.id IS UNIQUE;
+CREATE CONSTRAINT investigation_id_unique   IF NOT EXISTS FOR (n:Investigation)  REQUIRE n.id IS UNIQUE;
 
 // predicate 조회 (Claim 필터·집계 hot path)
 CREATE INDEX claim_predicate IF NOT EXISTS FOR (c:Claim) ON (c.predicate);
 
-// entity identifier 조회 (Entity Resolution 강한 신호, 05)
-CREATE INDEX entity_identifier IF NOT EXISTS FOR (e:Entity) ON (e.canonical_name);
-CREATE FULLTEXT INDEX entity_identifiers IF NOT EXISTS FOR (e:Entity) ON EACH [e.aliases];
+// entity identifier 조회 (Entity Resolution 강한 신호, 05) — canonical_name/legal_name + 별칭·법적명 fulltext
+CREATE INDEX entity_canonical_name IF NOT EXISTS FOR (e:Entity) ON (e.canonical_name);
+CREATE INDEX entity_legal_name     IF NOT EXISTS FOR (e:Entity) ON (e.legal_name);
+CREATE FULLTEXT INDEX entity_identifiers IF NOT EXISTS FOR (e:Entity) ON EACH [e.aliases, e.legal_name];
 
-// bitemporal 시간질의 (AS-OF, §8)
-CREATE INDEX claim_valid_from IF NOT EXISTS FOR (c:Claim) ON (c.valid_from);
-CREATE INDEX assertion_tx IF NOT EXISTS FOR (a:Assertion) ON (a.tx_from, a.tx_to);
+// bitemporal 시간질의 (AS-OF, §8) — 버전 축은 Assertion에 부착(03 §6.2, 아래 §6·§8.2)
+CREATE INDEX assertion_valid IF NOT EXISTS FOR (a:Assertion) ON (a.valid_from, a.valid_to);
+CREATE INDEX assertion_tx    IF NOT EXISTS FOR (a:Assertion) ON (a.tx_from, a.tx_to);
 ```
 
 - `id IS UNIQUE`는 idempotency의 그래프측 최종 방어선이다(중복 `create_node` 차단).
@@ -76,7 +84,7 @@ Applier는 [`03-storage`](./03-storage-and-data-model.md) §7의 `graph_mutation
 ### 3.1 공통 규칙
 
 - **Idempotency.** 각 이벤트의 `idempotency_key`(= stage input 해시)를 그래프측 `:AppliedMutation {key}` 노드/집합에 기록한다. 이미 적용된 key 재수신 시 **no-op**([`03-storage`](./03-storage-and-data-model.md) §7.2, 불변식 §3-6).
-- **버전 부착.** 이벤트 `version_tuple`(ontology/schema/prompt/model)을 생성 element에 전파한다.
+- **버전 부착.** 이벤트 `version_tuple`(5축: `ontology_version`/`schema_version`/`prompt_template_hash`/`model_id`/`extraction_code_version`)을 생성 element에 전파한다([`README`](./README.md) §2.3).
 - **게이트 우선.** 노드/엣지 생성은 §4 schema validation + provenance 게이트를 통과해야 `:Authoritative`, 아니면 `:Quarantine`.
 
 ### 3.2 op별 적용 규칙
@@ -85,8 +93,9 @@ Applier는 [`03-storage`](./03-storage-and-data-model.md) §7의 `graph_mutation
 | --- | --- |
 | `create_node` | `MERGE (n {id})` 후 속성 set. 게이트 결과로 `:Authoritative`/`:Quarantine` 라벨 부여. |
 | `create_edge` | 양끝 노드 존재 확인(reference 무결성, [`02-ontology`](./02-ontology.md) §4-3) → 관계 생성. 미존재 시 quarantine 사유 기록. |
-| `merge_entity` | SAME_AS 동치류에 canonical 대표 지정, claim 재지정(§5). |
-| `supersede` | `SUPERSEDES` 관계 생성 + 이전 버전 tx_to close 반영(§6). |
+| `merge_entity` | SAME_AS 동치류에 canonical 대표 지정, claim 재지정(§5.1–§5.2). |
+| `unmerge` | `merge_entity` 역연산: 대상 `SAME_AS` 제거 + member `canonical_id` 원복 + canonical rewrite 무효화(§5.3). `resolution_ref`로 역연산 대상 병합을 특정한다. |
+| `supersede` | `SUPERSEDES` 관계 생성 + 이전 Assertion 버전 tx_to close 반영(§6). |
 | `delete` | soft delete: `:Deleted` 라벨 + `deleted_tx` set(원장은 append-only이므로 물리 삭제 아님, §8.4 삭제 전파). |
 | `quarantine` | authoritative에서 `:Quarantine`로 라벨 전환 + 사유 기록(§4). |
 
@@ -107,7 +116,11 @@ def apply(evt):  # evt: graph_mutations row
             else:
                 tx.create_rel(evt.payload)
         elif evt.op == "merge_entity":
-            apply_merge(tx, evt.payload)               # §5
+            apply_merge(tx, evt.payload)               # §5.1
+        elif evt.op == "unmerge":
+            apply_unmerge(tx, evt.payload)             # §5.3 merge_entity 역연산:
+                                                       #   resolution_ref로 대상 SAME_AS 특정 →
+                                                       #   SAME_AS 제거 + canonical_id 원복 + :Merged 해제
         elif evt.op == "supersede":
             tx.create_rel_supersedes(evt.payload)
             tx.close_tx_to(evt.payload["superseded_id"], evt.payload["superseded_at"])  # §6
@@ -120,13 +133,27 @@ def apply(evt):  # evt: graph_mutations row
 
 - `gate_passes`는 §4의 schema validation + provenance 검사다. 판정 자체는 [`05-resolution`](./05-resolution-and-extraction.md)/[`02-ontology`](./02-ontology.md) 제약에 위임하며, Applier는 결과 라벨링만 담당한다.
 
+### 3.4 op별 payload 스키마
+
+[`03-storage`](./03-storage-and-data-model.md) §7.1의 `payload`는 opaque `jsonb`이나, Applier가 op별로 요구하는 **필수 키·타입**은 아래로 확정한다(누락 시 quarantine + 사유 기록). `resolution_ref`는 이벤트 최상위 컬럼([`03`](./03-storage-and-data-model.md) §7.1)이며 merge/unmerge가 이를 키로 사용한다.
+
+| op | 필수 payload 키 (타입) |
+| --- | --- |
+| `create_node` | `id`(string), `props`(map), `labels`(string[], optional 세부 라벨) |
+| `create_edge` | `type`(string, 관계타입), `from`(id), `to`(id), `props`(map) |
+| `merge_entity` | `member`(id), `canonical`(id) + 이벤트 `resolution_ref`(string), `actor` |
+| `unmerge` | `member`(id), `canonical`(id) + 이벤트 `resolution_ref`(string, 역연산 대상 병합 특정) |
+| `supersede` | `new_id`(id), `superseded_id`(id), `superseded_at`(timestamp), `reason`(string) |
+| `delete` | `id`(string) |
+| `quarantine` | `id`(string), `reason`(string) |
+
 ## 4. Authoritative vs Quarantine 그래프
 
 blueprint §8.9: 추출 결과를 바로 authoritative graph에 넣지 않는다. schema validation과 provenance 검사를 통과한 변경만 authoritative, 나머지는 quarantine에 적재한다.
 
 ### 4.1 분리 방식
 
-- **초기(Neo4j Community):** 물리 분리 대신 **`:Authoritative` / `:Quarantine` 상태 라벨**로 하나의 그래프 안에서 논리 분리한다. 모든 조회 API는 기본으로 `:Authoritative`만 반환한다(quarantine는 명시적 opt-in).
+- **초기(Neo4j Community):** 물리 분리 대신 **`:Authoritative` / `:Quarantine` 상태 라벨**로 하나의 그래프 안에서 논리 분리한다. 모든 조회 API는 기본으로 `:Authoritative`만 반환하고 `:Deleted`(soft-delete, §3.2)는 기본 제외한다(quarantine·deleted는 명시적 opt-in).
 - **확장:** Memgraph 등에서는 별도 DB/그래프로 물리 분리 가능(ADR-603 참조).
 
 ### 4.2 게이트 조건
@@ -168,16 +195,26 @@ SET a.canonical_id = c.id, a:Merged;
 
 - **모든 `merge_entity`는 대응 `unmerge` 이벤트로 reversible**해야 한다(blueprint §8.5 precision-first, 불변식 §3-3, [`03-storage`](./03-storage-and-data-model.md) §7.2).
 - `unmerge` 적용: `SAME_AS` 제거 + `canonical_id` 원복 + 영향 Claim의 canonical rewrite 무효화. 원 병합 이벤트의 `resolution_ref`로 역연산 대상을 특정한다.
+
+```cypher
+// unmerge 적용 (merge_entity 역연산): resolution_ref로 대상 SAME_AS 특정 → 제거·원복
+MATCH (a:Entity)-[r:SAME_AS {resolution_ref:$res_id}]->(c:Entity)
+DELETE r
+REMOVE a:Merged
+SET a.canonical_id = null;    // canonical_id 원복 → 조회 계층 rewrite(§5.2) 무효화
+```
+
 - precision-first 원칙상 불확실한 병합은 `POSSIBLY_SAME_AS` 후보로만 유지하고 authoritative merge를 미룬다([`02-ontology`](./02-ontology.md) §3, [`05-resolution`](./05-resolution-and-extraction.md)).
 
 ## 6. Supersession
 
-- 정정·갱신 사실은 이전 버전을 **삭제하지 않고** `SUPERSEDES` 관계로 잇고, 이전 버전의 bitemporal `tx_to`를 close한다([`03-storage`](./03-storage-and-data-model.md) §6.1–§6.2).
+- **bitemporal 버전 단위는 `Assertion`이다**([`03-storage`](./03-storage-and-data-model.md) §6.2). Claim은 reified statement, Assertion은 그 Claim의 valid/tx 버전을 담는 노드다. supersession·`tx_to` close·AS-OF는 모두 Assertion에 적용한다(§2.3 인덱스·§8.2 질의 일관).
+- 정정·갱신 사실은 이전 Assertion 버전을 **삭제하지 않고** `SUPERSEDES` 관계로 잇고, 이전 버전의 bitemporal `tx_to`를 close한다([`03-storage`](./03-storage-and-data-model.md) §6.1–§6.2).
 
 ```cypher
-// supersede 적용: 신 버전 → 구 버전 SUPERSEDES + 구 버전 tx_to close
-MATCH (old:Claim {id:$old_id})
-CREATE (new:Claim {id:$new_id})-[:SUPERSEDES {reason:$reason, superseded_at:$t}]->(old)
+// supersede 적용: 신 Assertion 버전 → 구 버전 SUPERSEDES + 구 버전 tx_to close
+MATCH (old:Assertion {id:$superseded_id})
+CREATE (new:Assertion {id:$new_id})-[:SUPERSEDES {reason:$reason, superseded_at:$t}]->(old)
 SET old.tx_to = $t;          // 이전 버전은 그래프에 남되 "현재 아님"으로 표시
 ```
 
@@ -203,9 +240,23 @@ SET old.tx_to = $t;          // 이전 버전은 그래프에 남되 "현재 아
 - 온톨로지 major/minor 변경은 [`02-ontology`](./02-ontology.md) §6.2 절차(proposal→review→promotion→backfill)를 따른다.
 - backfill은 in-place 마이그레이션 대신 **event replay 재구축을 우선**한다([`02-ontology`](./02-ontology.md) §6.2 말미). 필요 시 기존 element를 새 `ontology_version` target으로 재해석하는 변환 이벤트를 발행한 뒤 replay한다.
 
+### 7.4 Rollback (역이벤트)
+
+- **로그 truncation 금지.** `graph_mutations`는 append-only이므로(불변식 §3-3, [`03-storage`](./03-storage-and-data-model.md) §7.2) 잘못된 변경을 되돌릴 때 원 이벤트를 삭제·수정하지 않는다. 대신 **역이벤트(reverse event)를 새로 발행**해 상태를 revert한다.
+- op별 역이벤트:
+  - `create_node`/`create_edge` → `delete`(soft-delete `:Deleted`, §3.2).
+  - `merge_entity` → `unmerge`(§5.3, 원 병합의 `resolution_ref` 참조).
+  - `supersede` → 재정정 `supersede`(이전 Assertion 버전을 다시 현재로 여는 신 버전 발행) 또는 `delete`.
+  - `quarantine` → 승격 경로(§4.3)로 `:Authoritative` 복원.
+- **감사·재현성 보존.** 원 변경과 역이벤트가 모두 로그에 남으므로 "무엇을, 왜 되돌렸는가"가 추적 가능하고, full/incremental rebuild(§7.1–§7.2) 결과도 결정적으로 유지된다.
+- **증분 rebuild와의 관계.** 역이벤트는 일반 mutation과 동일하게 `mutation_id` 순서로 소비되므로 rollback 후에는 영향 subgraph만 incremental 재적용하면 되고(§7.2), 정합성 보증이 필요하면 full rebuild로 검증한다.
+
 ## 8. Query API 개요
 
 조사(Investigation) 중심의 그래프 조회 계약. 상세 REST 계약은 [`09`](./09-api.md), 성능 목표는 [`11`](./11-observability-and-governance.md)에 위임한다.
+
+- **canonical view-rewrite는 필수 wrapper다.** 병합은 관계를 물리 재작성하지 않으므로(§5.2) 모든 serving 질의는 `SAME_AS*0..` 해소 단계를 거쳐 동치류를 canonical 대표로 접어야 한다. 이를 생략하면 merged-away member가 별도 엔터티로 노출된다.
+- **기본 필터.** 모든 serving 질의는 기본으로 `:Authoritative`만 반환하고 `:Deleted`를 제외한다(§4.1).
 
 ### 8.1 Investigation subgraph 조회
 
@@ -213,25 +264,32 @@ SET old.tx_to = $t;          // 이전 버전은 그래프에 남되 "현재 아
 
 ```cypher
 // investigation 범위의 claim + 근거 subgraph (progressive: 1-hop)
+// canonical view-rewrite: scope의 canonical 대표 → SAME_AS 동치류 전체의 claim을 접어 조회(§5.2)
 MATCH (inv:Investigation {id:$inv})
-MATCH (c:Claim:Authoritative)-[:ABOUT]->(e:Entity)
-WHERE e.id IN inv.scope_entities
+UNWIND inv.scope_entities AS seed
+MATCH (canon:Entity {id: seed})                 // scope는 canonical id 기준
+MATCH (member:Entity)-[:SAME_AS*0..]->(canon)   // 동치류 전체(자기 포함)
+MATCH (c:Claim:Authoritative)-[:ABOUT]->(member)
+WHERE NOT c:Deleted
 OPTIONAL MATCH (ev:Evidence)-[r:SUPPORTS|CONTRADICTS]->(c)
-RETURN c, r, ev LIMIT $page;
+RETURN canon AS entity, c, r, ev LIMIT $page;
 ```
 
 ### 8.2 Time-travel (AS-OF)
 
-- **AS-OF valid time `T_v`:** `valid_from ≤ T_v < valid_to`.
+- **버전 축은 Assertion에 부착**된다(§6, [`03-storage`](./03-storage-and-data-model.md) §6.2). AS-OF 질의는 `Assertion`의 valid/tx를 필터하고 대응 `Claim`을 `claim_id`로 잇는다.
+- **AS-OF valid time `T_v`:** `valid_from ≤ T_v < valid_to`. `valid_from IS NULL`이면 open lower bound(하한 무제한)로 항상 하한을 충족하며, 경계 해석은 `time_precision`을 따른다.
 - **AS-OF transaction time `T_t`:** `tx_from ≤ T_t < (tx_to ?? ∞)`.
 - 두 축 동시 지정으로 "특정 관찰 시점 기준, 특정 유효 시점 상태"를 재현한다([`03-storage`](./03-storage-and-data-model.md) §6.3). superseded 버전을 삭제하지 않으므로 과거 상태가 그대로 조회된다.
 
 ```cypher
-// AS-OF: T_t 시점에 시스템이 믿던, T_v 시점에 유효한 claim
-MATCH (c:Claim:Authoritative)
-WHERE c.valid_from <= $Tv AND ($Tv < c.valid_to OR c.valid_to IS NULL)
-  AND c.tx_from <= $Tt AND ($Tt < c.tx_to  OR c.tx_to  IS NULL)
-RETURN c;
+// AS-OF: T_t 시점에 시스템이 믿던, T_v 시점에 유효한 assertion 버전 → 대응 claim
+MATCH (a:Assertion:Authoritative)
+WHERE (a.valid_from IS NULL OR a.valid_from <= $Tv)   // open lower bound 처리
+  AND ($Tv < a.valid_to OR a.valid_to IS NULL)
+  AND a.tx_from <= $Tt AND ($Tt < a.tx_to OR a.tx_to IS NULL)
+MATCH (c:Claim {id: a.claim_id})
+RETURN a, c;
 ```
 
 ### 8.3 Progressive disclosure (hairball 금지)
@@ -249,3 +307,5 @@ RETURN c;
 | ADR-603 | authoritative/quarantine를 초기엔 상태 라벨로 논리 분리, 확장 시 물리 분리 | Community 다중 DB 제약, blueprint §8.9 | Accepted |
 | ADR-604 | graph 재구축은 event log replay 기반(full/incremental), migration backfill도 replay 우선 | SoT는 log·graph는 파생([`03`](./03-storage-and-data-model.md) §7, §17) | Accepted |
 | ADR-605 | entity merge는 canonical 매핑 + view rewrite, ID 재작성 금지, unmerge로 가역 | 오병합 복구·precision-first(blueprint §8.5, 불변식 §3-4) | Accepted |
+| ADR-606 | bitemporal 버전 단위는 `Assertion`(valid/tx·supersede·AS-OF·인덱스 모두 Assertion에 부착), Claim은 reified statement | 03 §6.2와 정합, Claim/Assertion 축 분열 제거 | Accepted |
+| ADR-607 | rollback은 log truncation이 아니라 역이벤트(`delete`/`unmerge`/`supersede`) 발행으로 표현, 이후 incremental rebuild | append-only 불변식 §3-3, 감사·재현성 보존([`03`](./03-storage-and-data-model.md) §7.2) | Accepted |

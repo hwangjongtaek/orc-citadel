@@ -1,6 +1,6 @@
 # 11 · 관측·거버넌스 (Watchtower · Signal Spire)
 
-> **상태:** Draft · **Spec:** 0.1.0 · **Blueprint 매핑:** §11, §13, §14
+> **상태:** Review · **Spec:** 0.1.0 · **Blueprint 매핑:** §11, §13, §14
 > 상위 규약: [README](./README.md) · 관련: [01-architecture](./01-architecture.md), [03-storage](./03-storage-and-data-model.md), [04-ingestion](./04-ingestion-and-parsing.md)
 
 Watchtower(Observability)와 Signal Spire(Alerting)의 계약, 그리고 출처 신뢰도·독립성 모델과 안전·거버넌스 규칙을 확정한다. 본 문서는 파이프라인 **전 stage를 관통하는 correlation·SLO·감사** 계약(→ [01](./01-architecture.md) §3-3, §4)과, 저장 계층의 삭제 전파·provenance 게이트(→ [03](./03-storage-and-data-model.md) §8)를 운영 절차로 구체화한다.
@@ -38,7 +38,7 @@ blueprint §11의 7개 판단 축을 독립 차원으로 확정한다. 각 차�
   "source_id": "src-01J9...",
   "dimensions": {
     "directness":  { "value": "direct_party", "evidence_ref": ["ext-..."], "judged_by": "rule:ownership-map", "assessed_at": "2026-08-03T00:00:00Z" },
-    "primacy":     { "value": "primary",      "evidence_ref": ["ext-..."], "judged_by": "llm:claude-sonnet-5" },
+    "primacy":     { "value": "primary",      "evidence_ref": ["ext-..."], "judged_by": "llm:claude-sonnet-5", "prompt_hash": "sha256:...", "model_id": "claude-sonnet-5-2026..." },
     "cites_others":{ "value": true,  "cited_doc_ids": ["doc-...", "doc-..."], "judged_by": "pipeline:cite-extractor" },
     "correction_history": { "count": 2, "correction_refs": ["mut-...", "mut-..."] },
     "conflict_of_interest": { "value": "financial", "rationale": "발행 주체가 주장 대상의 지분 보유", "judged_by": "human:analyst-3" },
@@ -49,6 +49,7 @@ blueprint §11의 7개 판단 축을 독립 차원으로 확정한다. 각 차�
 }
 ```
 
+- `judged_by`가 `llm:*`인 차원은 재현·감사를 위해 판정에 사용한 `prompt_hash`·`model_id`를 해당 차원 객체에 함께 부착한다(`assessment_version`과 병기). `rule:*`·`human:*` 판정에는 요구하지 않는다.
 - `dimensions{}`는 **결론이 아니라 신호**다. 조회 시 UI는 단일 게이지 대신 차원별 값과 근거 수를 함께 노출한다 (blueprint §1.4 접근성: "confidence는 단일 색상 게이지 대신 값·근거 수·독립 출처 수를 함께 표시").
 
 ### 1.4 독립 증거 수 보정 (dup_clusters 연동)
@@ -62,6 +63,8 @@ independent_evidence_count(claim)
 ```
 
 - 클러스터 하나(root + 파생)는 **독립 증거 1**로 축소한다. `independent_addition_doc_ids[]`(독립적 추가 정보 보유 문서)만 추가 카운트한다.
+- **집계 단위는 출처(source) 단위이며 문서(doc) 단위가 아니다.** 카운트 기준은 supporting document의 `root_source`(파생 제거 후 근원 출처)이다.
+- **정본 소유:** per-claim 독립 증거 집계 공식은 본 절(§1.4)이 정본이다. [04](./04-ingestion-and-parsing.md)는 cluster → `root_source` 기여 단위 축소만 수행하고 per-claim 집계는 본 절에 위임한다. 이 값은 [09](./09-api.md)에서 `independent_source_count`로 노출된다.
 - 이 보정값은 investigation 결과의 `evidence coverage` 대시보드(§2)와 Signal Spire의 "신규 독립 출처" 트리거(§5)에 직접 사용된다.
 - 상세 dedup·계보 판정은 [04](./04-ingestion-and-parsing.md) §중복·계보가 소유한다(exact/near/semantic 3수준).
 
@@ -83,7 +86,8 @@ source fetch (S1)
   → investigation result (S9, inv-…)
 ```
 
-- `correlation_id`는 fetch에서 최초 생성되고(→ [03](./03-storage-and-data-model.md) §2.2 `fetch.json.fetch_correlation_id`), 이후 모든 stage 산출물·이벤트·로그·metric에 부착된다.
+- 위 체인은 발췌이며, S4(dedup·계보)·S8(색인)도 `correlation_id`를 전파하되 다이어그램에서는 생략했다.
+- `correlation_id`는 fetch에서 최초 생성되고(→ [03](./03-storage-and-data-model.md) §2.2 `fetch.json.fetch_correlation_id`), 이후 모든 stage 산출물·이벤트·로그·metric에 부착된다. `fetch_correlation_id`는 별도 ID가 아니라 곧 파이프라인 `correlation_id`이며(`corr-` prefix), 이름만 fetch 컨텍스트용으로 붙었을 뿐 동일 값이다.
 - **정합 계약:** `graph_mutations` 이벤트의 `correlation_id`는 그 mutation을 유발한 fetch까지 왕복 추적 가능해야 한다. 이로써 "이 그래프 변경은 어느 문서 수집에서 비롯됐나"를 감사할 수 있다 (Trail, blueprint §1.2).
 - 한 fetch가 여러 mutation을 낳거나(1:N) 여러 문서가 하나의 canonical claim에 기여(N:1)할 수 있으므로 `correlation_id`는 **전파되되 재작성되지 않는다**. 분기 시 `parent_correlation_id`로 계보를 남긴다.
 
@@ -161,7 +165,7 @@ Signal Spire는 **결론과 confidence의 중요한 변화**만 알린다(운영
 ### 4.2 1회 점화 (과잉 알림 금지)
 
 - Signal Spire는 중요한 변화에 한해 **한 번 점화(fire-once)** 하며 무한 반복하지 않는다 (blueprint §1.4 모션 원칙: "중요한 변화에 한해 한 번 점화").
-- 동일 (campaign, trigger_type, target) 조합은 **dedup key**로 묶어 이미 점화된 변화를 재알림하지 않는다. 상태가 재차 유의미하게 변할 때만(예: confidence가 반대 방향으로 임계 재돌파) 새 알림을 만든다.
+- 동일 (investigation, trigger_type, target) 조합은 **dedup key**로 묶어 이미 점화된 변화를 재알림하지 않는다. 상태가 재차 유의미하게 변할 때만(예: confidence가 반대 방향으로 임계 재돌파) 새 알림을 만든다.
 - 알림은 investigation을 Campaign으로 등록한 사용자에게만, 관련 War Table subgraph 갱신 시 후보로 생성된다 (blueprint §5.3).
 
 ### 4.3 Alert 스키마
@@ -169,7 +173,7 @@ Signal Spire는 **결론과 confidence의 중요한 변화**만 알린다(운영
 ```json
 {
   "alert_id": "alt-01J9...",
-  "campaign_id": "inv-01J9...",
+  "investigation_id": "inv-01J9...",
   "trigger_type": "contradicting_evidence",
   "severity": "material",
   "dedup_key": "inv-01J9...:contradicting_evidence:clm-01J9...",
@@ -190,6 +194,7 @@ Signal Spire는 **결론과 confidence의 중요한 변화**만 알린다(운영
 }
 ```
 
+- alert의 대상 식별 필드는 `investigation_id`(technical-first)이며 `campaign_id`를 쓰지 않는다. [09](./09-api.md)의 investigation 계약과 동일 필드명으로 정합한다(→ [09](./09-api.md) ADR-903). "Campaign"은 사용자가 investigation을 관찰 대상으로 등록하는 UI 개념이며, 알림 스키마 필드는 `investigation_id`로 통일한다.
 - `cause`는 provenance 게이트를 통과한 근거만 담는다. **알림 역시 감사 가능**해야 하며, 사용자는 알림에서 mutation → evidence → 원문 span까지 추적할 수 있어야 한다(Trail).
 - `severity`는 결론 변화 크기 기준(`material`/`minor`)이며, 색·아이콘이 아니라 값과 delta로 표현한다(blueprint §1.4 접근성).
 
@@ -203,8 +208,23 @@ Signal Spire는 **결론과 confidence의 중요한 변화**만 알린다(운영
 | --- | --- |
 | 공개적으로 허용된 자료만 수집 | fetch 시 `robots_allowed`·`license` 검사(→ [03](./03-storage-and-data-model.md) §2.2 `fetch.json`), 위반 시 수집 거부 + D1 기록 |
 | 개인정보·민감정보 최소화 | 추출 단계에서 불필요 PII 저장 억제, 민감 필드 태깅 |
-| Retention 정책 | 개인정보·민감정보는 별도 retention 클래스, 만료 시 삭제 전파(§5.2) 트리거 |
+| Retention 정책 | 모든 source·document는 `retention_class`를 부여받고(§5.1.1), 클래스별 TTL 만료 시 삭제 전파(§5.2) 자동 트리거 |
 | 사람 대상 부정적 주장 | **복수 독립 출처 + 높은 검증 기준**. 단일 출처면 authoritative graph 진입 금지 → quarantine(§1.4 독립 증거 수 연동) |
+
+#### 5.1.1 `retention_class` 정의
+
+각 source·document는 수집 시 `retention_class`를 부여받는다. **저장 위치:** source config에 source 단위 기본값을 두고, 개별 문서가 더 강한 클래스를 요구하면 [03](./03-storage-and-data-model.md) `documents` 레코드의 `retention_class` 컬럼으로 override한다(문서 단위가 source 기본값보다 우선). **강제 지점:** Watchtower의 retention sweeper(일일 배치)가 TTL 경과 대상을 스캔해 §5.2 삭제 전파 절차를 발행한다.
+
+| `retention_class` | 대상 | TTL(placeholder) | 만료 시 동작 |
+| --- | --- | --- | --- |
+| `standard` | 공개 문서·일반 출처 | 무기한(정책 재평가까지) | 없음 |
+| `sensitive_pii` | 개인정보·민감정보 포함 문서 | `≤ 180d` (TBD) | §5.2 삭제 전파 자동 트리거 |
+| `legal_hold` | 법적 보존 의무 대상 | 해제까지 삭제 금지 | 삭제 요청도 보류(hold 우선, §5.2보다 우선) |
+| `ephemeral` | 임시 취득·저신뢰 원천 | `≤ 30d` (TBD) | §5.2 삭제 전파 자동 트리거 |
+
+- TTL 수치는 placeholder이며 법무·정책 검토 후 확정한다(§2.3 SLO와 동일 원칙).
+- `legal_hold`은 삭제 요청(§5.2)보다 우선하여, hold 해제 전까지는 삭제 전파를 보류하고 그 사실을 append-only 이벤트로 기록한다(감사성 유지).
+- retention 만료로 발행된 삭제는 §5.2의 raw→normalized→curated→graph 역방향 전파를 그대로 따르며 idempotent하다.
 
 ### 5.2 삭제 요청 파생 전파 (03 §8.4 구체화)
 
@@ -235,7 +255,7 @@ Deletion request (doc_id | source_id | subject entity)
 | --- | --- |
 | 결론에 불확실성·출처 한계·미조사 영역 표시 | investigation 결과에 evidence coverage(§2 D8)·독립 증거 수·미조사 subclaim 필수 노출(blueprint §5.2) |
 | 그래프 변경·수동 교정 감사 로그 | 모든 변경은 `graph_mutations`에 `actor`(pipeline/llm/human)·`version_tuple`·`correlation_id`와 함께 기록(→ [03](./03-storage-and-data-model.md) §7.1). human review는 원 모델 출력·수정·이유를 함께 저장(불변식 §3-7) |
-| source별 크롤링정책·라이선스·재배포 관리 | source config에 crawl policy·license·redistribution 플래그. 원문 재배포는 라이선스 허용 source로 한정(blueprint §18 데이터 라이선스 위험) |
+| source별 크롤링정책·라이선스·재배포 관리 | source config의 `compliance` 스키마(→ [04](./04-ingestion-and-parsing.md))에 crawl policy·license·`allow_redistribute`(bool) 필드. 원문 재배포는 `allow_redistribute = true`인 source로만 한정(blueprint §18 데이터 라이선스 위험) |
 
 ### 5.5 감사(Trail) 계약
 
@@ -259,3 +279,4 @@ report sentence | alert → claim → evidence (source_span)
 | ADR-1104 | Signal Spire는 결론 변화만 알리고 fire-once(dedup key), 운영 경보(SLO 위반)와 채널 분리 | 과잉 알림 금지(blueprint §5.3, §1.4) | Accepted |
 | ADR-1105 | 독립 증거 수는 `dup_clusters` 기반 root source 축소로 보정 | 동일 근원 복제의 confidence 과대평가 차단(blueprint §8.3, §11) | Accepted |
 | ADR-1106 | SLO 목표치는 placeholder로 두고 실측 후 확정(측정 창·상태 명시) | 측정 기반 운영, 근거 없는 목표 배제(blueprint §20) | Accepted |
+| ADR-1107 | Retention을 `retention_class` enum(`standard`/`sensitive_pii`/`legal_hold`/`ephemeral`)으로 확정 — source config 기본값 + `documents` override에 저장, 클래스별 TTL 만료 시 Watchtower sweeper가 §5.2 삭제 전파 자동 트리거, `legal_hold`은 삭제 요청보다 우선 | 개인정보·민감정보 최소화 및 삭제 전파 계약 명시, 법적 보존 의무 충돌 방지(blueprint §13) | Accepted |

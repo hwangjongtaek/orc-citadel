@@ -4,14 +4,14 @@
 > 규칙: 설계·구현 변경은 (1) 해당 design 문서 수정 (2) `design/README.md` Spec version 반영 (3) 본 문서 §5 Changelog 기록의 3단계를 거친다.
 
 - **최종 갱신:** 2026-08-03
-- **현재 단계:** Phase 0 (설계·데이터 검증) — *설계 진행 중*
+- **현재 단계:** Phase 0 (설계·데이터 검증) — *설계 문서 Review 승격 완료, Stable 확정 대기*
 - **Spec version:** 0.1.0 · **Ontology version:** 1.0.0
 
 ## 1. 상태 요약 (한눈에)
 
 | 트랙 | 상태 | 비고 |
 | --- | --- | --- |
-| 상세 설계 (Design SSOT) | 🟡 진행 중 | 12개 문서 전부 Draft 작성 + 상호 참조 일관성 검수 완료. Review 대기 |
+| 상세 설계 (Design SSOT) | 🟡 Review | 12개 문서 Review 승격. 리뷰 패스 완료(BLOCKER 3 + MAJOR 36 해소, 상호 일관성 재검증 전항목 PASS). Stable 확정 대기 |
 | 도메인·소스 선정 | ⬜ 예정 | AI 반도체·데이터센터 공급망 확정, source 3~5개 미선정 |
 | 1만 문서 샘플 | ⬜ 예정 | Phase 0 완료 조건 |
 | Prototype 구현 | ⬜ 예정 | provenance·bitemporal prototype |
@@ -24,18 +24,18 @@
 
 | # | 문서 | 작성 | 리뷰 | 확정 |
 | --- | --- | :---: | :---: | :---: |
-| — | README (인덱스·규약) | ✅ | ⬜ | ⬜ |
-| 01 | architecture | ✅ | ⬜ | ⬜ |
-| 02 | ontology | ✅ | ⬜ | ⬜ |
-| 03 | storage-and-data-model | ✅ | ⬜ | ⬜ |
-| 04 | ingestion-and-parsing | ✅ | ⬜ | ⬜ |
-| 05 | resolution-and-extraction | ✅ | ⬜ | ⬜ |
-| 06 | graph-service | ✅ | ⬜ | ⬜ |
-| 07 | llm-and-agents | ✅ | ⬜ | ⬜ |
-| 08 | search-and-graphrag | ✅ | ⬜ | ⬜ |
-| 09 | api | ✅ | ⬜ | ⬜ |
-| 10 | evaluation-and-testing | ✅ | ⬜ | ⬜ |
-| 11 | observability-and-governance | ✅ | ⬜ | ⬜ |
+| — | README (인덱스·규약) | ✅ | ✅ | ✅ |
+| 01 | architecture | ✅ | ✅ | ⬜ |
+| 02 | ontology | ✅ | ✅ | ⬜ |
+| 03 | storage-and-data-model | ✅ | ✅ | ⬜ |
+| 04 | ingestion-and-parsing | ✅ | ✅ | ⬜ |
+| 05 | resolution-and-extraction | ✅ | ✅ | ⬜ |
+| 06 | graph-service | ✅ | ✅ | ⬜ |
+| 07 | llm-and-agents | ✅ | ✅ | ⬜ |
+| 08 | search-and-graphrag | ✅ | ✅ | ⬜ |
+| 09 | api | ✅ | ✅ | ⬜ |
+| 10 | evaluation-and-testing | ✅ | ✅ | ⬜ |
+| 11 | observability-and-governance | ✅ | ✅ | ⬜ |
 
 **설계 단계 종료 조건:** 12개 문서 전부 Review 통과 + 상호 참조 일관성 검증 + Phase 0 완료 조건(§3)에 매핑되는 스펙 확정.
 
@@ -129,6 +129,10 @@
 가장 최신이 위로. 스펙·설계 변경만 기록한다 (구현 커밋은 git 이력).
 
 ### 2026-08-03
+- **설계 문서 Review 승격 (리뷰 패스 완료).** 12개 문서를 blueprint 충실도·7 불변식·상호참조·구현가능성 기준으로 병렬 심층 리뷰(문서별 11 + 상호 일관성 스윕 1). BLOCKER 3 + MAJOR 36 + MINOR 다수를 문서에 직접 반영 후 독립 재검증(전항목 PASS). 상태 `Draft`→`Review`. Spec은 0.1.0 유지(Stable 변경 아님).
+  - **BLOCKER 해소:** (1) 06 Applier에 `unmerge` op 분기 추가(merge 가역성·불변식 3·4) (2) 02 미정의 `TimeInterval` 노드/`VALID_DURING` 엣지 폐기, valid time을 inline 속성 단일 표현(ADR-206) (3) 02 `Assertion` 속성표 신설 + Claim→Assertion materialization 계약(ADR-207).
+  - **교차 결정(사용자 확정):** 독립 증거 수 = **출처(source) 단위**(11 §1.4 정본, 04 위임, 09 `independent_source_count`); ER LLM '동일' 판정 → **`POSSIBLY_SAME_AS` 후보만, 확정 병합은 인간확인/결정적 식별자로만**(precision-first, 05 ADR-507).
+  - **정합 반영:** 버전축 4→**5축**(`extraction_code_version` 포함); 보고서 문장 `kind`→정본 `modality{fact,asserted,opinion,prediction}`(07↔09); mention ID `men-` 접두사 등록; quarantine 논리 분리(라벨)→확장 시 물리(06 ADR-603); `allow_redistribute` 재배포 게이트(04↔11); alert `campaign_id`→`investigation_id`; retention_class 정책(11); 03 promoted-claim 저장·assertions=projection 재정의; 08 hybrid fusion(RRF k=60)·embedding/reranker 핀(bge-m3); 09 authz·테넌시; 10 slo-gate 분리·held-out partition·회귀 tolerance.
 - **설계 SSOT 착수.** `docs/design/` 신설. 백본 문서 작성: README(규약·ID 체계·불변식), 01-architecture, 02-ontology(v1.0.0), 03-storage-and-data-model.
 - 하위 스펙 04–11 초안 작성 (수집·해소·그래프·LLM/에이전트·검색·API·평가·관측/거버넌스).
 - **상호 참조 일관성 검수 완료.** 불변식 위반 없음. 수정 반영: (a) `graph_mutations.op` enum에 `unmerge` 추가(03/08/09) (b) Signal Spire 트리거 enum 09↔11 통일(정본 11 §4.1) (c) S7 idempotency key를 `mutation_id`→`idempotency_key`(stage input 해시)로 정정(01/11) (d) `MEMBER_OF` 엣지 02 §3 등재 (e) `segments.norm_char_end` 추가(양방향 offset 매핑) (f) `clus-` 접두사·운영 ID·버전 필드명 별칭 정합.

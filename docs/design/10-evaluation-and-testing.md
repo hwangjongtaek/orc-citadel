@@ -1,6 +1,6 @@
 # 10 · 평가·테스트
 
-> **상태:** Draft · **Spec:** 0.1.0 · **Blueprint 매핑:** §12, §15
+> **상태:** Review · **Spec:** 0.1.0 · **Blueprint 매핑:** §12, §15
 > 상위 규약: [`README`](./README.md) · 관련: [`05-resolution`](./05-resolution-and-extraction.md), [`07-llm`](./07-llm-and-agents.md), [`11-observability`](./11-observability-and-governance.md)
 
 Orc Citadel의 **평가 지표(evaluation metrics)**, **골든 데이터셋(golden dataset)**, **회귀 테스트(regression)**, **테스트 전략(test strategy)**, **CI 게이트**를 확정한다. blueprint §12(평가 체계)·§15(테스트 전략)을 구현 계약으로 승격한 문서이며, 모델·프롬프트·온톨로지 버전 변경의 **승격 게이트(promotion gate)** SSOT다 ([`README`](./README.md) §2.3, [`07-llm`](./07-llm-and-agents.md) §9.5).
@@ -15,7 +15,7 @@ blueprint §12의 4범주를 지표별 **정의·계산식·목표/게이트**�
 
 공통 정의:
 - **Precision** `P = TP / (TP + FP)`, **Recall** `R = TP / (TP + FN)`, **F1** `= 2PR / (P + R)`.
-- 목표/게이트에서 **`gate:`** 는 CI/승격 차단 임계값(미달 시 block), **`target:`** 은 지향값(추적·경보만)이다.
+- 목표/게이트에서 **`gate:`** 는 CI/승격 차단 임계값(미달 시 block), **`slo-gate:`** 는 운영 SLO 회귀 경보 임계값(비차단 nightly alert, §6.3), **`target:`** 은 지향값(추적·경보만)이다. `slo-gate:`/`target:`은 CI/승격을 막지 않는다.
 
 ### 1.1 데이터 품질 (§12.1)
 
@@ -47,34 +47,37 @@ blueprint §12의 4범주를 지표별 **정의·계산식·목표/게이트**�
 
 ### 1.3 조사 품질 (§12.3)
 
-Evaluation은 최종 조사 질문(§2.6 golden question) 실행 결과를 채점한다. Synthesis/Audit Agent 출력을 대상으로 한다 (→ [`07-llm`](./07-llm-and-agents.md)).
+Evaluation은 최종 조사 질문(§2.1 golden question) 실행 결과를 채점한다. Synthesis/Audit Agent 출력을 대상으로 한다 (→ [`07-llm`](./07-llm-and-agents.md)).
 
 | 지표 | 정의 | 계산식 | 목표·게이트 |
 | --- | --- | --- | --- |
 | 하위질문 coverage | 계획된 subclaim 중 evidence로 뒷받침된 비율 | `covered_subclaims / planned_subclaims` | `gate: ≥ 0.80` |
 | 인용 연결률 (citation linkage) | 보고서 검증가능 문장 중 claim/source span이 연결된 비율 | `linked_sentences / verifiable_sentences` | `gate: = 1.0` (evidence-first, 불변식 §3-5) |
 | 인용 지지율 (citation support) | 인용이 실제로 해당 문장을 지지하는 비율 | `supporting_citations / total_citations` (사람/LLM judge) | `gate: ≥ 0.95` |
-| 독립증거 수 정확성 | 보고된 독립 증거 수가 정답과 일치 | `1 − mean(|reported_indep − gold_indep| / gold_indep)` | `target: ≥ 0.90` |
+| 독립증거 수 정확성 | 보고된 독립 증거 수가 정답과 일치 | `1 − mean(|reported_indep − gold_indep| / max(gold_indep, 1))` (gold=0인 경우: reported=0이면 1, 아니면 0으로 처리) | `target: ≥ 0.90` |
 | 반증 발견률 (counter-evidence recall) | 골든에 존재하는 반대 증거 중 발견 비율 | `found_counter / total_gold_counter` | `target: ≥ 0.70` |
 | 사실/주장/추론 구분 정확도 | 문장 `modality` 분류 정확도(fact/asserted/opinion/prediction) | `correct_modality / total_sentences` | `gate: ≥ 0.85` |
-| Confidence 변화 적절성 | 숨은 evidence 추가 시 confidence 변화 방향·크기 적절성 | ablation: 지지 추가→상승·반증 추가→하락 방향 일치율 | `target: ≥ 0.85` (부호 일치 필수) |
+| Confidence 변화 적절성 | 숨은 evidence 추가 시 confidence 변화 방향·크기 적절성 | ablation: 지지 추가→상승·반증 추가→하락 **부호(방향) 일치율** | `target: ≥ 0.85` (부호 일치율 기준 — 방향이 우선, 크기는 부차) |
 
 `인용 연결률 = 1.0`은 무출처 문장 차단(Audit Agent)의 직접 게이트다 (blueprint §9.3 Audit, §13).
 
+> **LLM-as-judge 보정(calibration).** `인용 지지율`처럼 LLM judge가 채점하는 blocking 지표는, 게이트로 쓰기 전 **human agreement baseline**(judge↔human 라벨 일치도: Cohen's κ 또는 accuracy)을 골든 `dev` 파티션(§2.4)에서 측정한다. 합의도 미달 시 judge 점수를 게이트로 승격하지 않고 **사람 채점으로 강등**한다. 보정치(κ·accuracy)는 회귀 리포트에 함께 남긴다.
+
 ### 1.4 시스템 성능 (§12.4)
 
-성능 지표는 CI 회귀가 아니라 **부하 테스트(load test, §3.5)·운영 SLO**로 검증한다. 게이트는 목표 SLO 대비 회귀 감지 기준이다 (→ [`11-observability`](./11-observability-and-governance.md) §SLO).
+성능 지표는 CI 회귀가 아니라 **부하 테스트(load test, §4.5)·운영 SLO**로 검증한다. `slo-gate:`는 목표 SLO 대비 회귀 감지 기준이며 **CI/승격을 차단하지 않고 nightly 경보로만 라우팅**한다 (§6.3, → [`11-observability`](./11-observability-and-governance.md) §2.3).
 
 | 지표 | 정의 | 계산식 | 목표·게이트 |
 | --- | --- | --- | --- |
 | 수집/파싱 throughput | 초당 처리 문서 수 | `docs_processed / elapsed_sec` | `target: ≥ 50 docs/s` (MVP) |
 | 100만 재처리 시간 | 전체 dataset full rebuild 소요 | wall-clock (분산 batch) | `target:` 공개·추적 (blueprint §21-2) |
-| 그래프 반영 지연 | 신규 문서 수집→graph 반영 latency | `graph_commit_ts − fetched_ts` (p95) | `gate: p95 ≤ SLO` (→ [`11`](./11-observability-and-governance.md)) |
+| 그래프 반영 지연 | 신규 문서 수집→graph 반영 latency | `graph_commit_ts − fetched_ts` (p95) | `slo-gate: p95 ≤ SLO` (→ [`11`](./11-observability-and-governance.md)) |
 | 문서당 LLM 비용 | 문서 1건 처리 LLM 비용 | `sum(llm_cost) / docs_processed` | `target:` 추적·경보 |
+| 문서당 총 처리비용 (total cost/doc) | 문서 1건 처리 총비용(LLM + compute + storage) | `(sum(llm_cost) + compute_cost + storage_cost) / docs_processed` | `target:` 추적·공개 (blueprint §20/§21-9) |
 | Investigation 비용/latency | 조사 1건당 비용·지연 | `cost_per_inv`, `latency_p95` | `target:` budget 내 |
 | 캐시 적중률 | LLM/검색 캐시 hit 비율 | `cache_hits / cache_lookups` | `target: ≥ 0.60` |
-| Retry/DLQ 비율 | 재시도·dead-letter 이벤트 비율 | `(retries + dlq) / total_jobs` | `gate: ≤ 0.05` |
-| Graph query p50/95/99 | 그래프 조회 지연 분위수 | percentile latency | `gate: p99 ≤ SLO` |
+| Retry/DLQ 비율 | 재시도·dead-letter 이벤트 비율 | `(retries + dlq) / total_jobs` | `slo-gate: ≤ 0.05` |
+| Graph query p50/95/99 | 그래프 조회 지연 분위수 | percentile latency | `slo-gate: p99 ≤ SLO` |
 
 ---
 
@@ -119,6 +122,20 @@ blueprint §12.5를 확정한다.
 - 골든셋은 curated zone과 별도 버전 관리(레코드별 `gold_version`·`labeled_by`·`labeled_at`)하며, 회귀 실행은 **골든 버전 + 파이프라인 version tuple** 조합을 리포트에 남긴다.
 - 골든 정답 수정도 append-only 이력으로 남긴다(정답 자체의 감사 가능성).
 
+### 2.4 평가 파티션 (held-out split — 튜닝 ↔ 게이트 분리)
+
+임계값·프롬프트 튜닝에 쓴 데이터를 그대로 승격 게이트로 재사용하면 게이트가 과대평가된다(**tuning↔gate leakage**). 이를 막기 위해 각 골든 세트를 레코드 단위로 고정 분할하고, 분할 결과를 각 레코드에 `split ∈ {dev, test}`로 태깅해 append-only로 고정한다 (ADR-1007).
+
+| 파티션 | 비율(placeholder) | 용도 | 접근 규칙 |
+| --- | --- | --- | --- |
+| `dev` (튜닝셋) | ~40% | 임계값·프롬프트 튜닝, 오류 분석, LLM-judge calibration(§1.3) | 반복 조회 허용 |
+| `test` (held-out 게이트셋) | ~60% | §3 승격 게이트·§6.2 hard-gate 판정 | 튜닝 중 조회 금지 — 게이트 실행 시에만 |
+
+- **승격 게이트 판정(§3.1·§6.2)은 `test` 파티션에서만** 수행한다. `dev`에서 조정한 임계값을 건드리지 않은 `test`에서 검증해 leakage 없이 승격을 결정한다.
+- **grouping split:** 05 quarantine review(§2.2)에서 유입되는 신규 레코드 중 **동일 entity·동일 root 문서에서 파생된 레코드는 같은 파티션에 배정**해 train/test 누수를 차단한다(레코드 무작위 분할 금지).
+- 각 세트는 §2.1의 층화(도메인/타입/난이도) 균형을 파티션별로 유지한다.
+- 분할 비율·경계는 `gold_version`에 바인딩하며, 재분할은 신규 `gold_version`으로만 반영한다(과거 게이트 결과 재현성 보존). 비율은 실측 후 [`README`](./README.md) §2.6 절차로 조정한다.
+
 ---
 
 ## 3. 회귀 테스트
@@ -136,13 +153,22 @@ model/prompt/ontology 변경
 ```
 
 - **골든 gate 미달 시 승격 차단**이 원칙이다. 특히 entity resolution `P`·오병합률·span/provenance 완전성은 hard block이다 (§1.1–1.2).
-- 프롬프트 교체는 `prompt_template_hash`, 모델 교체는 `model_id`, 온톨로지는 `ontology_version` 변경으로 감지한다 (version 4축, [`README`](./README.md) §2.3).
+- 프롬프트 교체는 `prompt_template_hash`, 모델 교체는 `model_id`, 온톨로지는 `ontology_version`, 스키마는 `schema_version`, 추출 코드는 `extraction_code_version` 변경으로 감지한다 (version 5축, [`README`](./README.md) §2.3).
 - 회귀 리포트는 **지표별 delta**와 **신규 실패 사례**를 포함하며 ADR/ROADMAP에 링크한다 (blueprint §20 산출물 "모델·프롬프트 변경 평가 리포트").
 
 ### 3.2 회귀 판정 규칙
 
-- 절대 게이트: §1의 `gate:` 임계값 미달 시 block.
-- 상대 게이트: 핵심 지표(entity/claim F1, contradiction P) **직전 승격 대비 하락 > 허용치(예: 1%p)** 시 block.
+- 절대 게이트: §1의 `gate:` 임계값 미달 시 block (판정은 §2.4 `test` 파티션).
+- 상대 게이트: 지표가 **직전 승격(last-promoted baseline) 대비 아래 per-metric 허용치를 초과해 하락**하면 block. 허용치는 초기 placeholder이며 골든셋 분산 실측 후 `dev` 파티션(§2.4)에서 재조정한다 (ADR-1008).
+
+| 지표 | 상대 허용치(placeholder) | 근거 |
+| --- | --- | --- |
+| entity resolution `P`, 오병합률 | `0`p (하락 불허, hard) | 오병합은 그래프 전역 오염 — 무관용 |
+| 인용 연결률, span/provenance 완전성 | `0`p (하락 불허, hard) | `= 1.0` 불변식 게이트(§3-2/§3-5) |
+| entity/claim F1, contradiction `P` | `≤ 1.0%p` 하락 | 핵심 품질 회귀 방지 |
+| canonicalization·temporal·coverage 등 기타 `gate:` 지표 | `≤ 2.0%p` 하락 | 측정 노이즈 허용폭 |
+| `target:` 지표 | 비차단(추세 경보만) | 지향값 |
+
 - 온톨로지 변경: controlled vocabulary 확장(minor)은 신규 predicate 세트만 부분 평가, 의미 변경(major)은 전량 재평가 ([`02`](./02-ontology.md) §6).
 
 ---
@@ -240,8 +266,8 @@ merge/승격을 차단하는 게이트를 명시한다.
 
 ### 6.2 Promotion-block (모델/프롬프트/온톨로지 승격)
 
-- **골든셋 회귀 통과** + §1 hard-gate(entity resolution `P` ≥ 0.97, 오병합률 ≤ 0.02, contradiction `P` ≥ 0.90, 인용 연결률 = 1.0) 충족 (§3.1).
-- 상대 게이트: 핵심 지표 직전 승격 대비 허용치 초과 하락 없음 (§3.2).
+- **골든셋 회귀 통과** + §1 hard-gate(entity resolution `P` ≥ 0.97, 오병합률 ≤ 0.02, contradiction `P` ≥ 0.90, 인용 연결률 = 1.0) 충족 (§3.1). 게이트 판정은 §2.4 `test`(held-out) 파티션에서 수행한다.
+- 상대 게이트: §3.2 per-metric 허용치를 초과해 직전 승격 대비 하락하는 지표 없음(entity resolution `P`·오병합률은 하락 불허).
 - 회귀 리포트 첨부 (delta + 신규 실패 사례).
 
 ### 6.3 Nightly (비차단, 경보)
@@ -261,3 +287,6 @@ merge/승격을 차단하는 게이트를 명시한다.
 | ADR-1004 | Span 보존율·provenance 완전성을 **= 1.0 merge-block 게이트**로 | provenance 불변식의 직접 강제 (불변식 §3-2, blueprint §13) | Accepted |
 | ADR-1005 | 골든 레코드에 **`ontology_version` 태깅**, 온톨로지 major bump 시 호환성 평가 | 온톨로지 버전과 평가 정합 ([`02`](./02-ontology.md) §6.3) | Accepted |
 | ADR-1006 | 파이프라인 stage를 **TDD + Tidy First(구조/행동 커밋 분리)**로 개발 | 재현성·회귀 안전성·품질 (AGENTS.md) | Accepted |
+| ADR-1007 | 골든셋을 **`dev`(튜닝)·`test`(held-out 게이트)로 grouping split**하고 승격 게이트는 `test`에서만 판정(§2.4) | 튜닝셋=게이트셋 재사용에 의한 게이트 과대평가(leakage) 방지, entity·doc 단위 grouping으로 train/test 누수 차단 (blueprint §20) | Accepted |
+| ADR-1008 | 상대 회귀 허용치를 **per-metric placeholder**(resolution `P`·오병합률 0p, F1·contradiction `P` ≤1%p, 기타 gate ≤2%p)로 명시하고 `dev`에서 실측 재조정(§3.2) | 단일 "예: 1%p" 비구속·모호 → 지표별 명시로 상대 게이트 실효화 | Accepted |
+| ADR-1009 | §1.4 시스템 성능 지표를 CI 차단 `gate:`가 아닌 **`slo-gate:`(비차단 nightly 경보)**로 재분류 | 성능은 부하·운영 SLO로 검증(§6.3), CI 회귀 게이트 아님 — `gate:` 토큰 의미(§1.4 intro) 정합 | Accepted |

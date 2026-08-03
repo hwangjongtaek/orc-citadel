@@ -1,6 +1,6 @@
 # 03 · 저장 계층·데이터 모델 (Grand Archive · Chronicle · Hall of Witnesses)
 
-> **상태:** Draft · **Spec:** 0.1.0 · **Blueprint 매핑:** §6.4, §6.5, §7.1, §17
+> **상태:** Review · **Spec:** 0.1.0 · **Blueprint 매핑:** §6.4, §6.5, §7.1, §17
 > 상위 규약: [`README.md`](./README.md) · 관련: [`02-ontology`](./02-ontology.md), [`06-graph`](./06-graph-service.md)
 
 Lakehouse 저장 계층(raw/normalized/curated), 테이블 스키마, ID 체계 적용, **append-only mutation log**, **bitemporal 모델**, **provenance chain**을 확정한다. 본 계층이 시스템의 **Source of Truth**이며 그래프·검색 인덱스는 여기서 재구축된다 (불변식 §3-1).
@@ -25,6 +25,22 @@ curated zone    entity mention · claim/evidence · canonical mapping · dedup c
 | normalized | Parquet | MinIO + 카탈로그 | 재생성 가능(parser_version) | S3 |
 | curated | Parquet(→Iceberg) | MinIO + 카탈로그 | 재생성 가능 | S5–S6 |
 | mutation log | Postgres(→Iceberg) | PostgreSQL | **append-only** | S7 |
+
+- **초기 로컬 분석**은 MinIO 위 Parquet를 **DuckDB**로 직접 질의한다(별도 엔진 불필요, blueprint §7.1). Scale 단계에서 Iceberg 카탈로그로 승격한다(§9).
+
+### 1.1 파티셔닝·클러스터링 스킴
+
+Parquet(→Iceberg) 파티션 키는 재처리·시간 질의·삭제 전파를 고려해 다음으로 확정한다.
+
+| 테이블 | 파티션 키 | 클러스터링/정렬 |
+| --- | --- | --- |
+| `documents` / `segments` | `source_id`, `publication_time`(월 버킷) | `doc_id` |
+| `mentions` / `claim_candidates` / `evidence_candidates` | `dedup_version`, `status` | `doc_id` |
+| `assertions` | `tx_from`(월 버킷) | `subject_id`, `predicate` |
+| `graph_mutations` | `tx_time`(일 버킷) | `mutation_id` |
+
+- 파티션 키는 재생성 버전 축(`parser_version`/`dedup_version`)과 정렬해 **전체 재처리 시 파티션 단위 교체**가 가능하도록 한다.
+- 삭제 전파(§8.4)는 `source_id`/`doc_id` 프루닝으로 대상 파티션을 좁힌다.
 
 ## 2. Raw Zone
 
@@ -84,7 +100,7 @@ raw/
 | --- | --- | --- |
 | `segment_id` | string(PK) | `<doc_id>#p<par>.s<sent>` — **결정적** |
 | `doc_id` | string | |
-| `kind` | enum | `paragraph`/`sentence`/`table_cell`/`footnote` |
+| `kind` | enum | `paragraph`/`sentence`/`table_cell`/`footnote`/`list_item` |
 | `text` | string | 정규화 텍스트 |
 | `char_start` | int | **원문(raw)** 기준 offset |
 | `char_end` | int | |
@@ -103,17 +119,20 @@ raw/
 
 | 컬럼 | 설명 |
 | --- | --- |
-| `mention_id` | ULID |
+| `mention_id` | `men-<ULID>` ([`README`](./README.md) §2.2) |
 | `doc_id` / `segment_id` | 출처 위치 |
 | `surface_text` | 표면형 |
 | `mention_type` | Person/Org/Product/... |
-| `char_start`/`char_end` | span |
+| `char_start`/`char_end` | span — **원문(raw)** 기준 offset (§3.2와 동일 축) |
 | `resolved_entity_id` | 해소 결과(nullable, → [`05`](./05-resolution-and-extraction.md)) |
 | `extraction_version` | 버전 tuple |
 
 ### 4.2 `claim_candidates` / `evidence_candidates`
 
 [`02`](./02-ontology.md) §2.4의 Claim/Evidence 속성을 그대로 저장하되 `status`(`candidate`/`promoted`/`quarantined`)를 추가한다. graph 반영 전 curated에 머문다.
+
+- **Claim-of-record.** 별도 `claims` 테이블을 두지 않고 `claim_candidates`에서 `status=promoted`인 row가 **claim-of-record**(정본 Claim)이다. §6.2 `assertions.claim_id` FK는 이 promoted row(`claim_id = claim_candidate_id`)를 참조한다 (ADR-306). `candidate`/`quarantined` row는 authoritative graph의 참조 대상이 될 수 없다.
+- **Claim→Assertion emission 계약.** Claim이 `promoted`로 전이될 때 정규 삼항(subject/predicate/object)과 valid time을 갖는 `Assertion`을 1건 이상 materialize한다. emission은 §7 `graph_mutations` 이벤트(`op=create_node`/`supersede`)를 통해서만 발생하며, 동일 `idempotency_key` 재실행 시 중복 발행하지 않는다 ([`02`](./02-ontology.md) §2.4 Claim→Assertion materialization 규칙과 정합).
 
 ### 4.3 `dup_clusters` (출처 계보)
 
@@ -154,19 +173,22 @@ blueprint §6.4를 스키마로 확정한다. 두 시간 축을 모든 `Assertio
 - `tx_to = null` → 현재도 시스템이 믿는 버전. 새 버전 추가 시 이전 버전의 `tx_to`를 close (덮어쓰기 금지).
 - 이로써 다음 질문에 답한다 (blueprint §6.4): "2025-03 실제 CEO?"(valid time) vs "2025-03에 시스템이 안 CEO?"(transaction time) vs "정정 자료가 과거 결론을 어떻게 바꿨나?"(supersession).
 
-### 6.2 `assertions` 테이블 (bitemporal, append-only)
+### 6.2 `assertions` 테이블 (bitemporal, system-versioned projection)
 
 | 컬럼 | 타입 | 설명 |
 | --- | --- | --- |
 | `assertion_id` | string(PK) | `asr-<ULID>` |
-| `claim_id` | string | → Claim |
-| `subject_id`/`predicate`/`object_id` | | 정규 삼항 |
-| `valid_from`/`valid_to`/`time_precision` | | valid time |
-| `tx_from`/`tx_to` | timestamp | transaction time |
+| `claim_id` | string | → Claim (§4.2 promoted claim-of-record) |
+| `subject_id`/`predicate`/`object_id` | string | 정규 삼항 |
+| `valid_from`/`valid_to` | timestamp(nullable) | valid time (열린 하한/상한 = `null`) |
+| `time_precision` | enum | `year`/`quarter`/`month`/`day`/`unknown` ([`README`](./README.md) §2.4) |
+| `tx_from`/`tx_to` | timestamp | transaction time (`tx_to` nullable) |
 | `supersedes_id` | string(nullable) | 대체 대상 assertion |
 | `superseded_reason` | string | 변경 원인 |
-| `mutation_event_id` | string | 생성 이벤트(→§7) |
+| `mutation_id` | string | 생성 이벤트(→§7 `graph_mutations.mutation_id`) |
 | `provenance_ref` | string[] | → §8 |
+
+- **Append-only SoT는 `assertions`가 아니라 `graph_mutations`이다** (§7, 불변식 §3-3). `assertions`는 mutation log에서 재구축 가능한 **system-versioned projection**이며, 유일하게 허용되는 in-place write는 supersession 시 **직전 버전의 `tx_to`를 close**하는 것뿐이다(그 외 컬럼 수정·row 물리 삭제 금지). 이 close 역시 `supersede` mutation 이벤트 적용의 결과로만 발생한다 (ADR-303, ADR-307).
 
 ### 6.3 시간 질의 계약
 
@@ -189,7 +211,7 @@ blueprint §6.4를 스키마로 확정한다. 두 시간 축을 모든 `Assertio
 | `payload` | jsonb | 대상 element·속성 |
 | `resolution_ref` | string(nullable) | → resolution decision([`05`](./05-resolution-and-extraction.md)) |
 | `actor` | enum | `pipeline`/`llm:<model>`/`human:<user>` |
-| `version_tuple` | jsonb | ontology/schema/prompt/model |
+| `version_tuple` | jsonb | 5축: `ontology_version`/`schema_version`/`prompt_template_hash`/`model_id`/`extraction_code_version` ([`README`](./README.md) §2.3) |
 | `correlation_id` | string | end-to-end 추적 |
 | `tx_time` | timestamp | 기록 시각 |
 
@@ -224,7 +246,7 @@ blueprint §6.5 최소 provenance 필드를 확정한다.
 | `extraction_id` | `ext-<ULID>` |
 | `element_id` | 생성된 claim/evidence/mention |
 | `doc_id` / `segment_id` | 원문 문서·구절 |
-| `char_start`/`char_end` | 문자 offset |
+| `char_start`/`char_end` | 문자 offset — **원문(raw)** 기준 (§3.2 dual offset 축과 동일) |
 | `content_hash` | 원문 해시 |
 | `fetched_at` / `published_at` | 수집·공개 시각 |
 | `model_id` / `prompt_template_hash` / `schema_version` | 추출 모델·프롬프트·스키마 버전 |
@@ -257,6 +279,8 @@ blueprint §7.3.
 | --- | --- | --- | --- |
 | ADR-301 | raw zone 완전 immutable, URL 변경분은 새 doc_id로 보존 | 재현성·버전 추적(blueprint §7.1) | Accepted |
 | ADR-302 | `segments`에 원문·정규화 offset **양방향** 저장 | provenance 왕복 보장(§8.2) | Accepted |
-| ADR-303 | bitemporal 2축을 assertions에 필수 저장, append-only | 변화 이력 재현(blueprint §6.4) | Accepted |
+| ADR-303 | bitemporal 2축을 assertions에 필수 저장 | 변화 이력 재현(blueprint §6.4) | Accepted |
 | ADR-304 | 그래프 변경은 `graph_mutations` 이벤트로만, replay로 재구축 | SoT는 log, graph는 파생(§17) | Accepted |
 | ADR-305 | provenance_ref 없는 element는 quarantine | 무출처 사실 차단(blueprint §13) | Accepted |
+| ADR-306 | 별도 `claims` 테이블 없이 `claim_candidates(status=promoted)`를 claim-of-record로 선언, promote 시 §7 이벤트로 Assertion emission | 후보/정본 이중 테이블 제거, `assertions.claim_id` FK 대상 확정(§4.2) | Accepted |
+| ADR-307 | `assertions`는 append-only SoT가 아니라 `graph_mutations`의 system-versioned projection — 허용 in-place write는 supersession 시 `tx_to` close뿐 | append-only 오표기 정정, SoT 단일화(§6.2, §7) | Accepted |

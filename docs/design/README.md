@@ -13,17 +13,17 @@
 | # | 문서 | 범위 | 상태 | Blueprint 매핑 |
 | --- | --- | --- | --- | --- |
 | — | [`README.md`](./README.md) | SSOT 인덱스·규약·용어 | Stable | §1.2 |
-| 01 | [`01-architecture.md`](./01-architecture.md) | 시스템 아키텍처·컴포넌트·데이터 흐름·기술 스택·배포 토폴로지 | Draft | §7, §17 |
-| 02 | [`02-ontology.md`](./02-ontology.md) | 노드/엣지 타입·속성·제약·온톨로지 버저닝·거버넌스 | Draft | §6 |
-| 03 | [`03-storage-and-data-model.md`](./03-storage-and-data-model.md) | 저장 계층(raw/normalized/curated)·테이블 스키마·ID 체계·이벤트 로그·bitemporal·provenance | Draft | §6.4, §6.5, §7.1 |
-| 04 | [`04-ingestion-and-parsing.md`](./04-ingestion-and-parsing.md) | Scouts/커넥터·fetch·중복 탐지·파싱·정규화 | Draft | §8.1–§8.3 |
-| 05 | [`05-resolution-and-extraction.md`](./05-resolution-and-extraction.md) | Entity Resolution·Claim 추출·Canonicalization·Contradiction·Quarantine | Draft | §8.4–§8.9 |
-| 06 | [`06-graph-service.md`](./06-graph-service.md) | 그래프 DB 스키마·mutation 이벤트·materialization·quarantine graph | Draft | §8.9, §17 |
-| 07 | [`07-llm-and-agents.md`](./07-llm-and-agents.md) | 모델 계층화·라우팅·Agent 명세·조사 루프·prompt/version 관리 | Draft | §9 |
-| 08 | [`08-search-and-graphrag.md`](./08-search-and-graphrag.md) | BM25·벡터·그래프 검색·retrieval 계획·context 구성 | Draft | §10 |
-| 09 | [`09-api.md`](./09-api.md) | REST API 계약·인증·에러 모델·페이지네이션 | Draft | §5 |
-| 10 | [`10-evaluation-and-testing.md`](./10-evaluation-and-testing.md) | 골든 데이터셋·평가 지표 정의·회귀·테스트 전략 | Draft | §12, §15 |
-| 11 | [`11-observability-and-governance.md`](./11-observability-and-governance.md) | correlation ID·대시보드·SLO·안전·라이선스·retention | Draft | §11, §13, §14 |
+| 01 | [`01-architecture.md`](./01-architecture.md) | 시스템 아키텍처·컴포넌트·데이터 흐름·기술 스택·배포 토폴로지 | Review | §7, §17 |
+| 02 | [`02-ontology.md`](./02-ontology.md) | 노드/엣지 타입·속성·제약·온톨로지 버저닝·거버넌스 | Review | §6 |
+| 03 | [`03-storage-and-data-model.md`](./03-storage-and-data-model.md) | 저장 계층(raw/normalized/curated)·테이블 스키마·ID 체계·이벤트 로그·bitemporal·provenance | Review | §6.4, §6.5, §7.1 |
+| 04 | [`04-ingestion-and-parsing.md`](./04-ingestion-and-parsing.md) | Scouts/커넥터·fetch·중복 탐지·파싱·정규화 | Review | §8.1–§8.3 |
+| 05 | [`05-resolution-and-extraction.md`](./05-resolution-and-extraction.md) | Entity Resolution·Claim 추출·Canonicalization·Contradiction·Quarantine | Review | §8.4–§8.9 |
+| 06 | [`06-graph-service.md`](./06-graph-service.md) | 그래프 DB 스키마·mutation 이벤트·materialization·quarantine graph | Review | §8.9, §17 |
+| 07 | [`07-llm-and-agents.md`](./07-llm-and-agents.md) | 모델 계층화·라우팅·Agent 명세·조사 루프·prompt/version 관리 | Review | §9 |
+| 08 | [`08-search-and-graphrag.md`](./08-search-and-graphrag.md) | BM25·벡터·그래프 검색·retrieval 계획·context 구성 | Review | §10 |
+| 09 | [`09-api.md`](./09-api.md) | REST API 계약·인증·에러 모델·페이지네이션 | Review | §5 |
+| 10 | [`10-evaluation-and-testing.md`](./10-evaluation-and-testing.md) | 골든 데이터셋·평가 지표 정의·회귀·테스트 전략 | Review | §12, §15 |
+| 11 | [`11-observability-and-governance.md`](./11-observability-and-governance.md) | correlation ID·대시보드·SLO·안전·라이선스·retention | Review | §11, §13, §14 |
 
 관련 문서: [`../../DESIGN.md`](../../DESIGN.md) (Citadel Nightwatch 디자인 시스템), [`../mockups/war-table.html`](../mockups/war-table.html) (War Table 목업).
 
@@ -52,6 +52,7 @@
 | Claim | `clm` | ULID | `clm-01J9...` |
 | Canonical Claim | `ccl` | ULID | `ccl-01J9...` |
 | Evidence | `evd` | ULID | `evd-01J9...` |
+| Mention | `men` | ULID | `men-01J9...` |
 | Assertion | `asr` | ULID | `asr-01J9...` |
 | Investigation (Campaign) | `inv` | ULID | `inv-01J9...` |
 | Dup Cluster (출처 계보) | `clus` | ULID | `clus-01J9...` |
@@ -136,6 +137,9 @@ Blueprint §17을 스펙 수준의 강제 규칙으로 승격한 것이다. 모�
 | Warchief's Council | Multi-agent investigation | [`07`](./07-llm-and-agents.md) |
 | Signal Spire | Change alerts | [`11`](./11-observability-and-governance.md) |
 | Campaign | Investigation | [`09`](./09-api.md) |
+| Archivists | Parser | [`04`](./04-ingestion-and-parsing.md) |
+| Citadel Gate | API Gateway | [`09`](./09-api.md) |
+| Council Chamber | Investigation UI | [`07`](./07-llm-and-agents.md) / [`09`](./09-api.md) |
 | Trail | Provenance chain | [`03`](./03-storage-and-data-model.md) |
 
 ## 6. 의사결정 로그 (인덱스 레벨)
@@ -144,4 +148,4 @@ Blueprint §17을 스펙 수준의 강제 규칙으로 승격한 것이다. 모�
 | --- | --- | --- | --- |
 | ADR-000 | 설계 SSOT를 `docs/design/`에 12개 문서로 분할, 백본(01–03)이 하위 스펙의 기준 | blueprint 전 영역을 구현 계약으로 분해하되 참조 일관성 확보 | Accepted |
 | ADR-001 | ID는 `<prefix>-<ULID>`, Document만 내용 기반 sha256 | 시간 정렬 + document idempotency (§16 Phase 0 완료 조건) | Accepted |
-| ADR-002 | 버전 4축(ontology/schema/prompt/model) 필수 부착 | 재현성·회귀 테스트 (blueprint §9.5) | Accepted |
+| ADR-002 | 버전 5축(ontology/schema/prompt/model/extraction_code_version) 필수 부착 | 재현성·회귀 테스트 (blueprint §9.5) | Accepted |

@@ -1,6 +1,6 @@
 # 08 · 검색·GraphRAG
 
-> **상태:** Draft · **Spec:** 0.1.0 · **Blueprint 매핑:** §10
+> **상태:** Review · **Spec:** 0.1.0 · **Blueprint 매핑:** §10
 > 상위 규약: [README](./README.md) · 관련: [03-storage](./03-storage-and-data-model.md), [06-graph](./06-graph-service.md), [07-llm](./07-llm-and-agents.md)
 
 Citadel의 검색은 단일 벡터 RAG가 아니라 **BM25 · Vector search · Graph traversal 세 경로**를 조합하는 GraphRAG다. 본 문서는 Search Service([`01`](./01-architecture.md) §3 컴포넌트, S8 Index stage)의 인덱스 설계, Agent의 질의 분해 계약, hybrid ranking, 최종 context 구성 계약을 확정한다.
@@ -27,7 +27,7 @@ blueprint §10의 세 경로를 인덱스 대상·용도로 확정한다. 세 �
 
 - **① BM25** — lexical 정확성이 필요한 경우에 우선한다. 회사 legal name, ticker/LEI, 제품 버전 문자열, 규제 조항 번호, 드문 기술 용어, 원문 그대로의 인용구 검색에 강하다. Vector가 놓치는 "정확히 이 표기"를 잡는다. 대상은 `segments.text`(문장·문단·표 셀)와 `documents`의 title/authors.
 - **② Vector search** — "표현은 달라도 의미가 같은" 문장·주장을 찾는다. 두 벡터 인덱스로 분리한다: (a) **segment 임베딩** — 원문 문장 근접 검색(신규 evidence 후보 발굴), (b) **claim canonical_text 임베딩** — 이미 그래프에 있는 정규 명제와의 의미 유사 claim 검색(claim similarity, §3). object/predicate가 달라도 의미가 겹치는 claim을 후보로 만든다.
-- **③ Graph traversal** — "누가·언제·무엇에 대해·어떤 증거로"를 구조로 질의한다. entity lookup → relation traversal, 시간 조건(`VALID_DURING`, bitemporal AS-OF → [`03`](./03-storage-and-data-model.md) §6.3), 증거 관계(`SUPPORTS`/`CONTRADICTS`), 출처 독립성(`DERIVED_FROM`/`dup_clusters`)을 따라간다. **predicate traversal은 논리적 질의다**: 관계는 reification되어 있으므로(`Org -SUBJECT→ Claim{predicate} -OBJECT→ Org`, → [`02`](./02-ontology.md) §1.1, [`06`](./06-graph-service.md) §2.2) `predicate`로 훑는 것은 물리 엣지가 아니라 Claim 노드를 경유해 확장된다. Graph는 텍스트 랭킹이 아니라 **관계·경로·시간 제약**의 정답을 제공한다.
+- **③ Graph traversal** — "누가·언제·무엇에 대해·어떤 증거로"를 구조로 질의한다. entity lookup → relation traversal, 시간 조건(inline `valid_from`/`valid_to`, bitemporal AS-OF → [`03`](./03-storage-and-data-model.md) §6.3), 증거 관계(`SUPPORTS`/`CONTRADICTS`), 출처 독립성(`DERIVED_FROM`/`dup_clusters`)을 따라간다. **predicate traversal은 논리적 질의다**: 관계는 reification되어 있으므로(`Org -SUBJECT→ Claim{predicate} -OBJECT→ Org`, → [`02`](./02-ontology.md) §2.4, [`06`](./06-graph-service.md) §2.2) `predicate`로 훑는 것은 물리 엣지가 아니라 Claim 노드를 경유해 확장된다. Graph는 텍스트 랭킹이 아니라 **관계·경로·시간 제약**의 정답을 제공한다.
 
 > 경로 선택 원칙: 명칭·식별자가 명확하면 ①·③을 먼저, 의미 탐색·공백 발굴이면 ②를 우선한다. Agent가 §3 분해 결과로 경로별 subquery를 배분한다.
 
@@ -35,11 +35,11 @@ blueprint §10의 세 경로를 인덱스 대상·용도로 확정한다. 세 �
 
 ## 2. 인덱싱 (S8) — OpenSearch 인덱스 설계
 
-[`01`](./01-architecture.md) §4 stage **S8 Index**를 인덱스 계약으로 확정한다. idempotency key = `doc_id/element_id + index_version`, 재실행 단위 = element.
+[`01`](./01-architecture.md) §4 stage **S8 Index**를 인덱스 계약으로 확정한다. idempotency key = `element_id + index_version`(→ [`01`](./01-architecture.md) §4 idempotency 규약 정합; `element_id`는 `doc_id` scope를 포함하는 복합 ID), 재실행 단위 = element.
 
 ### 2.1 인덱스 구성
 
-초기 구성은 단일 OpenSearch 인스턴스(→ [`01`](./01-architecture.md) §5, ADR-801). 세 개의 논리 인덱스를 둔다.
+초기 구성은 단일 OpenSearch 인스턴스(→ [`01`](./01-architecture.md) §5; 본 문서 §8 ADR-801). 세 개의 논리 인덱스를 둔다.
 
 | 인덱스 | 대상 | 유형 | 임베딩 |
 | --- | --- | --- | --- |
@@ -79,13 +79,19 @@ blueprint §10의 세 경로를 인덱스 대상·용도로 확정한다. 세 �
       "valid_to":         { "type": "date" },
       "dup_cluster_id":   { "type": "keyword" },
       "is_root_doc":      { "type": "boolean" },
+      "mention_surfaces": { "type": "text", "analyzer": "citadel_text",
+                            "fields": { "ko":  { "type": "text", "analyzer": "citadel_ko" },
+                                        "raw": { "type": "keyword" } } },
+      "status":           { "type": "keyword" },
       "index_version":    { "type": "keyword" }
     }
   }
 }
 ```
 
-- filter 필드(`source_type`, `language`, `entity_ids`, `publication_time`, `valid_*`, `dup_cluster_id`)로 §3의 temporal constraint·source-type filter·독립성 축소를 인덱스 레벨에서 지원한다.
+- filter 필드(`source_type`, `language`, `entity_ids`, `publication_time`, `valid_*`, `dup_cluster_id`, `status`)로 §3의 temporal constraint·source-type filter·독립성 축소를 인덱스 레벨에서 지원한다.
+- **`status`(`authoritative`|`quarantine`|`superseded`) 기본 필터.** 모든 기본 검색 질의는 `status = authoritative` 절을 암묵 포함한다(quarantine·superseded 누출 방지, 불변식 §3-2·§2.4). Audit/Counter-Evidence 등 명시적 opt-in 질의만 다른 status를 조회한다.
+- **`mention_surfaces`** — 아직 entity로 해소되지 않은 surface 문자열(별칭·표기 변형)을 색인해, `entity_lookup` 미해소 시 BM25 mention 후보 검색(§1.1·§3.1)의 대상 필드로 쓴다.
 
 ### 2.3 벡터 인덱스 매핑 예시 (`os-vector-claim`)
 
@@ -103,6 +109,7 @@ blueprint §10의 세 경로를 인덱스 대상·용도로 확정한다. 세 �
       "valid_from":        { "type": "date" },
       "valid_to":          { "type": "date" },
       "provenance_ref":    { "type": "keyword" },
+      "status":            { "type": "keyword" },
       "embedding": {
         "type": "knn_vector",
         "dimension": 1024,
@@ -115,15 +122,17 @@ blueprint §10의 세 경로를 인덱스 대상·용도로 확정한다. 세 �
 }
 ```
 
-- `os-vector-segment`는 위와 동일 구조에서 `clm_id` 대신 `segment_id`/`doc_id`를 키로 갖는다.
-- 벡터 인덱스도 `subject_id`/`predicate`/`valid_*`를 저장해 **k-NN + pre-filter**(구조·시간 축소 후 유사도 검색)를 수행한다.
+- `os-vector-segment`는 위와 동일 구조에서 `clm_id` 대신 `segment_id`/`doc_id`를 키로 가지며 `status`도 동일하게 부착한다.
+- 벡터 인덱스도 `subject_id`/`predicate`/`valid_*`/`status`를 저장해 **k-NN + pre-filter**(구조·시간·상태 축소 후 유사도 검색)를 수행한다. k-NN pre-filter에도 §2.2와 동일한 `status = authoritative` 기본 절이 적용된다.
+- **임베딩·reranker 모델 핀(→ §8 ADR-809):** dense embedding = `BAAI/bge-m3`(multilingual, **1024-dim**, cosine), reranker = `BAAI/bge-reranker-v2-m3`(cross-encoder). `embedding_model` 필드에 모델 ID+개정을 기록하고, 모델·차원 변경은 `index_version` bump → 전량 reindex(§2.4) 트리거다. 이 핀은 08 소유이며 [`07`](./07-llm-and-agents.md)는 이를 참조만 한다(07↔08 순환 소유 해소).
 
 ### 2.4 갱신 — 증분 인덱싱 (신규 element만)
 
 - S8은 curated/graph 변경을 구독해 **신규/변경 element만 증분 색인**한다. 재실행 단위가 element이므로 전체 corpus reindex를 피한다([`01`](./01-architecture.md) S8).
 - idempotency: `element_id + index_version` upsert. 동일 element·동일 index_version 재수신은 no-op(불변식 §3-6).
-- 그래프 mutation(`create_node`/`create_edge`/`merge_entity`/`unmerge`/`supersede`/`delete`/`quarantine`, → [`03`](./03-storage-and-data-model.md) §7.1, [`06`](./06-graph-service.md))이 발생하면 대응 claim 벡터 문서를 upsert/삭제한다. **quarantine·superseded claim은 기본 검색에서 제외**(filter)하되 인덱스에서 즉시 삭제하지 않고 상태 플래그로 관리한다.
-- `index_version` 변경 시에만 전량 reindex. 그 외에는 증분만 수행한다.
+- **동기화 원천(sync source) = graph mutation event.** S8은 War Table의 mutation event 스트림(`create_node`/`create_edge`/`merge_entity`/`unmerge`/`supersede`/`delete`/`quarantine`, → [`03`](./03-storage-and-data-model.md) §7.1, [`06`](./06-graph-service.md) §3.2)을 구독해 대응 문서의 `status`를 갱신한다: `quarantine`→`status=quarantine`, `supersede`→(이전 버전)`status=superseded`, `delete`→문서 제거, 그 외→`status=authoritative`. **quarantine·superseded 문서는 기본 검색에서 제외**(§2.2 기본 필터)하되 인덱스에서 즉시 삭제하지 않고 `status` 플래그로 관리한다(재현·감사·복구 가능).
+- **`os-vector-segment` delta.** segment 벡터는 normalized `segments`의 신규/변경(재정규화·재분절)분에만 재임베딩·upsert하며, 텍스트 무변경 segment는 no-op이다(`embedding_model`·`index_version` 무변경 시).
+- `index_version` 변경 시에만 전량 reindex. 그 외에는 증분만 수행한다. 전량 reindex는 **무중단 alias swap**으로 반영한다: 새 `index_version` 물리 인덱스를 뒤에서 빌드한 뒤 read alias(`os-vector-claim` 등 논리명)를 원자적으로 교체하고 구 인덱스를 회수한다.
 
 ---
 
@@ -204,9 +213,13 @@ Agent는 자유 텍스트가 아니라 다음 구조화 객체를 산출한다(s
   → context builder 입력 (top_m)
 ```
 
-- **Fusion:** BM25 정규화 점수와 embedding cosine 유사도를 가중 결합하거나 RRF(Reciprocal Rank Fusion)로 합친다. Graph traversal 결과는 관계 정합성으로 강한 우선순위를 받는다(경로 정답).
+- **Canonical candidate unit = `claim`.** 이종 경로의 후보를 단일 단위인 **claim(`canonical_claim_id` 기준)**으로 정규화한 뒤 fusion한다. 경로별 원 후보와 claim의 매핑(segment→claim linkage):
+  - ② `os-vector-claim`·③ Graph 결과는 이미 claim 단위다.
+  - ① BM25(`os-segment`)·② `os-vector-segment`의 `segment_id` 후보는 해당 segment가 **근거로 참여한 claim**(`Claim -PROVENANCE→ segment`, → [`02`](./02-ontology.md) §2.4, [`03`](./03-storage-and-data-model.md) §8.3)으로 승격해 매핑한다. 아직 claim에 연결되지 않은 신규 segment span은 **후보 발굴용 unlinked 항목**으로 유지되어 Retrieval Agent(§7) 경로로만 넘어가고, claim proxy가 없으므로 fusion 랭킹과는 별도 트랙으로 둔다.
+- **Fusion 방법 = RRF(Reciprocal Rank Fusion) 단일 채택.** claim c의 최종 점수 `score(c) = Σ_path w_path · 1/(k + rank_path(c))`, 기본 `k = 60`, 경로 가중 `w_bm25 = w_vector = 1.0`(초기값, 실측 조정 — → §8 ADR-808). 이종 점수 스케일(BM25 raw vs cosine)을 직접 가중합하지 않고 **rank 기반**으로 합쳐 스케일 정규화 문제를 회피한다.
+- **Graph exact-match 주입 = 보장 포함셋(guaranteed inclusion).** ③ Graph traversal이 관계·시간 제약을 정확히 만족시킨 claim(경로 정답)은 RRF 점수와 무관하게 reranker 입력 top_n에 **무조건 포함**되며, RRF 합산 시 `rank_graph = 0`에 준하는 최상위 rank 기여(prior)를 받는다. exact 관계 정답이 유사도 랭킹에 밀려 탈락하지 않도록 보장한다.
 - **출처 계보 축소:** 같은 `dup_cluster_id`의 복제 문서는 root 1개 + independent additions로 접어 독립 근거 수를 과대평가하지 않는다(blueprint §8.3, §11).
-- **Reranker:** 후보 축소 후 소수(top_n)에만 cross-encoder reranker를 적용한다. 모델 계층(BM25 + embedding + reranker → 고성능 LLM은 종합 단계)의 **tier 정의는 [`07`](./07-llm-and-agents.md)가 소유**한다(blueprint §9.2). 본 문서는 순서(fusion→rerank)만 확정한다(ADR-803).
+- **Reranker:** 후보 축소 후 소수(top_n)에만 cross-encoder reranker를 적용한다. **embedding·reranker의 모델·차원 핀은 본 문서(08)가 소유**하고(→ §8 ADR-809), 조사 예산에 따른 **모델 tier/호출 정책은 [`07`](./07-llm-and-agents.md)가 소유**한다(blueprint §9.2). 본 문서는 순서(fusion→rerank)와 모델 핀을 확정한다(ADR-803·808·809).
 - 각 단계 `top_k`/`top_n`/`top_m`는 investigation budget([`07`](./07-llm-and-agents.md))에 종속된 튜너블 파라미터다.
 
 ---
@@ -233,7 +246,9 @@ blueprint §10: 최종 context에는 **전체 문서가 아니라 필요한 sour
       },
       "provenance_ref": ["ext-01J9..."],
       "evidence": [
-        { "evd_id": "evd-01J9...", "relation": "supports", "evidence_type": "primary" }
+        { "evd_id": "evd-01J9...", "relation": "supports", "evidence_type": "primary",
+          "source_span": { "doc_id": "doc-3b7e...a2", "segment_id": "doc-3b7e...a2#p4.s1",
+                           "char_start": 88, "char_end": 210, "quote": "…독립 출처의 확인 문장…" } }
       ],
       "neighbors": [
         { "edge": "CONTRADICTS", "claim_id": "clm-01JA...", "note": "동일 기간 반대 공시" }
@@ -252,7 +267,7 @@ blueprint §10: 최종 context에는 **전체 문서가 아니라 필요한 sour
 
 - **문서 전체 금지.** claim/evidence의 `source_span`(문장 단위 quote)만 포함하고, 필요 시 인접 segment 1개까지만 확장한다.
 - **주변 그래프 포함.** 대상 claim의 `SUPPORTS`/`CONTRADICTS`/`QUALIFIES`/`SUPERSEDES` 이웃과 출처 독립성 신호를 함께 넣어 모순·시간 변화·독립 근거를 판단 가능하게 한다([`02`](./02-ontology.md) §3).
-- **Provenance 필수.** 모든 항목은 `provenance_ref`와 `source_span`을 가진다. 없으면 context에 넣지 않는다(불변식 §3-2, [`03`](./03-storage-and-data-model.md) §8.3). 이로써 최종 보고서 문장을 원문까지 감사 가능하게 한다(blueprint §21-8).
+- **Provenance 필수.** 모든 항목은 `provenance_ref`와 `source_span`을 가진다. 없으면 context에 넣지 않는다(불변식 §3-2, [`03`](./03-storage-and-data-model.md) §8.3). **유일한 예외는 §6의 `source: "model_prior"` 항목**으로, 이는 provenance 없이 `included_in_conclusion: false`·`flag` 하에서만 gap 표시용으로 존재하며 결론·감사 대상에서 제외된다. 이로써 최종 보고서 문장을 원문까지 감사 가능하게 한다(blueprint §21-8).
 - **토큰 예산.** `token_budget`을 초과하면 score 하위·중복 출처(dup_cluster)부터 제거하고, root 문서와 독립 additions를 우선 보존한다. 예산은 investigation budget([`07`](./07-llm-and-agents.md))에서 배정된다.
 
 ---
@@ -310,3 +325,5 @@ Graph gap (07 Graph Explorer)
 | ADR-805 | context는 **span+claim+provenance+주변 그래프**만, 전체 문서 금지 + 토큰 예산 | Evidence-first(§3-5), 감사 가능성(blueprint §21-8) | Accepted |
 | ADR-806 | 모델 사전지식은 `source:"model_prior"`로 표시, **기본 결론 제외·graph 미저장** | blueprint §10 마지막·§13, provenance 불변식 §3-2 | Accepted |
 | ADR-807 | 검색 인덱스는 파생물, `index_version` 변경 시에만 전량 reindex·그 외 증분 | SoT는 lakehouse+graph(불변식 §3-1), 재구축 가능성 | Accepted |
+| ADR-808 | hybrid fusion은 **RRF(`k=60`) 단일 방식**, candidate unit = **claim**(segment→claim linkage로 승격), graph exact-match는 **보장 포함셋** | 이종 점수 스케일 가중합 회피(rank 기반), 관계 정답 보존, 단일 정규화 단위로 dedup·독립성 축소 일관(§4.1). `k`·경로 가중은 실측 조정 | Accepted |
+| ADR-809 | **embedding = `BAAI/bge-m3`(1024-dim, cosine), reranker = `BAAI/bge-reranker-v2-m3` 핀은 08 소유**, tier/호출 정책만 [`07`](./07-llm-and-agents.md) | 모델·차원 단일 소유로 07↔08 순환참조 해소, 인덱스 차원 정합. 모델 개정은 `index_version` bump + 무중단 alias swap, 성능은 [`10`](./10-evaluation-and-testing.md) 회귀로 검증 | Accepted |
