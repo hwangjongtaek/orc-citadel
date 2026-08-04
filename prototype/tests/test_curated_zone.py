@@ -28,6 +28,7 @@ def _mentions(text: str) -> list[Mention]:
 
 def test_tables_created(zone):
     assert "mentions" in zone.tables()
+    assert "entities" in zone.tables()
     assert "dup_clusters" in zone.tables()
 
 
@@ -99,4 +100,48 @@ def test_export_parquet(zone, tmp_path):
     zone.export_parquet(str(out))
     names = sorted(p.name for p in out.glob("*.parquet"))
     assert "mentions.parquet" in names
+    assert "entities.parquet" in names
     assert "dup_clusters.parquet" in names
+
+
+# --- 해소 영속 (S6) ----------------------------------------------------------
+
+def test_persist_entity_query(zone):
+    from orc_citadel.resolve import Entity
+    e = Entity(
+        entity_id="org-abc", mention_type="Organization",
+        canonical_name="NVIDIA", identifiers={"ticker": "NVDA"},
+        surface_forms=("NVIDIA", "NVDA"),
+    )
+    zone.persist_entity(e)
+    rows = zone.entities()
+    assert len(rows) == 1
+    assert rows[0]["canonical_name"] == "NVIDIA"
+    assert rows[0]["identifiers"]["ticker"] == "NVDA"
+    assert rows[0]["surface_forms"] == ["NVIDIA", "NVDA"]
+
+
+def test_persist_resolved_updates_mentions(zone):
+    """persist_resolved → mention.resolved_entity_id 반영 (설계 05 §1.2)."""
+    from orc_citadel.extract import extract_mentions
+    from orc_citadel.parse import ParsedDoc
+    from orc_citadel.identity import doc_id_for
+    from orc_citadel.resolve import EntityResolver
+
+    text = "NVIDIA (NASDAQ: NVDA) leads."
+    doc_id = doc_id_for(text.encode())
+    doc = ParsedDoc(text=text, title="")
+    ms = extract_mentions(doc_id, doc, parse_document(doc_id, doc))
+    for m in ms:
+        zone.persist_mention(m)
+    entities, resolved = EntityResolver().resolve(doc_id, ms)
+    for e in entities:
+        zone.persist_resolved(e, resolved)
+
+    rows = zone.mentions(doc_id)
+    filled = [r for r in rows if r["resolved_entity_id"]]
+    # NVIDIA(+NVDA) mention들이 모두 한 entity로 참조.
+    assert filled
+    ids = {r["resolved_entity_id"] for r in filled}
+    assert len(ids) == 1
+    assert ids == {e.entity_id for e in entities}

@@ -28,18 +28,20 @@ SCHEMA_VERSION = "0.1.0"
 # 주변 문맥 반경 (캐릭터) — 설계 05 §1.2 context_window.
 CONTEXT_RADIUS = 96
 
-# gazetteer: 정확 대문자 표면형 → mention_type. 도메인 조직·기술명 사전.
+# gazetteer: 정확 대문자 표면형 → (mention_type, identifiers). 도메인 조직·기술명 사전.
 # (prototype 배정 — 확장 시 도메인 전문화, 설계 05 §1.1 L1.)
-GAZETTEER: dict[str, str] = {
-    "NVIDIA": "Organization",
-    "TSMC": "Organization",
-    "SEMI": "Organization",
-    "RTX": "Technology",
-    "GeForce NOW": "Technology",
+# Organization은 외부식별자(ticker)를 부착해 해소(§2)의 공유 키로 쓴다 (설계 02 §2.2).
+GAZETTEER: dict[str, tuple[str, dict]] = {
+    "NVIDIA": ("Organization", {"ticker": "NVDA"}),
+    "TSMC": ("Organization", {"ticker": "TSM"}),
+    "SEMI": ("Organization", {}),
+    "RTX": ("Technology", {}),
+    "GeForce NOW": ("Technology", {}),
 }
 
-# 팔호 감싼 ticker: (NYSE:XXX | NASDAQ:XXX | OTC:XXX)
-_TICKER = re.compile(r"\b(?:NYSE|NASDAQ|OTC):([A-Z]{1,5})\b")
+# 팔호 감싼 ticker: (NYSE:XXX | NASDAQ:XXX | OTC:XXX) — 교환소와 심볼 사이 공백 허용.
+# 실수집(NVIDIA 공시)에서 '(NASDAQ: NVDA)' 띄어쓰기 발견 (ADR 상세 — 실데이터 기준).
+_TICKER = re.compile(r"\b(?:NYSE|NASDAQ|OTC):\s*([A-Z]{1,5})\b")
 # URL 도메인 (www 접두 무시, 도메인 그대로 surface)
 _URL = re.compile(r"\bhttps?://(?:www\.)?([a-zA-Z0-9.-]+\.[a-z]{2,})")
 _PUNCT = re.compile(r"[,.;:!?()\]]")
@@ -124,10 +126,10 @@ def extract_mentions(
             candidates.append((surface, m.start(1), m.end(1), "Organization",
                                {"url": m.group(0)}))
 
-    # gazetteer — 정확 표면형 매칭 (강함).
-    for surface, mtype in GAZETTEER.items():
+    # gazetteer — 정확 표면형 매칭 (강함). 식별자 부착 (설계 02 §2.2).
+    for surface, (mtype, ids) in GAZETTEER.items():
         for m in re.finditer(re.escape(surface), text):
-            candidates.append((surface, m.start(), m.end(), mtype, {}))
+            candidates.append((surface, m.start(), m.end(), mtype, dict(ids)))
 
     # 2) span 겹침 제거 — 결정적 precision 우선: 더 긴 surface·우선 타입 유지.
     #    정렬 후 greedy: 남은 span과 겹치면 폐기.
