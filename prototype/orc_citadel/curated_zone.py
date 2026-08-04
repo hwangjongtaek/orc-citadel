@@ -1,0 +1,144 @@
+"""DuckDB curated zone (설계 03 §4) — prototype.
+
+normalized zone(duckdb_zone.py)과 분리된 **curated zone**으로, S5 추출 mention과
+S4 dedup cluster를 영속·조회·Parquet export한다. 그래프 반영/해소는 후속 단계.
+
+- `mentions`(설계 §4.1) : L1 추출 산출물. PK를 결정적 mention_id로 유지(03 §5).
+  `resolved_entity_id`는 해소 전 null (설계 05 §1.2).
+- `dup_clusters`(설계 §4.3) : 출처 계보. member_doc_ids는 배열(duckdb LIST).
+- offsets는 clean text 축 (03 §3.2, ADR-302) — normalized segments와 동일 축.
+"""
+from __future__ import annotations
+
+import json
+
+import duckdb
+
+from .extract import Mention
+
+
+class CuratedZone:
+    """DuckDB 백드 curated zone (mentions + dup_clusters)."""
+
+    def __init__(self, path: str = ":memory:") -> None:
+        self._conn = duckdb.connect(path)
+        self._path = path
+
+    def initialize(self) -> None:
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS mentions (
+                mention_id     VARCHAR PRIMARY KEY,
+                doc_id         VARCHAR NOT NULL,
+                segment_id     VARCHAR,
+                surface_text   VARCHAR NOT NULL,
+                mention_type   VARCHAR NOT NULL,
+                char_start     BIGINT NOT NULL,
+                char_end       BIGINT NOT NULL,
+                context_window VARCHAR,
+                resolved_entity_id VARCHAR,
+                extraction_version VARCHAR
+            )
+            """
+        )
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS dup_clusters (
+                cluster_id                  VARCHAR PRIMARY KEY,
+                root_doc_id                 VARCHAR NOT NULL,
+                member_doc_ids              VARCHAR[] NOT NULL,
+                independent_addition_doc_ids VARCHAR[] NOT NULL,
+                dedup_method                VARCHAR NOT NULL
+            )
+            """
+        )
+        self._conn.execute("CREATE INDEX IF NOT EXISTS idx_mentions_doc ON mentions(doc_id)")
+
+    def tables(self) -> list[str]:
+        rows = self._conn.execute(
+            "SELECT table_name FROM information_schema.tables WHERE table_schema='main'"
+        ).fetchall()
+        return [r[0] for r in rows]
+
+    def persist_mention(self, m: Mention) -> None:
+        """mention 1건 upsert (결정적 mention_id → ON CONFLICT no-op)."""
+        self._conn.execute(
+            """
+            INSERT INTO mentions
+                (mention_id, doc_id, segment_id, surface_text, mention_type,
+                 char_start, char_end, context_window, resolved_entity_id,
+                 extraction_version)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (mention_id) DO NOTHING
+            """,
+            [
+                m.mention_id, m.doc_id, m.segment_id, m.surface_text, m.mention_type,
+                m.char_start, m.char_end, m.context_window, m.resolved_entity_id,
+                # dict → JSON 문자열로 저장 (prototype — 후속 variant/역직렬화).
+                json.dumps(m.extraction_version, ensure_ascii=False),
+            ],
+        )
+
+    def persist_cluster(
+        self,
+        cluster_id: str,
+        root_doc_id: str,
+        member_doc_ids: list[str],
+        independent_addition_doc_ids: list[str],
+        dedup_method: str,
+    ) -> None:
+        """dup_cluster 1건 upsert (설계 §4.3)."""
+        self._conn.execute(
+            """
+            INSERT INTO dup_clusters
+                (cluster_id, root_doc_id, member_doc_ids,
+                 independent_addition_doc_ids, dedup_method)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT (cluster_id) DO NOTHING
+            """,
+            [cluster_id, root_doc_id, member_doc_ids,
+             independent_addition_doc_ids, dedup_method],
+        )
+
+    def mentions(self, doc_id: str | None = None) -> list[dict]:
+        cols = ["mention_id", "doc_id", "segment_id", "surface_text", "mention_type",
+                "char_start", "char_end", "context_window", "resolved_entity_id",
+                "extraction_version"]
+        if doc_id is None:
+            rows = self._conn.execute(f'SELECT {", ".join(cols)} FROM mentions').fetchall()
+        else:
+            rows = self._conn.execute(
+                f'SELECT {", ".join(cols)} FROM mentions WHERE doc_id=?', [doc_id]
+            ).fetchall()
+        out = []
+        for r in rows:
+            d = dict(zip(cols, r))
+            # extraction_version: JSON 문자열 → dict로 복원.
+            try:
+                d["extraction_version"] = json.loads(d["extraction_version"])
+            except (TypeError, ValueError):
+                d["extraction_version"] = {}
+            out.append(d)
+        return out
+
+    def clusters(self) -> list[dict]:
+        cols = ["cluster_id", "root_doc_id", "member_doc_ids",
+                "independent_addition_doc_ids", "dedup_method"]
+        rows = self._conn.execute(
+            f'SELECT {", ".join(cols)} FROM dup_clusters'
+        ).fetchall()
+        return [dict(zip(cols, r)) for r in rows]
+
+    def export_parquet(self, out_dir: str) -> None:
+        """mentions/dup_clusters를 Parquet으로 export (그래프·검색 입력용)."""
+        import pathlib
+
+        p = pathlib.Path(out_dir)
+        p.mkdir(parents=True, exist_ok=True)
+        self._conn.execute(f"COPY mentions TO '{p / 'mentions.parquet'}' (FORMAT PARQUET)")
+        self._conn.execute(
+            f"COPY dup_clusters TO '{p / 'dup_clusters.parquet'}' (FORMAT PARQUET)"
+        )
+
+    def close(self) -> None:
+        self._conn.close()
