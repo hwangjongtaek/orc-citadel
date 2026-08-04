@@ -87,8 +87,30 @@ class CuratedZone:
                 event_type_hint    VARCHAR,
                 status             VARCHAR NOT NULL,
                 quarantine_reason  VARCHAR,
+                canonical_claim_id VARCHAR,
                 ontology_version   VARCHAR,
                 extraction_model   VARCHAR
+            )
+            """
+        )
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS canonical_claims (
+                canonical_claim_id VARCHAR PRIMARY KEY,
+                subject_id         VARCHAR NOT NULL,
+                predicate          VARCHAR NOT NULL,
+                object_id          VARCHAR,
+                canonical_text     VARCHAR NOT NULL,
+                member_claim_ids   VARCHAR[]
+            )
+            """
+        )
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS member_of (
+                claim_id           VARCHAR NOT NULL,
+                canonical_claim_id VARCHAR NOT NULL,
+                PRIMARY KEY (claim_id, canonical_claim_id)
             )
             """
         )
@@ -179,11 +201,58 @@ class CuratedZone:
             [status, reason, claim_candidate_id],
         )
 
+    def persist_canonical(self, cc) -> None:
+        """CanonicalClaim 1건 upsert + MEMBER_OF 엣지 (02 §2.4·§3.1, 정본 소속)."""
+        from .canonicalize import CanonicalClaim
+
+        assert isinstance(cc, CanonicalClaim), "expected CanonicalClaim"
+        self._conn.execute(
+            """
+            INSERT INTO canonical_claims
+                (canonical_claim_id, subject_id, predicate, object_id,
+                 canonical_text, member_claim_ids)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT (canonical_claim_id) DO NOTHING
+            """,
+            [cc.canonical_claim_id, cc.subject_id, cc.predicate, cc.object_id,
+             cc.canonical_text, list(cc.member_claim_ids)],
+        )
+        for cid in cc.member_claim_ids:
+            self._conn.execute(
+                """
+                INSERT INTO member_of (claim_id, canonical_claim_id)
+                VALUES (?, ?) ON CONFLICT DO NOTHING
+                """,
+                [cid, cc.canonical_claim_id],
+            )
+
+    def set_claim_canonical(self, claim_id: str, canonical_claim_id: str | None) -> None:
+        """claim_candidates.canonical_claim_id 반영 (파생 표현, 02 §3.1)."""
+        self._conn.execute(
+            "UPDATE claim_candidates SET canonical_claim_id=? WHERE claim_candidate_id=?",
+            [canonical_claim_id, claim_id],
+        )
+
+    def canonical_claims(self) -> list[dict]:
+        cols = ["canonical_claim_id", "subject_id", "predicate", "object_id",
+                "canonical_text", "member_claim_ids"]
+        rows = self._conn.execute(
+            f'SELECT {", ".join(cols)} FROM canonical_claims'
+        ).fetchall()
+        return [dict(zip(cols, r)) for r in rows]
+
+    def member_of(self) -> list[dict]:
+        rows = self._conn.execute(
+            "SELECT claim_id, canonical_claim_id FROM member_of"
+        ).fetchall()
+        return [dict(zip(["claim_id", "canonical_claim_id"], r)) for r in rows]
+
     def claims(self, doc_id: str | None = None) -> list[dict]:
         cols = ["claim_candidate_id", "doc_id", "predicate", "subject_id", "object_id",
                 "object_literal", "modality", "polarity", "confidence", "seg_order",
                 "char_start", "char_end", "surface_fragment", "event_type_hint",
-                "status", "quarantine_reason", "ontology_version", "extraction_model"]
+                "status", "quarantine_reason", "canonical_claim_id",
+                "ontology_version", "extraction_model"]
         if doc_id is None:
             rows = self._conn.execute(f'SELECT {", ".join(cols)} FROM claim_candidates').fetchall()
         else:
@@ -268,6 +337,12 @@ class CuratedZone:
         self._conn.execute(f"COPY entities TO '{p / 'entities.parquet'}' (FORMAT PARQUET)")
         self._conn.execute(
             f"COPY claim_candidates TO '{p / 'claim_candidates.parquet'}' (FORMAT PARQUET)"
+        )
+        self._conn.execute(
+            f"COPY canonical_claims TO '{p / 'canonical_claims.parquet'}' (FORMAT PARQUET)"
+        )
+        self._conn.execute(
+            f"COPY member_of TO '{p / 'member_of.parquet'}' (FORMAT PARQUET)"
         )
         self._conn.execute(
             f"COPY dup_clusters TO '{p / 'dup_clusters.parquet'}' (FORMAT PARQUET)"

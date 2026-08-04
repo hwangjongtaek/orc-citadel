@@ -124,6 +124,48 @@ def test_persist_entity_query(zone):
 
 # --- claim_candidates (S7) ---------------------------------------------------
 
+def test_persist_canonical_and_member_of(zone):
+    """CanonicalClaim 영속 + MEMBER_OF 엣지 + claim.canonical_claim_id 반영 (02 §2.4·§3.1)."""
+    from orc_citadel.canonicalize import CanonicalClaim, canonical_claim_id_for
+    cc = CanonicalClaim(
+        canonical_claim_id=canonical_claim_id_for("org-1", "announces", {"clm-a", "clm-b"}),
+        subject_id="org-1", predicate="announces", object_id=None,
+        canonical_text="will host", member_claim_ids=("clm-a", "clm-b"),
+    )
+    zone.persist_canonical(cc)
+
+    ccs = zone.canonical_claims()
+    assert len(ccs) == 1
+    assert set(ccs[0]["member_claim_ids"]) == {"clm-a", "clm-b"}
+    assert ccs[0]["canonical_text"] == "will host"
+
+    mo = zone.member_of()
+    assert {m["claim_id"] for m in mo} == {"clm-a", "clm-b"}
+    assert all(m["canonical_claim_id"] == cc.canonical_claim_id for m in mo)
+
+    # claim.canonical_claim_id 파생 표현 반영
+    zone.set_claim_canonical("clm-a", cc.canonical_claim_id)
+
+
+def test_tables_include_canonical(zone):
+    assert "canonical_claims" in zone.tables()
+    assert "member_of" in zone.tables()
+
+
+def test_export_parquet_includes_canonical(zone, tmp_path):
+    from orc_citadel.canonicalize import CanonicalClaim, canonical_claim_id_for
+    zone.persist_canonical(CanonicalClaim(
+        canonical_claim_id=canonical_claim_id_for("org-2", "announces", {"clm-x"}),
+        subject_id="org-2", predicate="announces", object_id=None,
+        canonical_text="power", member_claim_ids=("clm-x",),
+    ))
+    out = tmp_path / "pq"
+    zone.export_parquet(str(out))
+    names = sorted(p.name for p in out.glob("*.parquet"))
+    assert "canonical_claims.parquet" in names
+    assert "member_of.parquet" in names
+
+
 def test_update_claim_status(zone):
     """게이트 결과로 claim 상태 promoted/quarantined 전이 저장 (05 §6)."""
     from orc_citadel.extract_claims import ClaimCandidate, claim_id_for
