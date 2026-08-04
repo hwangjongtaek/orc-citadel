@@ -152,6 +152,47 @@ def test_tables_include_canonical(zone):
     assert "member_of" in zone.tables()
 
 
+# --- authoritative edges / mention (S12) -------------------------------------
+
+def test_persist_edge_query(zone):
+    from orc_citadel.edges import PossiblySameAsEdge
+    e = PossiblySameAsEdge(
+        edge_id="psa-1", entity_a_id="org-a", entity_b_id="org-b",
+        score=0.9, blocking_key="norm_name", resolution_ref="res-1",
+        judged_by="pipeline",
+    )
+    zone.persist_edge(e)
+    rows = zone.authoritative_edges()
+    assert len(rows) == 1
+    assert rows[0]["relation"] == "POSSIBLY_SAME_AS"
+    assert rows[0]["score"] == 0.9
+    assert rows[0]["resolution_ref"] == "res-1"
+
+
+def test_set_mention_authoritative(zone):
+    ms = _mentions("NVIDIA and TSMC.")
+    for m in ms:
+        zone.persist_mention(m)
+    zone.set_mention_authoritative(ms[0].mention_id)
+    rows = zone.mentions(ms[0].doc_id)
+    by_id = {r["mention_id"]: r for r in rows}
+    assert by_id[ms[0].mention_id]["authoritative"] is True
+    # 나머지는 default FALSE.
+    others = [r for i, r in by_id.items() if i != ms[0].mention_id]
+    assert all(r["authoritative"] is False for r in others)
+
+
+def test_export_parquet_includes_edges(zone, tmp_path):
+    from orc_citadel.edges import PossiblySameAsEdge
+    zone.persist_edge(PossiblySameAsEdge(
+        edge_id="psa-e", entity_a_id="a", entity_b_id="b", score=0.8,
+        blocking_key="norm_name", resolution_ref="r", judged_by="pipeline",
+    ))
+    out = tmp_path / "pq"
+    zone.export_parquet(str(out))
+    assert "authoritative_edges.parquet" in sorted(p.name for p in out.glob("*.parquet"))
+
+
 # --- assertions (S11) --------------------------------------------------------
 
 def test_persist_assertion_query(zone):

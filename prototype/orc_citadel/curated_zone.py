@@ -42,7 +42,8 @@ class CuratedZone:
                 char_end       BIGINT NOT NULL,
                 context_window VARCHAR,
                 resolved_entity_id VARCHAR,
-                extraction_version VARCHAR
+                extraction_version VARCHAR,
+                authoritative  BOOLEAN NOT NULL DEFAULT FALSE
             )
             """
         )
@@ -143,6 +144,20 @@ class CuratedZone:
                 supersedes_id   VARCHAR,
                 mutation_id     VARCHAR NOT NULL,
                 provenance_ref  VARCHAR[]
+            )
+            """
+        )
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS authoritative_edges (
+                edge_id        VARCHAR PRIMARY KEY,
+                entity_a_id    VARCHAR NOT NULL,
+                entity_b_id    VARCHAR NOT NULL,
+                relation       VARCHAR NOT NULL,
+                score          DOUBLE,
+                blocking_key   VARCHAR,
+                resolution_ref VARCHAR NOT NULL,
+                judged_by      VARCHAR NOT NULL
             )
             """
         )
@@ -298,6 +313,32 @@ class CuratedZone:
              a.tx_to, a.supersedes_id, a.mutation_id, list(a.provenance_ref)],
         )
 
+    def persist_edge(self, e) -> None:
+        """authoritative_edges 1건 upsert (결정적 edge_id → ON CONFLICT do nothing)."""
+        from .edges import PossiblySameAsEdge
+
+        assert isinstance(e, PossiblySameAsEdge), "expected PossiblySameAsEdge"
+        row = e.to_row()
+        self._conn.execute(
+            """
+            INSERT INTO authoritative_edges
+                (edge_id, entity_a_id, entity_b_id, relation, score,
+                 blocking_key, resolution_ref, judged_by)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (edge_id) DO NOTHING
+            """,
+            [row["edge_id"], row["entity_a_id"], row["entity_b_id"], row["relation"],
+             row["score"], row["blocking_key"], row["resolution_ref"], row["judged_by"]],
+        )
+
+    def authoritative_edges(self) -> list[dict]:
+        cols = ["edge_id", "entity_a_id", "entity_b_id", "relation", "score",
+                "blocking_key", "resolution_ref", "judged_by"]
+        rows = self._conn.execute(
+            f'SELECT {", ".join(cols)} FROM authoritative_edges'
+        ).fetchall()
+        return [dict(zip(cols, r)) for r in rows]
+
     def assertions(self) -> list[dict]:
         cols = ["assertion_id", "claim_id", "subject_id", "predicate", "object_id",
                 "object_literal", "valid_from", "valid_to", "time_precision",
@@ -363,10 +404,17 @@ class CuratedZone:
              independent_addition_doc_ids, dedup_method],
         )
 
+    def set_mention_authoritative(self, mention_id: str) -> None:
+        """mention을 authoritative graph 노드로 표시 (게이트 통과 시, 05 §6)."""
+        self._conn.execute(
+            "UPDATE mentions SET authoritative=TRUE WHERE mention_id=?",
+            [mention_id],
+        )
+
     def mentions(self, doc_id: str | None = None) -> list[dict]:
         cols = ["mention_id", "doc_id", "segment_id", "surface_text", "mention_type",
                 "char_start", "char_end", "context_window", "resolved_entity_id",
-                "extraction_version"]
+                "extraction_version", "authoritative"]
         if doc_id is None:
             rows = self._conn.execute(f'SELECT {", ".join(cols)} FROM mentions').fetchall()
         else:
@@ -430,6 +478,9 @@ class CuratedZone:
         )
         self._conn.execute(
             f"COPY assertions TO '{p / 'assertions.parquet'}' (FORMAT PARQUET)"
+        )
+        self._conn.execute(
+            f"COPY authoritative_edges TO '{p / 'authoritative_edges.parquet'}' (FORMAT PARQUET)"
         )
         self._conn.execute(
             f"COPY dup_clusters TO '{p / 'dup_clusters.parquet'}' (FORMAT PARQUET)"
