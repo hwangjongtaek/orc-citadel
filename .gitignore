@@ -20,3 +20,6 @@ __pycache__/
 
 # OS
 .DS_Store
+
+# Collected sample data (04) — 커넥터로 수집한 원문은 커밋 제외
+prototype/data/
