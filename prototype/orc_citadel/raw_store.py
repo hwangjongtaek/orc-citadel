@@ -83,11 +83,18 @@ class RawStore:
         }
 
     def resolve_claim(self, claim_id: str) -> ClaimResolved:
-        """claim의 provenance를 따라 원문 bytes·offset까지 왕복 복원 (03 §8.1)."""
+        """claim의 provenance를 따라 원문 bytes·offset까지 왕복 복원 (03 §8.1).
+
+        segment offset은 **문자(char)** 단위(ADR-302). 원문 UTF-8이 다중 바이트
+        코드포인트를 포함할 수 있으므로, bytes를 먼저 decode한 뒤 문자 offset으로
+        slice한다 — 바이트 offset slicing은 중간 코드포인트를 잘라 잘못된 텍스트를
+        낸다 (실web 문서로 노출된 오프셋 단위 불일치 수정).
+        """
         ex = self._extractions[claim_id]
         doc_id = ex["doc_id"]
         raw = self._raw[doc_id]
-        text = raw.content[ex["char_start"]:ex["char_end"]].decode()
+        raw_text = raw.content.decode("utf-8", errors="replace")
+        text = raw_text[ex["char_start"]:ex["char_end"]]
         return ClaimResolved(
             claim_id=claim_id,
             segment_id=ex["segment_id"],

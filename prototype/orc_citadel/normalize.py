@@ -43,14 +43,16 @@ def segment_document(doc_id: str, raw_text: str) -> list[Segment]:
     normalized = _normalize(raw_text)
     segments: list[Segment] = []
     cursor = 0  # 정규화 텍스트 내 진행 offset
+    raw_cursor = 0  # 원문 내 진행 offset (앞발 매칭으로 첫 등장 오매칭 방지)
     for order, sentence in enumerate(_SENT_SPLIT.split(normalized)):
         if not sentence.strip():
             continue
         norm_start = cursor
         norm_end = cursor + len(sentence)
         cursor = norm_end
-        # 원문 offset: 정규화 문장을 원문에서 찾아 매핑
-        raw_start = raw_text.find(sentence)
+        # 원문 offset: 이전 문장 끝 이후에서 찾아 첫 등장 오매칭을 피한다 (03 §3.4).
+        raw_start = raw_text.find(sentence, raw_cursor)
+        raw_cursor = raw_start + len(sentence)
         segments.append(
             Segment(
                 segment_id=f"{doc_id}#p0.s{order}",
