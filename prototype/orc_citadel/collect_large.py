@@ -137,11 +137,43 @@ def collect_rss(feed_url: str, source_id: str) -> dict:
     return counts
 
 
+def collect_sec(limit: int = 5, ciks: list[str] | None = None) -> dict:
+    """SEC EDGAR 수집 (S14 커넥터). gov filing index → raw 저장.
+
+    browse-edgar fallback 포함(제한 환경). filing 손으로 원문(HTML/XBRL) 저장 —
+    idempotent (content-hash). limit으로 CIK당 filing 수 상한(예의).
+    """
+    from orc_citadel.connectors.sec_edgar import SecEdgarConnector
+
+    conn = SecEdgarConnector()
+    counts = {"saved": 0, "skipped": 0, "errors": 0}
+    for cik in ciks or ["1045810"]:
+        n = 0
+        for ref in conn.discover({"cik": [cik]}, cursor=None):
+            if n >= limit:
+                break
+            try:
+                fr = conn.fetch(ref, prior_etag=None)
+            except Exception as e:
+                counts["errors"] += 1
+                continue
+            _doc_id, created = _save_zone(
+                "gov-sec-edgar", ref.url, fr.content,
+                {"http_status": fr.http_status,
+                 "content_type": fr.response_headers.get("content-type")},
+            )
+            n += 1
+            counts["saved" if created else "skipped"] += 1
+    return counts
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description="대형 resumable 수집 러너")
     p.add_argument("--limit", type=int, default=300,
                    help="arXiv 총 목표 문서 수 (데모 기본 300, 전체 1만은 10000)")
     p.add_argument("--skip-rss", action="store_true")
+    p.add_argument("--sec", type=int, default=0,
+                   help="SEC gov filing CIK당 수집 수 (기본 0=없음)")
     args = p.parse_args()
 
     print(f"== 대형 수집 러너 (limit={args.limit}) ==")
@@ -157,6 +189,11 @@ def main() -> None:
           f"1 req/3s) — 수 시간 소요 가능")
     c = collect_arxiv(args.limit)
     print(f"  -> {c}")
+
+    if args.sec:
+        print(f"[gov-sec-edgar] SEC filing 수집 (CIK당 {args.sec})")
+        c = collect_sec(args.sec)
+        print(f"  -> {c}")
 
     total = sum(1 for _ in RAW.rglob("content.bin"))
     print(f"\n== 총 raw 문서: {total} ==")

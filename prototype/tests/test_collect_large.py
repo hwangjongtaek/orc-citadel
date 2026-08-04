@@ -86,3 +86,39 @@ def test_collect_arxiv_caps_at_limit(monkeypatch):
     counts = cl.collect_arxiv(total=5)
     assert counts["saved"] == 5  # limit 5에서 정지 (100개 반환에도)
     assert counts["skipped"] == 0
+
+
+def test_collect_sec_saves_gov(monkeypatch):
+    """collect_sec → gov-source raw 저장 (content-hash 멱등성)."""
+    import orc_citadel.collect_large as cl
+    from orc_citadel.connectors.base import DiscoveredRef
+    from orc_citadel.connectors.sec_edgar import SecEdgarConnector
+
+    saved = {}
+
+    def fake_discover(self, config, cursor):
+        for i in range(2):
+            yield DiscoveredRef(url=f"https://www.sec.gov/Archives/d{i}.htm")
+        yield DiscoveredRef(url=f"https://www.sec.gov/Archives/d0.htm")  # 중복 예비
+
+    class FakeFetchResult:
+        http_status = 200
+        response_headers = {"content-type": "application/octet-stream"}
+        content = b"<html>10-Q</html>"
+
+    monkeypatch.setattr(SecEdgarConnector, "discover", fake_discover)
+    monkeypatch.setattr(SecEdgarConnector, "fetch",
+                        lambda self, ref, prior_etag=None: FakeFetchResult())
+
+    def fake_save(source_id, url, content, meta, raw_dir=None):
+        if (source_id, url) in saved_keys:
+            return f"doc-{hash(url)%1000:03d}", False
+        saved_keys.add((source_id, url))
+        saved[source_id] = saved.get(source_id, 0) + 1
+        return f"doc-{hash(url)%1000:03d}", True
+
+    saved_keys = set()
+    monkeypatch.setattr(cl, "_save_zone", fake_save)
+    counts = cl.collect_sec(limit=2, ciks=["1045810"])
+    assert counts["saved"] == 2
+    assert "gov-sec-edgar" in saved
