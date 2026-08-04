@@ -114,6 +114,18 @@ class CuratedZone:
             )
             """
         )
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS conflict_candidates (
+                claim_id_a     VARCHAR NOT NULL,
+                claim_id_b     VARCHAR NOT NULL,
+                conflict_type  VARCHAR NOT NULL,
+                rationale      VARCHAR,
+                judged_by      VARCHAR NOT NULL,
+                PRIMARY KEY (claim_id_a, claim_id_b)
+            )
+            """
+        )
         self._conn.execute("CREATE INDEX IF NOT EXISTS idx_mentions_doc ON mentions(doc_id)")
 
     def tables(self) -> list[str]:
@@ -233,6 +245,27 @@ class CuratedZone:
             [canonical_claim_id, claim_id],
         )
 
+    def persist_conflict(self, cc) -> None:
+        """conflict_candidates 1건 upsert (결정적 쌍 → ON CONFLICT no-op)."""
+        self._conn.execute(
+            """
+            INSERT INTO conflict_candidates
+                (claim_id_a, claim_id_b, conflict_type, rationale, judged_by)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT (claim_id_a, claim_id_b) DO UPDATE SET
+                conflict_type=excluded.conflict_type, rationale=excluded.rationale,
+                judged_by=excluded.judged_by
+            """,
+            [cc.claim_id_a, cc.claim_id_b, cc.conflict_type, cc.rationale, cc.judged_by],
+        )
+
+    def conflict_candidates(self) -> list[dict]:
+        cols = ["claim_id_a", "claim_id_b", "conflict_type", "rationale", "judged_by"]
+        rows = self._conn.execute(
+            f'SELECT {", ".join(cols)} FROM conflict_candidates'
+        ).fetchall()
+        return [dict(zip(cols, r)) for r in rows]
+
     def canonical_claims(self) -> list[dict]:
         cols = ["canonical_claim_id", "subject_id", "predicate", "object_id",
                 "canonical_text", "member_claim_ids"]
@@ -343,6 +376,9 @@ class CuratedZone:
         )
         self._conn.execute(
             f"COPY member_of TO '{p / 'member_of.parquet'}' (FORMAT PARQUET)"
+        )
+        self._conn.execute(
+            f"COPY conflict_candidates TO '{p / 'conflict_candidates.parquet'}' (FORMAT PARQUET)"
         )
         self._conn.execute(
             f"COPY dup_clusters TO '{p / 'dup_clusters.parquet'}' (FORMAT PARQUET)"

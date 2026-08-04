@@ -152,6 +152,45 @@ def test_tables_include_canonical(zone):
     assert "member_of" in zone.tables()
 
 
+# --- conflict_candidates (S10) ----------------------------------------------
+
+def test_persist_conflict_query(zone):
+    from orc_citadel.contradiction import ConflictCandidate
+    cc = ConflictCandidate(
+        claim_id_a="clm-a", claim_id_b="clm-b",
+        conflict_type="polarity", rationale="같은 subject·predicate에서 polarity 상충",
+        judged_by="pipeline",
+    )
+    zone.persist_conflict(cc)
+    rows = zone.conflict_candidates()
+    assert len(rows) == 1
+    assert rows[0]["conflict_type"] == "polarity"
+    assert rows[0]["judged_by"] == "pipeline"
+    assert rows[0]["rationale"]
+
+
+def test_persist_conflict_idempotent(zone):
+    from orc_citadel.contradiction import ConflictCandidate
+    mk = lambda: ConflictCandidate(
+        claim_id_a="c1", claim_id_b="c2", conflict_type="value_conflict",
+        rationale="서로 다른 object", judged_by="pipeline",
+    )
+    for _ in range(2):
+        zone.persist_conflict(mk())
+    assert len(zone.conflict_candidates()) == 1
+
+
+def test_export_parquet_includes_conflict(zone, tmp_path):
+    from orc_citadel.contradiction import ConflictCandidate
+    zone.persist_conflict(ConflictCandidate(
+        claim_id_a="a", claim_id_b="b", conflict_type="polarity",
+        rationale="모순", judged_by="pipeline",
+    ))
+    out = tmp_path / "pq"
+    zone.export_parquet(str(out))
+    assert "conflict_candidates.parquet" in sorted(p.name for p in out.glob("*.parquet"))
+
+
 def test_export_parquet_includes_canonical(zone, tmp_path):
     from orc_citadel.canonicalize import CanonicalClaim, canonical_claim_id_for
     zone.persist_canonical(CanonicalClaim(
