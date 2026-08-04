@@ -124,6 +124,23 @@ def test_persist_entity_query(zone):
 
 # --- claim_candidates (S7) ---------------------------------------------------
 
+def test_update_claim_status(zone):
+    """게이트 결과로 claim 상태 promoted/quarantined 전이 저장 (05 §6)."""
+    from orc_citadel.extract_claims import ClaimCandidate, claim_id_for
+    c = ClaimCandidate(
+        claim_candidate_id=claim_id_for("doc-s", 0, 0, 12, "announces"),
+        doc_id="doc-s", predicate="announces", subject_id="org-1",
+        object_id=None, object_literal=None, modality="asserted",
+        polarity="positive", confidence=0.8, seg_order=0, char_start=0, char_end=12,
+        surface_fragment="will host", event_type_hint="earnings", status="candidate",
+    )
+    zone.persist_claim(c)
+    zone.update_claim_status(c.claim_candidate_id, "quarantined", "low_confidence")
+    r = zone.claims("doc-s")[0]
+    assert r["status"] == "quarantined"
+    assert r["quarantine_reason"] == "low_confidence"
+
+
 def test_persist_claim_query(zone):
     from orc_citadel.extract_claims import ClaimCandidate, claim_id_for
     c = ClaimCandidate(

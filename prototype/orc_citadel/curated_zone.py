@@ -86,6 +86,7 @@ class CuratedZone:
                 surface_fragment   VARCHAR,
                 event_type_hint    VARCHAR,
                 status             VARCHAR NOT NULL,
+                quarantine_reason  VARCHAR,
                 ontology_version   VARCHAR,
                 extraction_model   VARCHAR
             )
@@ -169,11 +170,20 @@ class CuratedZone:
             ],
         )
 
+    def update_claim_status(self, claim_candidate_id: str, status: str,
+                            reason: str | None = None) -> None:
+        """claim 후보의 상태를 게이트 결과로 업데이트 (05 §6, 03 §4.2)."""
+        self._conn.execute(
+            "UPDATE claim_candidates SET status=?, quarantine_reason=? "
+            "WHERE claim_candidate_id=?",
+            [status, reason, claim_candidate_id],
+        )
+
     def claims(self, doc_id: str | None = None) -> list[dict]:
         cols = ["claim_candidate_id", "doc_id", "predicate", "subject_id", "object_id",
                 "object_literal", "modality", "polarity", "confidence", "seg_order",
                 "char_start", "char_end", "surface_fragment", "event_type_hint",
-                "status", "ontology_version", "extraction_model"]
+                "status", "quarantine_reason", "ontology_version", "extraction_model"]
         if doc_id is None:
             rows = self._conn.execute(f'SELECT {", ".join(cols)} FROM claim_candidates').fetchall()
         else:
