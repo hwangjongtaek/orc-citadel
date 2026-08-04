@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import pathlib
-import re
 import time
 import urllib.request
 from datetime import datetime, timezone
@@ -62,25 +61,31 @@ def _save_zone(store_dir: pathlib.Path, source_id: str, url: str,
 
 
 def collect_rss(feed_url: str, source_id: str, label: str) -> None:
-    xml, _ = _get(feed_url)
-    body = xml.decode("utf-8", errors="replace")
-    links = re.findall(r"<link>\s*(\S+)\s*</link>", body)
+    """RssConnector.discover를 재사용 — naive <link> 매칭(사이트 루트 노이즈) 원천 제거."""
+    from orc_citadel.connectors.rss import RssConnector
+
+    conn = RssConnector()
     seen: set[str] = set()
     n = 0
-    for url in links:
-        if url.startswith("http") and url not in seen:
-            seen.add(url)
-            try:
-                content, hdrs = _get(url)
-            except Exception as e:
-                print(f"  [{label}] skip {url}: {e}")
-                continue
-            _save_zone(RAW, source_id, url, content,
-                       {"http_status": 200, "content_type": hdrs.get("Content-Type")})
-            n += 1
-            print(f"  [{label}] saved {url} -> {n}")
-            if n >= MAX_PER_SOURCE:
-                break
+    for ref in conn.discover(feed_url, cursor=None):
+        url = ref.url
+        if not url.startswith("http") or url in seen:
+            continue
+        seen.add(url)
+        try:
+            content, hdrs = _get(url)
+        except Exception as e:
+            print(f"  [{label}] skip {url}: {e}")
+            continue
+        # ref.hint_modified(RSS pubDate)를 변경 탐지 신호로 fetch.json에 기록.
+        _save_zone(RAW, source_id, url, content,
+                   {"http_status": 200,
+                    "content_type": hdrs.get("Content-Type"),
+                    "hint_modified": ref.hint_modified.isoformat() if ref.hint_modified else None})
+        n += 1
+        print(f"  [{label}] saved {url} -> {n}")
+        if n >= MAX_PER_SOURCE:
+            break
 
 
 def collect_arxiv() -> None:
