@@ -170,6 +170,29 @@ class GraphService:
             candidates.append(nv)
         return candidates[0] if candidates else None
 
+    def restore(self, nodes: list[dict], edges: list[dict],
+                quarantined: list[dict]) -> None:
+        """저장된 materialized 상태로 그래프 재구축 (03 §7 repload).
+
+        노드/엣지/quarantine을 직접 복원 — merge/supersede 후의 최종 상태 보존.
+        """
+        self._nodes.clear()
+        self._edges.clear()
+        self._quarantined_edges.clear()
+        for n in nodes:
+            nid = n["id"]
+            # 저장 상태는 props가 평평화(flattened) → id/label 외 키를 props로.
+            props = {k: v for k, v in n.items() if k not in ("id", "label")}
+            self._nodes[nid] = Node(
+                id=nid, props=props, label=n.get("label", "Authoritative"))
+        for e in edges:
+            self._edges.append(Edge(
+                edge_id=e.get("edge_id", f"edge-{len(self._edges) + 1:04d}"),
+                etype=e["type"], fro=e["from"], to=e["to"],
+                props=dict(e.get("props", {})),
+            ))
+        self._quarantined_edges = list(quarantined)
+
     # --- 조회 ---------------------------------------------------------------
 
     def node(self, node_id: str) -> dict | None:
@@ -203,8 +226,8 @@ class GraphService:
         return sum(1 for e in self._edges if e.fro == node_id or e.to == node_id)
 
     def edges(self) -> list[dict]:
-        return [{"edge_id": e.edge_id, "type": e.etype, "from": e.fro, "to": e.to}
-                for e in self._edges]
+        return [{"edge_id": e.edge_id, "type": e.etype, "from": e.fro, "to": e.to,
+                 "props": e.props} for e in self._edges]
 
     def quarantined_edges(self) -> list[dict]:
         return list(self._quarantined_edges)
