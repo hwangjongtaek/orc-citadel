@@ -6,6 +6,8 @@ S4 dedup cluster를 영속·조회·Parquet export한다. 그래프 반영/해�
 - `mentions`(설계 §4.1) : L1 추출 산출물. PK를 결정적 mention_id로 유지(03 §5).
   `resolved_entity_id`는 해소 전 null (설계 05 §1.2).
 - `entities` : 해소된 canonical 엔터티 (설계 02 §2.2). mention.resolved_entity_id가 참조.
+- `claim_candidates`(설계 §4.2) : 규칙 기반 추출 claim 후보. status=candidate.
+  (별도 claims 테이블 없음 — ADR-306, promote 시 claim-of-record.)
 - `dup_clusters`(설계 §4.3) : 출처 계보. member_doc_ids는 배열(duckdb LIST).
 - offsets는 clean text 축 (03 §3.2, ADR-302) — normalized segments와 동일 축.
 """
@@ -16,6 +18,7 @@ import json
 import duckdb
 
 from .extract import Mention
+from .extract_claims import ClaimCandidate
 from .resolve import Entity, ResolvedMention
 
 
@@ -62,6 +65,29 @@ class CuratedZone:
                 canonical_name VARCHAR NOT NULL,
                 identifiers    VARCHAR,
                 surface_forms  VARCHAR[]
+            )
+            """
+        )
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS claim_candidates (
+                claim_candidate_id VARCHAR PRIMARY KEY,
+                doc_id             VARCHAR NOT NULL,
+                predicate          VARCHAR NOT NULL,
+                subject_id         VARCHAR,
+                object_id          VARCHAR,
+                object_literal     VARCHAR,
+                modality           VARCHAR NOT NULL,
+                polarity           VARCHAR NOT NULL,
+                confidence         DOUBLE NOT NULL,
+                seg_order          BIGINT NOT NULL,
+                char_start         BIGINT NOT NULL,
+                char_end           BIGINT NOT NULL,
+                surface_fragment   VARCHAR,
+                event_type_hint    VARCHAR,
+                status             VARCHAR NOT NULL,
+                ontology_version   VARCHAR,
+                extraction_model   VARCHAR
             )
             """
         )
@@ -121,6 +147,40 @@ class CuratedZone:
                 "UPDATE mentions SET resolved_entity_id=? WHERE mention_id=?",
                 [rm.resolved_entity_id, rm.mention.mention_id],
             )
+
+    def persist_claim(self, c: ClaimCandidate) -> None:
+        """claim 후보 1건 upsert (결정적 ID → ON CONFLICT no-op, 03 §4.2)."""
+        self._conn.execute(
+            """
+            INSERT INTO claim_candidates
+                (claim_candidate_id, doc_id, predicate, subject_id, object_id,
+                 object_literal, modality, polarity, confidence, seg_order,
+                 char_start, char_end, surface_fragment, event_type_hint,
+                 status, ontology_version, extraction_model)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (claim_candidate_id) DO NOTHING
+            """,
+            [
+                c.claim_candidate_id, c.doc_id, c.predicate, c.subject_id,
+                c.object_id, c.object_literal, c.modality, c.polarity, c.confidence,
+                c.seg_order, c.char_start, c.char_end, c.surface_fragment,
+                c.event_type_hint, c.status, c.to_row()["ontology_version"],
+                c.to_row()["extraction_model"],
+            ],
+        )
+
+    def claims(self, doc_id: str | None = None) -> list[dict]:
+        cols = ["claim_candidate_id", "doc_id", "predicate", "subject_id", "object_id",
+                "object_literal", "modality", "polarity", "confidence", "seg_order",
+                "char_start", "char_end", "surface_fragment", "event_type_hint",
+                "status", "ontology_version", "extraction_model"]
+        if doc_id is None:
+            rows = self._conn.execute(f'SELECT {", ".join(cols)} FROM claim_candidates').fetchall()
+        else:
+            rows = self._conn.execute(
+                f'SELECT {", ".join(cols)} FROM claim_candidates WHERE doc_id=?', [doc_id]
+            ).fetchall()
+        return [dict(zip(cols, r)) for r in rows]
 
     def persist_cluster(
         self,
@@ -196,6 +256,9 @@ class CuratedZone:
         p.mkdir(parents=True, exist_ok=True)
         self._conn.execute(f"COPY mentions TO '{p / 'mentions.parquet'}' (FORMAT PARQUET)")
         self._conn.execute(f"COPY entities TO '{p / 'entities.parquet'}' (FORMAT PARQUET)")
+        self._conn.execute(
+            f"COPY claim_candidates TO '{p / 'claim_candidates.parquet'}' (FORMAT PARQUET)"
+        )
         self._conn.execute(
             f"COPY dup_clusters TO '{p / 'dup_clusters.parquet'}' (FORMAT PARQUET)"
         )

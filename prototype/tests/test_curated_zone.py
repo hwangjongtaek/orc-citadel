@@ -29,6 +29,7 @@ def _mentions(text: str) -> list[Mention]:
 def test_tables_created(zone):
     assert "mentions" in zone.tables()
     assert "entities" in zone.tables()
+    assert "claim_candidates" in zone.tables()
     assert "dup_clusters" in zone.tables()
 
 
@@ -119,6 +120,56 @@ def test_persist_entity_query(zone):
     assert rows[0]["canonical_name"] == "NVIDIA"
     assert rows[0]["identifiers"]["ticker"] == "NVDA"
     assert rows[0]["surface_forms"] == ["NVIDIA", "NVDA"]
+
+
+# --- claim_candidates (S7) ---------------------------------------------------
+
+def test_persist_claim_query(zone):
+    from orc_citadel.extract_claims import ClaimCandidate, claim_id_for
+    c = ClaimCandidate(
+        claim_candidate_id=claim_id_for("doc-x", 0, 0, 12, "announces"),
+        doc_id="doc-x", predicate="announces", subject_id="org-abc",
+        object_id=None, object_literal=None, modality="asserted",
+        polarity="positive", confidence=0.8, seg_order=0, char_start=0, char_end=12,
+        surface_fragment="will host", event_type_hint="earnings", status="candidate",
+    )
+    zone.persist_claim(c)
+    rows = zone.claims("doc-x")
+    assert len(rows) == 1
+    r = rows[0]
+    assert r["predicate"] == "announces"
+    assert r["subject_id"] == "org-abc"
+    assert r["event_type_hint"] == "earnings"
+    assert r["status"] == "candidate"
+
+
+def test_persist_claim_idempotent(zone):
+    from orc_citadel.extract_claims import ClaimCandidate, claim_id_for
+    mk = lambda: ClaimCandidate(
+        claim_candidate_id=claim_id_for("doc-y", 1, 5, 9, "announces"),
+        doc_id="doc-y", predicate="announces", subject_id="org-1",
+        object_id=None, object_literal=None, modality="asserted",
+        polarity="positive", confidence=0.8, seg_order=1, char_start=5, char_end=9,
+        surface_fragment="webcast", event_type_hint="earnings", status="candidate",
+    )
+    for _ in range(2):
+        zone.persist_claim(mk())
+    assert len(zone.claims("doc-y")) == 1
+
+
+def test_export_parquet_includes_claims(zone, tmp_path):
+    from orc_citadel.extract_claims import ClaimCandidate, claim_id_for
+    zone.persist_claim(ClaimCandidate(
+        claim_candidate_id=claim_id_for("doc-z", 0, 0, 4, "announces"),
+        doc_id="doc-z", predicate="announces", subject_id="org-z",
+        object_id=None, object_literal=None, modality="asserted",
+        polarity="positive", confidence=0.8, seg_order=0, char_start=0, char_end=4,
+        surface_fragment="host", event_type_hint="earnings", status="candidate",
+    ))
+    out = tmp_path / "pq"
+    zone.export_parquet(str(out))
+    names = sorted(p.name for p in out.glob("*.parquet"))
+    assert "claim_candidates.parquet" in names
 
 
 def test_persist_resolved_updates_mentions(zone):
