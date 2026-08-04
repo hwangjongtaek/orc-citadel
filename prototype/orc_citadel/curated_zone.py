@@ -126,6 +126,26 @@ class CuratedZone:
             )
             """
         )
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS assertions (
+                assertion_id    VARCHAR PRIMARY KEY,
+                claim_id        VARCHAR NOT NULL,
+                subject_id      VARCHAR NOT NULL,
+                predicate       VARCHAR NOT NULL,
+                object_id       VARCHAR,
+                object_literal  VARCHAR,
+                valid_from      TIMESTAMP,
+                valid_to        TIMESTAMP,
+                time_precision  VARCHAR NOT NULL,
+                tx_from         TIMESTAMP NOT NULL,
+                tx_to           TIMESTAMP,
+                supersedes_id   VARCHAR,
+                mutation_id     VARCHAR NOT NULL,
+                provenance_ref  VARCHAR[]
+            )
+            """
+        )
         self._conn.execute("CREATE INDEX IF NOT EXISTS idx_mentions_doc ON mentions(doc_id)")
 
     def tables(self) -> list[str]:
@@ -259,6 +279,34 @@ class CuratedZone:
             [cc.claim_id_a, cc.claim_id_b, cc.conflict_type, cc.rationale, cc.judged_by],
         )
 
+    def persist_assertion(self, a) -> None:
+        """Assertion 1건 upsert (결정적 asr- id → ON CONFLICT no-op, 03 §6.2)."""
+        from .assertions import Assertion
+
+        assert isinstance(a, Assertion), "expected Assertion"
+        self._conn.execute(
+            """
+            INSERT INTO assertions
+                (assertion_id, claim_id, subject_id, predicate, object_id,
+                 object_literal, valid_from, valid_to, time_precision, tx_from,
+                 tx_to, supersedes_id, mutation_id, provenance_ref)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (assertion_id) DO NOTHING
+            """,
+            [a.assertion_id, a.claim_id, a.subject_id, a.predicate, a.object_id,
+             a.object_literal, a.valid_from, a.valid_to, a.time_precision, a.tx_from,
+             a.tx_to, a.supersedes_id, a.mutation_id, list(a.provenance_ref)],
+        )
+
+    def assertions(self) -> list[dict]:
+        cols = ["assertion_id", "claim_id", "subject_id", "predicate", "object_id",
+                "object_literal", "valid_from", "valid_to", "time_precision",
+                "tx_from", "tx_to", "supersedes_id", "mutation_id", "provenance_ref"]
+        rows = self._conn.execute(
+            f'SELECT {", ".join(cols)} FROM assertions'
+        ).fetchall()
+        return [dict(zip(cols, r)) for r in rows]
+
     def conflict_candidates(self) -> list[dict]:
         cols = ["claim_id_a", "claim_id_b", "conflict_type", "rationale", "judged_by"]
         rows = self._conn.execute(
@@ -379,6 +427,9 @@ class CuratedZone:
         )
         self._conn.execute(
             f"COPY conflict_candidates TO '{p / 'conflict_candidates.parquet'}' (FORMAT PARQUET)"
+        )
+        self._conn.execute(
+            f"COPY assertions TO '{p / 'assertions.parquet'}' (FORMAT PARQUET)"
         )
         self._conn.execute(
             f"COPY dup_clusters TO '{p / 'dup_clusters.parquet'}' (FORMAT PARQUET)"

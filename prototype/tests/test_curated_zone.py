@@ -152,6 +152,59 @@ def test_tables_include_canonical(zone):
     assert "member_of" in zone.tables()
 
 
+# --- assertions (S11) --------------------------------------------------------
+
+def test_persist_assertion_query(zone):
+    from orc_citadel.assertions import Assertion
+    from datetime import datetime, timezone
+    a = Assertion(
+        assertion_id="asr-abc", claim_id="clm-1", subject_id="org-1",
+        predicate="announces", object_id=None, object_literal=None,
+        valid_from=None, valid_to=None, time_precision="unknown",
+        tx_from=datetime(2026, 8, 3, 12, 0, tzinfo=timezone.utc),
+        tx_to=None, supersedes_id=None, mutation_id="mut-1",
+        provenance_ref=("clm-1",),
+    )
+    zone.persist_assertion(a)
+    rows = zone.assertions()
+    assert len(rows) == 1
+    assert rows[0]["assertion_id"] == "asr-abc"
+    assert rows[0]["predicate"] == "announces"
+    assert rows[0]["time_precision"] == "unknown"
+    assert rows[0]["provenance_ref"] == ["clm-1"]
+
+
+def test_persist_assertion_idempotent(zone):
+    from orc_citadel.assertions import Assertion
+    from datetime import datetime, timezone
+    mk = lambda: Assertion(
+        assertion_id="asr-x", claim_id="clm-x", subject_id="org-x",
+        predicate="announces", object_id=None, object_literal=None,
+        valid_from=None, valid_to=None, time_precision="unknown",
+        tx_from=datetime(2026, 8, 3, 12, 0, tzinfo=timezone.utc),
+        tx_to=None, supersedes_id=None, mutation_id="mut-x",
+        provenance_ref=("clm-x",),
+    )
+    for _ in range(2):
+        zone.persist_assertion(mk())
+    assert len(zone.assertions()) == 1
+
+
+def test_export_parquet_includes_assertions(zone, tmp_path):
+    from orc_citadel.assertions import Assertion
+    from datetime import datetime, timezone
+    zone.persist_assertion(Assertion(
+        assertion_id="asr-e", claim_id="clm-e", subject_id="org-e",
+        predicate="announces", object_id=None, object_literal=None,
+        valid_from=None, valid_to=None, time_precision="unknown",
+        tx_from=datetime(2026, 8, 3, 12, 0, tzinfo=timezone.utc),
+        tx_to=None, supersedes_id=None, mutation_id="mut-e", provenance_ref=("clm-e",),
+    ))
+    out = tmp_path / "pq"
+    zone.export_parquet(str(out))
+    assert "assertions.parquet" in sorted(p.name for p in out.glob("*.parquet"))
+
+
 # --- conflict_candidates (S10) ----------------------------------------------
 
 def test_persist_conflict_query(zone):
