@@ -61,8 +61,10 @@ class GraphService:
                 self._apply_unmerge(payload, res)
             elif op == "supersede":
                 self._apply_supersede(payload)
+            elif op == "delete":
+                self._apply_delete(payload)
             else:
-                continue  # 미지원 op는 무시 (delete는 후속)
+                continue  # 미지원 op는 무시
             self._applied.add(key)
 
     def _apply_create_node(self, payload: dict) -> None:
@@ -147,6 +149,22 @@ class GraphService:
             self._nodes[old_id].props["tx_to"] = at
         # 신버전 tx_to는 기본 null (현재 버전).
 
+    def _apply_delete(self, payload: dict) -> None:
+        """delete — soft delete (06 §3.2·§4.1): :Deleted + deleted_at.
+
+        원장 append-only이므로 물리 삭제 금지 — 노드에 deleted 표시, 엣지 제거.
+        기본 조회에서 :Deleted 제외. rollback(역이벤트) 가능 (06 §7.4).
+        """
+        nid = payload.get("id")
+        n = self._nodes.get(nid)
+        if n is None:
+            return  # 안전 no-op
+        n.props["deleted"] = True
+        n.props["deleted_at"] = payload.get("deleted_at")
+        n.label = "Deleted"
+        # 관련 엣지 제거.
+        self._edges = [e for e in self._edges if e.fro != nid and e.to != nid]
+
     def as_of(self, claim: str | None = None, valid_at: str | None = None) -> dict | None:
         """bitemporal AS-OF 질의 (03 §6.3).
 
@@ -207,10 +225,13 @@ class GraphService:
             "merged": n.props.get("merged", False),
         }
 
-    def nodes(self, label: str | None = None) -> list[dict]:
+    def nodes(self, label: str | None = None,
+              include_deleted: bool = False) -> list[dict]:
         out = [{"id": n.id, **n.props, "label": n.label} for n in self._nodes.values()]
         if label is not None:
             out = [n for n in out if n["label"] == label]
+        if not include_deleted:
+            out = [n for n in out if not n.get("deleted")]  # 06 §4.1 기본 제외
         return out
 
     def neighbors(self, node_id: str) -> list[dict]:
