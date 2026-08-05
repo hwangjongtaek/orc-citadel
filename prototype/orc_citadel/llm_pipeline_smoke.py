@@ -44,6 +44,8 @@ class _BoundedJudge:
         self._cap = cap
         self._n = 0
         self.calls: list[str] = []
+        # 영속용 — 실제 호출된 (kind, pair, verdict dict) 기록.
+        self.verdicts: list[tuple[str, tuple[str, str], dict | None]] = []
 
     def _maybe(self, fn_name: str, pair: tuple[str, str], fn):
         if self._n >= self._cap:
@@ -51,13 +53,57 @@ class _BoundedJudge:
             return None
         self._n += 1
         self.calls.append(f"{fn_name}:{pair[0]}")
-        return fn(pair)
+        out = fn(pair)
+        self.verdicts.append((fn_name, pair, out))
+        return out
 
     def judge_canonicalization(self, pair: tuple[str, str]):
         return self._maybe("canon", pair, self._inner.judge_canonicalization)
 
     def judge_contradiction(self, pair: tuple[str, str]):
         return self._maybe("conf", pair, self._inner.judge_contradiction)
+
+
+def persist_llm_verdicts(zone, bounded: _BoundedJudge) -> None:
+    """_BoundedJudge가 실제 LLM으로 판정한 결과를 curated zone에 영속 (S23).
+
+    canonical: 인자(dict)를 canonical_llm_records row로, contradiction: conflict_verdicts.
+    version_tuple은 판정 dict에 포함된 5축(07 §6.1)을 그대로 사용, 없으면 기본.
+    """
+    # S21 ClaudeJudge는 version 키를 평면(flat: model_id/prompt_template_hash 등)으로
+    # 붙인다 → 03 §7.1 5축 `version_tuple` JSON으로 조립해 저장.
+    def _version_tuple(v: dict) -> dict:
+        return {
+            "ontology_version": v.get("ontology_version", "1.0.0"),
+            "schema_version": v.get("output_schema_version", "0.1.0"),
+            "prompt_template_hash": v.get("prompt_template_hash", ""),
+            "model_id": v.get("model_id", ""),
+            "extraction_code_version": "p1",
+        }
+
+    for kind, pair, v in bounded.verdicts:
+        if v is None:
+            continue
+        a, b = pair
+        vt = _version_tuple(v)
+        if kind == "canon":
+            if "relation" in v:
+                zone.persist_canonical_llm_record(
+                    claim_id_a=a, claim_id_b=b, relation=v["relation"],
+                    canonical_text=v.get("canonical_text", ""),
+                    confidence=float(v.get("confidence", 0.0)),
+                    rationale=v.get("rationale", ""), version_tuple=vt,
+                    judged_by=v.get("judged_by", "llm"),
+                )
+        elif kind == "conf":
+            if "verdict" in v:
+                zone.persist_conflict_verdict(
+                    claim_id_a=a, claim_id_b=b, verdict=v["verdict"],
+                    conflict_type=v.get("conflict_type"),
+                    rationale=v.get("rationale", ""),
+                    confidence=float(v.get("confidence", 0.0)),
+                    version_tuple=vt, judged_by=v.get("judged_by", "llm"),
+                )
 
 
 def _build_bounded_judge() -> _BoundedJudge:
@@ -146,6 +192,11 @@ def main() -> None:
     print(f"conflict judged_by=llm: {len(llm_conf)}")
     for c in llm_conf[:5]:
         print(f"   {c.claim_id_a}×{c.claim_id_b} [{c.conflict_type}] {c.rationale[:70]}")
+
+    # S23: LLM 판정 산출물 영속 (version tuple 포함).
+    persist_llm_verdicts(zone, judge)
+    print(f"[영속] canonical_llm_records={len(zone.canonical_llm_records())} "
+          f"conflict_verdicts={len(zone.conflict_verdicts())}")
 
     # --- 결정성 불변식: 동일 doc 재추출 → 동일 mention id. ---
     doc0 = metas[0]

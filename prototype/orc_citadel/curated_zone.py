@@ -161,6 +161,39 @@ class CuratedZone:
             )
             """
         )
+        # S23: LLM 판정 산출물 영속 (설계 03 §7.1 version tuple, 05 §4.2·§5.2).
+        # canonicalization 의사결정 근거 — 결정적 규칙이 미결로 남긴 쌍의 LLM 7라벨.
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS canonical_llm_records (
+                claim_id_a     VARCHAR NOT NULL,
+                claim_id_b     VARCHAR NOT NULL,
+                relation       VARCHAR NOT NULL,
+                canonical_text VARCHAR,
+                confidence     DOUBLE NOT NULL,
+                rationale      VARCHAR,
+                judged_by      VARCHAR NOT NULL,
+                version_tuple  VARCHAR,
+                PRIMARY KEY (claim_id_a, claim_id_b)
+            )
+            """
+        )
+        # contradiction verdict — LLM 실제 모순 판정 (05 §5.2).
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS conflict_verdicts (
+                claim_id_a     VARCHAR NOT NULL,
+                claim_id_b     VARCHAR NOT NULL,
+                verdict        VARCHAR NOT NULL,
+                conflict_type  VARCHAR,
+                rationale      VARCHAR,
+                confidence     DOUBLE NOT NULL,
+                judged_by      VARCHAR NOT NULL,
+                version_tuple  VARCHAR,
+                PRIMARY KEY (claim_id_a, claim_id_b)
+            )
+            """
+        )
         self._conn.execute("CREATE INDEX IF NOT EXISTS idx_mentions_doc ON mentions(doc_id)")
 
     def tables(self) -> list[str]:
@@ -293,6 +326,83 @@ class CuratedZone:
             """,
             [cc.claim_id_a, cc.claim_id_b, cc.conflict_type, cc.rationale, cc.judged_by],
         )
+
+    def persist_canonical_llm_record(
+        self, claim_id_a: str, claim_id_b: str, relation: str,
+        canonical_text: str, confidence: float, rationale: str,
+        version_tuple: dict, judged_by: str = "llm",
+    ) -> None:
+        """canonicalization LLM 판정 근거 upsert (결정적 (a,b) → idempotent, 05 §4.2).
+
+        version_tuple은 03 §7.1 5축 JSON으로 보존 — 재실행·모델 교체 추적.
+        """
+        self._conn.execute(
+            """
+            INSERT INTO canonical_llm_records
+                (claim_id_a, claim_id_b, relation, canonical_text, confidence,
+                 rationale, judged_by, version_tuple)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (claim_id_a, claim_id_b) DO UPDATE SET
+                relation=excluded.relation, canonical_text=excluded.canonical_text,
+                confidence=excluded.confidence, rationale=excluded.rationale,
+                judged_by=excluded.judged_by, version_tuple=excluded.version_tuple
+            """,
+            [claim_id_a, claim_id_b, relation, canonical_text, confidence,
+             rationale, judged_by, json.dumps(version_tuple, ensure_ascii=False)],
+        )
+
+    def persist_conflict_verdict(
+        self, claim_id_a: str, claim_id_b: str, verdict: str,
+        conflict_type: str | None, rationale: str, confidence: float,
+        version_tuple: dict, judged_by: str = "llm",
+    ) -> None:
+        """contradiction LLM verdict upsert (05 §5.2) — version tuple 함께 영속."""
+        self._conn.execute(
+            """
+            INSERT INTO conflict_verdicts
+                (claim_id_a, claim_id_b, verdict, conflict_type, rationale,
+                 confidence, judged_by, version_tuple)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (claim_id_a, claim_id_b) DO UPDATE SET
+                verdict=excluded.verdict, conflict_type=excluded.conflict_type,
+                rationale=excluded.rationale, confidence=excluded.confidence,
+                judged_by=excluded.judged_by, version_tuple=excluded.version_tuple
+            """,
+            [claim_id_a, claim_id_b, verdict, conflict_type, rationale,
+             confidence, judged_by, json.dumps(version_tuple, ensure_ascii=False)],
+        )
+
+    def canonical_llm_records(self) -> list[dict]:
+        cols = ["claim_id_a", "claim_id_b", "relation", "canonical_text",
+                "confidence", "rationale", "judged_by", "version_tuple"]
+        rows = self._conn.execute(
+            f'SELECT {", ".join(cols)} FROM canonical_llm_records'
+        ).fetchall()
+        out = []
+        for r in rows:
+            d = dict(zip(cols, r))
+            try:
+                d["version_tuple"] = json.loads(d["version_tuple"])
+            except (TypeError, ValueError):
+                d["version_tuple"] = {}
+            out.append(d)
+        return out
+
+    def conflict_verdicts(self) -> list[dict]:
+        cols = ["claim_id_a", "claim_id_b", "verdict", "conflict_type",
+                "rationale", "confidence", "judged_by", "version_tuple"]
+        rows = self._conn.execute(
+            f'SELECT {", ".join(cols)} FROM conflict_verdicts'
+        ).fetchall()
+        out = []
+        for r in rows:
+            d = dict(zip(cols, r))
+            try:
+                d["version_tuple"] = json.loads(d["version_tuple"])
+            except (TypeError, ValueError):
+                d["version_tuple"] = {}
+            out.append(d)
+        return out
 
     def persist_assertion(self, a) -> None:
         """Assertion 1건 upsert (결정적 asr- id → ON CONFLICT no-op, 03 §6.2)."""
@@ -481,6 +591,12 @@ class CuratedZone:
         )
         self._conn.execute(
             f"COPY authoritative_edges TO '{p / 'authoritative_edges.parquet'}' (FORMAT PARQUET)"
+        )
+        self._conn.execute(
+            f"COPY canonical_llm_records TO '{p / 'canonical_llm_records.parquet'}' (FORMAT PARQUET)"
+        )
+        self._conn.execute(
+            f"COPY conflict_verdicts TO '{p / 'conflict_verdicts.parquet'}' (FORMAT PARQUET)"
         )
         self._conn.execute(
             f"COPY dup_clusters TO '{p / 'dup_clusters.parquet'}' (FORMAT PARQUET)"
