@@ -55,11 +55,25 @@ class GraphStorage:
             )
             """
         )
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS review_records (
+                element_ref VARCHAR PRIMARY KEY,
+                status      VARCHAR NOT NULL,
+                original_model_output VARCHAR,
+                human_decision VARCHAR,
+                reason      VARCHAR,
+                reviewer    VARCHAR,
+                reviewed_at VARCHAR
+            )
+            """
+        )
 
     def persist_graph(self, g: GraphService) -> None:
         """GraphService materialized 상태를 영속 (idempotent upsert)."""
         # 노드: node() 는 평평한 dict — id/label 분리, 나머지 props.
-        for n in g.nodes():
+        # :Deleted 노드도 영속 (S18/S20 — 삭제 상태 보존, 06 §3.2).
+        for n in g.nodes(include_deleted=True):
             node_id = n["id"]
             label = n.get("label", "Authoritative")
             props = {k: v for k, v in n.items() if k not in ("id", "label")}
@@ -85,6 +99,44 @@ class GraphStorage:
                 [q.get("edge_id", q.get("type", "")), q.get("type"), q.get("from"),
                  q.get("to"), q.get("reason")],
             )
+
+    def persist_reviews(self, rq) -> None:
+        """ReviewQueue 골든셋 영속 (idempotent, 05 §8.2)."""
+        if hasattr(rq, "all_history"):
+            recs = rq.all_history()
+        else:
+            recs = []
+        for r in recs:
+            self._conn.execute(
+                """INSERT INTO review_records
+                   (element_ref, status, original_model_output, human_decision, reason,
+                    reviewer, reviewed_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT (element_ref) DO UPDATE SET status=excluded.status,
+                     original_model_output=excluded.original_model_output,
+                     human_decision=excluded.human_decision, reason=excluded.reason,
+                     reviewer=excluded.reviewer, reviewed_at=excluded.reviewed_at""",
+                [r["element_ref"], r.get("status", ""),
+                 json.dumps(r.get("original_model_output", {}), ensure_ascii=False),
+                 json.dumps(r.get("human_decision", {}), ensure_ascii=False),
+                 r.get("reason", ""), r.get("reviewer", ""), r.get("reviewed_at")],
+            )
+
+    def reviews(self) -> list[dict]:
+        cols = ["element_ref", "status", "original_model_output", "human_decision",
+                "reason", "reviewer", "reviewed_at"]
+        rows = self._conn.execute(
+            f'SELECT {", ".join(cols)} FROM review_records').fetchall()
+        out = []
+        for r in rows:
+            d = dict(zip(cols, r))
+            for k in ("original_model_output", "human_decision"):
+                try:
+                    d[k] = json.loads(d[k])
+                except (TypeError, ValueError):
+                    d[k] = {}
+            out.append(d)
+        return out
 
     def load_graph(self) -> GraphService:
         """저장 상태 → GraphService 재구축 (materialized 복원)."""
@@ -122,6 +174,7 @@ class GraphStorage:
         p.mkdir(parents=True, exist_ok=True)
         self._conn.execute(f"COPY graph_nodes TO '{p / 'graph_nodes.parquet'}' (FORMAT PARQUET)")
         self._conn.execute(f"COPY graph_edges TO '{p / 'graph_edges.parquet'}' (FORMAT PARQUET)")
+        self._conn.execute(f"COPY review_records TO '{p / 'review_records.parquet'}' (FORMAT PARQUET)")
 
     def close(self) -> None:
         self._conn.close()

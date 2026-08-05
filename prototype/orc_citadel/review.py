@@ -29,6 +29,7 @@ class ReviewRecord:
         """골든셋 레코드 (05 §8.2) — 원출력·결정·이유·reviewer."""
         return {
             "element_ref": self.element_ref,
+            "status": self.status,
             "original_model_output": self.original_model_output,
             "human_decision": self.human_decision,
             "reason": self.reason,
@@ -90,6 +91,10 @@ class ReviewQueue:
     def escalate(self, element_ref: str, reviewer: str) -> None:
         """온톨로지 proposal (escalated, → 02 §6.2)."""
         self._decide(element_ref, "escalated", reviewer, "ontology proposal")
+
+    def all_history(self) -> list[dict]:
+        """전체 골든셋 레코드 (영속·회귀 평가 입력용, 05 §8.2)."""
+        return [r.to_golden() for r in self._records.values()]
 
     def history(self, element_ref: str) -> dict:
         """골든셋 레코드 반환 (05 §8.2)."""
