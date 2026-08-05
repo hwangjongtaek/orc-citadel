@@ -404,6 +404,40 @@ class CuratedZone:
             out.append(d)
         return out
 
+    def assertions_as_of(self, valid_at=None, tx_at=None) -> list[dict]:
+        """bitemporal AS-OF 질의 (설계 06 §8.2, ADR-606).
+
+        Assertion valid/tx 두 축으로 시간 여행:
+        - valid: `valid_from ≤ T_v < valid_to` (open lower/upper bound, time_precision 경계).
+        - tx:   `tx_from ≤ T_t < (tx_to ?? ∞)` — tx_to null(현재) 또는 tx_to 이후.
+        인자 없으면 현재 tx(tx_to null)의 모든 어세션 (현재 그래프).
+        superseded 버전은 삭제하지 않으므로 과거 상태 그대로 조회된다 (03 §6.3).
+        """
+        # SQL 비교 — datetime 파라미터는 DuckDB TIMESTAMP로 일관 바인딩 (문자열 변환 금지:
+        # aware-datetime 저장 시 local offset이 섞여 경계 비교가 어긋남).
+        clauses, params = [], []
+        if valid_at is not None:
+            clauses.append("(valid_from IS NULL OR valid_from <= ?)")
+            params.append(valid_at)
+            clauses.append("(valid_to IS NULL OR ? < valid_to)")
+            params.append(valid_at)
+        if tx_at is not None:
+            clauses.append("(tx_from <= ?)")
+            params.append(tx_at)
+            clauses.append("(tx_to IS NULL OR ? < tx_to)")
+            params.append(tx_at)
+        else:
+            clauses.append("tx_to IS NULL")
+        where = " AND ".join(clauses) if clauses else "1=1"
+        cols = ["assertion_id", "claim_id", "subject_id", "predicate", "object_id",
+                "object_literal", "valid_from", "valid_to", "time_precision",
+                "tx_from", "tx_to", "supersedes_id", "mutation_id", "provenance_ref"]
+        rows = self._conn.execute(
+            f'SELECT {", ".join(cols)} FROM assertions WHERE {where} '
+            f'ORDER BY assertion_id', params
+        ).fetchall()
+        return [dict(zip(cols, r)) for r in rows]
+
     def persist_assertion(self, a) -> None:
         """Assertion 1건 upsert (결정적 asr- id → ON CONFLICT no-op, 03 §6.2)."""
         from .assertions import Assertion
