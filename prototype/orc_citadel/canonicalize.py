@@ -68,11 +68,48 @@ def _claims_equivalent(a: ClaimCandidate, b: ClaimCandidate) -> bool:
     return False
 
 
-def canonicalize_claims(claims: list[ClaimCandidate]) -> list[CanonicalClaim]:
+@dataclass(frozen=True)
+class LlmCanonicalRecord:
+    """LLM 관계 판정 근거 (05 §4.2) — 결정적 규칙이 미결로 남긴 쌍의 판정 기록.
+
+    `relation`이 `equivalent`이면 해당 쌍을 병합한다. 7라벨 중 비-equivalent
+    (more_specific/more_general/supports/contradicts/unrelated/..)는 병합하지 않고
+    근거만 보존한다 (precision-first, ADR-507).
+    """
+    claim_id_a: str
+    claim_id_b: str
+    relation: str
+    canonical_text: str
+    confidence: float
+    rationale: str
+    judged_by: str = "llm"
+
+
+def _judge_same(a: ClaimCandidate, b: ClaimCandidate, judge) -> LlmCanonicalRecord | None:
+    """LLM 관계 판정 — 계약-유효 응답만 기록, 실패/무효는 None (후보 유지, ADR-507)."""
+    d = judge.judge_canonicalization((a.claim_candidate_id, b.claim_candidate_id))
+    if not isinstance(d, dict) or d.get("relation") not in {
+        "equivalent", "more_specific", "more_general", "supports",
+        "contradicts", "unrelated", "temporally_superseded",
+    }:
+        return None
+    return LlmCanonicalRecord(
+        claim_id_a=a.claim_candidate_id, claim_id_b=b.claim_candidate_id,
+        relation=d["relation"], canonical_text=d.get("canonical_text", ""),
+        confidence=float(d.get("confidence", 0.0)),
+        rationale=d.get("rationale", ""),
+    )
+
+
+def canonicalize_claims(claims: list[ClaimCandidate],
+                        judge=None) -> list[CanonicalClaim]:
     """claim 리스트를 동일 (subject, predicate) blocking 그룹으로 묶어 CanonicalClaim 생성.
 
     그룹 내 겹치는 span claim들을 union-find로 연결해 동치류를 만들고, 각 동치류를
-    하나의 CanonicalClaim으로. 결정적 정렬.
+    하나의 CanonicalClaim으로. **결정적-우선**(05 §5): 규칙(`_claims_equivalent`)이
+    판정 못 한 쌍에 only 선택적 `judge.judge_canonicalization((a,b))`를 보내, `relation
+    == "equivalent"`면 union한다. 결정적 정렬.
+    judge 미주입 시 순수 결정적 (기존 동작, 재생성 안전 — 03 §5).
     """
     # blocking (subject, predicate) ↔ 연결 컴포넌트.
     parents: dict[str, str] = {}
@@ -103,8 +140,14 @@ def canonicalize_claims(claims: list[ClaimCandidate]) -> list[CanonicalClaim]:
         members_by_id = {c.claim_candidate_id: c for c in members}
         for i in range(len(members)):
             for j in range(i + 1, len(members)):
-                if _claims_equivalent(members[i], members[j]):
-                    union(members[i].claim_candidate_id, members[j].claim_candidate_id)
+                a, b = members[i], members[j]
+                if _claims_equivalent(a, b):
+                    union(a.claim_candidate_id, b.claim_candidate_id)
+                elif judge is not None:
+                    # 결정적 미결 쌍만 LLM (05 §4.2) — equivalent면 병합.
+                    record = _judge_same(a, b, judge)
+                    if record is not None and record.relation == "equivalent":
+                        union(a.claim_candidate_id, b.claim_candidate_id)
 
         comps: dict[str, list[str]] = defaultdict(list)
         for cid in ids:
