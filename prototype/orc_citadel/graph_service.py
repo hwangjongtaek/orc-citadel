@@ -252,3 +252,109 @@ class GraphService:
 
     def quarantined_edges(self) -> list[dict]:
         return list(self._quarantined_edges)
+
+    # --- Investigation subgraph (06 §8.1·§8.3) -----------------------------
+
+    def _canonical_of(self, node_id: str) -> str | None:
+        """SAME_AS 동치류 대표 해석 (이동: member→canonical). 미해석이면 self."""
+        node = self._nodes.get(node_id)
+        if node is None:
+            return None
+        seen = set()
+        cur = node_id
+        while cur in self._nodes:
+            n = self._nodes[cur]
+            canon = n.props.get("canonical_id")
+            if not canon or n.props.get("merged") is not True:
+                break
+            if canon in seen:  # 사이클 가드
+                break
+            seen.add(canon)
+            cur = canon
+        return cur
+
+    def _equivalence_class(self, node_id: str) -> list[str]:
+        """SAME_AS*0.. 동치류 전체 (자기 포함, §8.1 view-rewrite fold 대상)."""
+        canon = self._canonical_of(node_id) or node_id
+        members = []
+        for nid, n in self._nodes.items():
+            if self._canonical_of(nid) == canon and not n.props.get("deleted"):
+                members.append(nid)
+        return members
+
+    def investigation_subgraph(self, seed: str, hops: int = 1,
+                               limit: int = 100, include: str | None = None) -> dict:
+        """Investigation subgraph 조회 (06 §8.1·§8.3).
+
+        - **canonical view-rewrite**(§5.2 필수): seed → canonical 대표, 동치류(SAME_AS*0..)
+          전체 fold. merged-away member를 별도 엔터티로 노출하지 않는다.
+        - hop 제한 BFS: entity 동치류 → ABOUT claim → (SUPPORTS|CONTRADICTS) evidence.
+        - 기본 필터(§4.1): :Authoritative만, :Deleted 제외.
+        - 프로그래시브(§8.3): limit 초과 시 `truncated=True` (요약 축약 신호,
+          relationship 타입 필터 `include`는 콤마 구분 ABOUT,SUPPORTS,CONTRADICTS).
+        """
+        include_set = set((include or "").split(",")) if include else None
+
+        def _allowed(etype: str) -> bool:
+            return include_set is None or etype in include_set
+
+        # 1) scope 엔터티 동치류 (canonical 후 rewrite).
+        canon = self._canonical_of(seed)
+        if canon is None:
+            return {"entity": None, "claims": [], "evidence": [], "relationships": [],
+                    "entities": [], "truncated": False}
+        members = self._equivalence_class(seed)
+
+        entity_ids = {canon}          # 노출 entity: canonical 대표만 (§8.1 fold).
+        claim_ids: set[str] = set()
+        evidence_ids: set[str] = set()
+        relationships: list[dict] = []
+
+        def _live(nid: str) -> bool:
+            n = self._nodes.get(nid)
+            return n is not None and not n.props.get("deleted")
+
+        # 2) 1-hop: 동치류 entity → ABOUT claim.
+        member_set = set(members)
+        for e in self._edges:
+            if not _allowed(e.etype):
+                continue
+            # direction: (member) --ABOUT--> (claim), 또는 역.
+            ent_side, other = None, None
+            if e.fro in member_set and e.etype == "ABOUT":
+                ent_side, other = e.fro, e.to
+            elif e.to in member_set and e.etype == "ABOUT":
+                ent_side, other = e.to, e.fro
+            if ent_side is None:
+                continue
+            if other in claim_ids or not _live(other):
+                continue
+            if len(claim_ids) >= limit:
+                break
+            claim_ids.add(other)
+            relationships.append({"from": ent_side, "to": other, "type": e.etype,
+                                  "props": e.props})
+
+        # 3) 2-hop: claim → SUPPORTS|CONTRADICTS evidence.
+        for e in self._edges:
+            if e.etype not in ("SUPPORTS", "CONTRADICTS") or not _allowed(e.etype):
+                continue
+            if e.to in claim_ids and _live(e.fro) and e.fro not in evidence_ids:
+                evidence_ids.add(e.fro)
+                relationships.append({"from": e.fro, "to": e.to, "type": e.etype,
+                                      "props": e.props})
+            elif e.fro in claim_ids and _live(e.to) and e.to not in evidence_ids:
+                evidence_ids.add(e.to)
+                relationships.append({"from": e.to, "to": e.fro, "type": e.etype,
+                                      "props": e.props})
+
+        truncated = len(claim_ids) >= limit and len(members) + len(claim_ids) > limit
+
+        return {
+            "entity": canon,
+            "entities": [{"id": cid} for cid in sorted(entity_ids)],
+            "claims": [{"id": cid} for cid in sorted(claim_ids)],
+            "evidence": [{"id": eid} for eid in sorted(evidence_ids)],
+            "relationships": relationships,
+            "truncated": truncated,
+        }
