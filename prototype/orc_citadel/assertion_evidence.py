@@ -118,6 +118,13 @@ class AssertionEvidenceProjector:
                 return self._compute(a)
         return None
 
+    def for_assertion_by_claim(self, claim_id: str) -> AssertionEvidence | None:
+        """claim_id가 포함된 어세션의 근거 (S32 API 파사드의 claim→근거 조회)."""
+        for a in self._assertions:
+            if a["claim_id"] == claim_id:
+                return self._compute(a)
+        return None
+
     def for_subject(self, subject_id: str) -> list[AssertionEvidence]:
         return [self._compute(a) for a in self._assertions
                 if a["subject_id"] == subject_id]
