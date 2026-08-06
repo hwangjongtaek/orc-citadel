@@ -213,6 +213,20 @@ class CuratedZone:
             )
             """
         )
+        # S38: 승격 기준선 영속 (설계 10 §3.1, ADR-1003) — last-promoted baseline.
+        # version 기반 결정적 PK, active(현재 last-promoted)/superseded(승격 이력).
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS promotion_baselines (
+                baseline_id VARCHAR PRIMARY KEY,
+                version     VARCHAR NOT NULL,
+                metrics     VARCHAR NOT NULL,
+                promoted_at VARCHAR,
+                promoted_by VARCHAR,
+                status      VARCHAR NOT NULL
+            )
+            """
+        )
         self._conn.execute("CREATE INDEX IF NOT EXISTS idx_mentions_doc ON mentions(doc_id)")
 
     def tables(self) -> list[str]:
@@ -654,6 +668,73 @@ class CuratedZone:
             f'SELECT {", ".join(cols)} FROM golden_pairs').fetchall()
         return [dict(zip(cols, r)) for r in rows]
 
+    def persist_promotion_baseline(self, version: str, metrics: dict,
+                                   promoted_by: str = "pipeline") -> str:
+        """last-promoted baseline 1건 upsert (결정적 baseline_id, 10 §3.1/ADR-1003).
+
+        같은 version 재영속은 no-op (idempotent). 승격 시 신규 version은 새 active로.
+        baseline_id는 version 기반 결정적 — 재실행 중복 없음 (03 §5).
+        """
+        hashlib = __import__("hashlib")
+        baseline_id = "base-" + hashlib.sha256(
+            ("promo|" + version).encode()).hexdigest()[:24]
+        self._conn.execute(
+            """
+            INSERT INTO promotion_baselines
+                (baseline_id, version, metrics, promoted_at, promoted_by, status)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT (baseline_id) DO NOTHING
+            """,
+            [baseline_id, version,
+             self._safe_json(metrics), None, promoted_by, "active"],
+        )
+        return baseline_id
+
+    @staticmethod
+    def _safe_json(v) -> str:
+        try:
+            return json.dumps(v, ensure_ascii=False)
+        except TypeError:
+            return json.dumps(str(v), ensure_ascii=False)
+
+    def mark_baseline_superseded(self, version: str) -> None:
+        """승격 시 기존 active baseline을 superseded로 (승격 이력 보존)."""
+        self._conn.execute(
+            "UPDATE promotion_baselines SET status='superseded' WHERE version=?",
+            [version],
+        )
+
+    def promotion_baselines(self) -> list[dict]:
+        cols = ["baseline_id", "version", "metrics", "promoted_at",
+                "promoted_by", "status"]
+        rows = self._conn.execute(
+            f'SELECT {", ".join(cols)} FROM promotion_baselines').fetchall()
+        out = []
+        for r in rows:
+            d = dict(zip(cols, r))
+            try:
+                d["metrics"] = json.loads(d["metrics"])
+            except (TypeError, ValueError):
+                d["metrics"] = {}
+            out.append(d)
+        return out
+
+    def active_baseline(self) -> dict | None:
+        rows = self._conn.execute(
+            "SELECT baseline_id, version, metrics, promoted_at, promoted_by, status "
+            "FROM promotion_baselines WHERE status='active' ORDER BY version "
+            "DESC LIMIT 1").fetchall()
+        if not rows:
+            return None
+        cols = ["baseline_id", "version", "metrics", "promoted_at",
+                "promoted_by", "status"]
+        d = dict(zip(cols, rows[0]))
+        try:
+            d["metrics"] = json.loads(d["metrics"])
+        except (TypeError, ValueError):
+            d["metrics"] = {}
+        return d
+
     def export_parquet(self, out_dir: str) -> None:
         """mentions/dup_clusters를 Parquet으로 export (그래프·검색 입력용)."""
         import pathlib
@@ -691,6 +772,9 @@ class CuratedZone:
         )
         self._conn.execute(
             f"COPY golden_pairs TO '{p / 'golden_pairs.parquet'}' (FORMAT PARQUET)"
+        )
+        self._conn.execute(
+            f"COPY promotion_baselines TO '{p / 'promotion_baselines.parquet'}' (FORMAT PARQUET)"
         )
 
     def close(self) -> None:
