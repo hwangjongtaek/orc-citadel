@@ -14,7 +14,7 @@
 | 상세 설계 (Design SSOT) | 🟡 Review | 12개 문서 Review 승격. 리뷰 패스 완료(BLOCKER 3 + MAJOR 36 해소, 상호 일관성 재검증 전항목 PASS). Stable 확정 대기 |
 | 도메인·소스 선정 | ✅ 완료 | AI 반도체·데이터센터 공급망 확정, 초기 Scout 5종 선정(04 §1.4) |
 | 1만 문서 샘플 | ⬜ 예정 | Phase 0 완료 조건 |
-| Prototype 구현 | ⬜ 예정 | provenance·bitemporal prototype |
+| Prototype 구현 | 🟡 진행 중 (S1–S37) | 결정적+LLM 하이브리드 파이프라인 · bitemporal · 소비 계층 · 평가 하네스 구현됨 ([§5 Changelog](#5-changelog)) |
 
 범례: ✅ 완료 · 🟡 진행 중 · ⬜ 예정 · ⛔ 블록됨
 
@@ -51,7 +51,7 @@
 | 최소 ontology 정의 | [02](./design/02-ontology.md) | ✅(v1.0.0 초안) |
 | 데이터 이용 조건(라이선스) 검토 | [11](./design/11-observability-and-governance.md) | ✅(04 §1.4 반영) |
 | 1만 문서 샘플 확보 | [04](./design/04-ingestion-and-parsing.md) | ⬜ |
-| provenance·bitemporal 모델 prototype | [03](./design/03-storage-and-data-model.md) | ⬜ |
+| provenance·bitemporal 모델 prototype | [03](./design/03-storage-and-data-model.md) | ✅ |
 
 **DoD:** ① 원문↔graph element 왕복 추적 가능 ② 동일 문서 재처리 시 중복 mutation 없음.
 
@@ -126,9 +126,19 @@
 
 ## 5. Changelog
 
-가장 최신이 위로. 스펙·설계 변경만 기록한다 (구현 커밋은 git 이력).
+가장 최신이 위로. 스펙·설계 변경을 기록한다 (구현 세부 커밋은 git 이력).
 
 ### 2026-08-03
+- **Phase 0 prototype 전방위 구현 (S1–S37).** Review 확정 스펙(0.1.0)의 **결정적+LLM 하이브리드 파이프라인**을 TDD(Red→Green)로 구현·검증. git 이력(`protoal/plain commit`, `feat(S#)`), 단계 계획(`.claude/plans/s#-*.md`)이 기록 지점.
+  - **결정적 체인** — 수집(S1–S3 SEC/arXiv) → 중복(S4) → 파싱(S5) → ER/해소(S6) → claim 추출(S7) → 게이트(S8, S13) → 캐노니컬(S9) → 모순(S10) → assertion(S11) → 그래프 mutation(S15–S18). **bitemporal AS-OF**(S25, ADR-606).
+  - **LLM 계층** — ClaudeJudge(S21)·결정적-우선 하이브리드(S22)·판정 영속(S23), ADR-507 노-자동-병합 준수.
+  - **통합** — `pipeline_runner` 단일 진입점(S24)·Investigation subgraph(S26)·통합 불변식(S27, 실버그 발견·수정).
+  - **소비 계층 (read-only)** — Catalog cursor 페이징(S28)·어세션 근거·다차원 신뢰도(S29, 09 §4)·subject 결론(S30, 09 §3)·랭킹(S31)·API 파사드(S32, 09 §2/§3). browser viewer 실행(S32 후속, 로컬 확인).
+  - **평가 계층 (read-only)** — P/R/F1 하네스(S33)·골든셋 영속(S34, 10 §2.3)·회귀 실행기(S35, 10 §3/ADR-1008)·평가 스위트 러너(S36, 10 §6). **전 계층 E2E 불변식**(S37) 추가.
+  - **실데이터 검증** — 395문서 수집(소량, 수동 coronary), 29 assertion 전 계층 E2E 일관성. 전체 테스트 318 passed.
+  - **Open Question 진행** — Q2 dup(MinHash), Q3 ER/컨피던스 임계값, Q5 LLM 비용 — 하네스·회귀 토대 완성, **dev 파티션 실측 튜닝은 후속** (10 §2.4/§3.2, ADR-1008 placeholder).
+
+### 2026-08-03 (기존 — 설계 리뷰·스펙 확정)
 - **초기 Scout 5종 선정 (Q1 해소).** 미국 중심 AI 반도체·데이터센터 공급망 도메인의 초기 소스를 웹 리서치(실제 API/RSS 검증)로 선정: **SEC EDGAR**(gov)·**arXiv**(research)·**CHIPS/NIST**(gov)·**NVIDIA Newsroom**(official)·**SemiEngineering**(press). 전 source 공식 API/RSS로 수집 가능(Easy), 재배포 전면 제한(`allow_redistribute=false`, 11 §5.4 정합). 상업 테크 프레스(EE Times·The Register·TechCrunch)는 robots.txt가 AI 크롤러(`anthropic-ai`/`ClaudeBot`)를 차단해 초기 세트 제외, TSMC는 Cloudflare 403 제외. 구체 스키마·라이선스·수집 제약은 [04 §1.4](./design/04-ingestion-and-parsing.md) 정본. Open Question Q1 해소.
 - **설계 문서 Review 승격 (리뷰 패스 완료).** 12개 문서를 blueprint 충실도·7 불변식·상호참조·구현가능성 기준으로 병렬 심층 리뷰(문서별 11 + 상호 일관성 스윕 1). BLOCKER 3 + MAJOR 36 + MINOR 다수를 문서에 직접 반영 후 독립 재검증(전항목 PASS). 상태 `Draft`→`Review`. Spec은 0.1.0 유지(Stable 변경 아님).
   - **BLOCKER 해소:** (1) 06 Applier에 `unmerge` op 분기 추가(merge 가역성·불변식 3·4) (2) 02 미정의 `TimeInterval` 노드/`VALID_DURING` 엣지 폐기, valid time을 inline 속성 단일 표현(ADR-206) (3) 02 `Assertion` 속성표 신설 + Claim→Assertion materialization 계약(ADR-207).
