@@ -102,13 +102,14 @@ def _judge_same(a: ClaimCandidate, b: ClaimCandidate, judge) -> LlmCanonicalReco
 
 
 def canonicalize_claims(claims: list[ClaimCandidate],
-                        judge=None) -> list[CanonicalClaim]:
+                        judge=None, llm_records: list | None = None) -> list[CanonicalClaim]:
     """claim 리스트를 동일 (subject, predicate) blocking 그룹으로 묶어 CanonicalClaim 생성.
 
     그룹 내 겹치는 span claim들을 union-find로 연결해 동치류를 만들고, 각 동치류를
     하나의 CanonicalClaim으로. **결정적-우선**(05 §5): 규칙(`_claims_equivalent`)이
     판정 못 한 쌍에 only 선택적 `judge.judge_canonicalization((a,b))`를 보내, `relation
-    == "equivalent"`면 union한다. 결정적 정렬.
+    == "equivalent"`면 union한다. `llm_records`(호출자가 주입한 리스트)에 각 성공 판정
+    LlmCanonicalRecord를 누적 — LLM verdict 영속(S23)에 사용. 결정적 정렬.
     judge 미주입 시 순수 결정적 (기존 동작, 재생성 안전 — 03 §5).
     """
     # blocking (subject, predicate) ↔ 연결 컴포넌트.
@@ -146,8 +147,11 @@ def canonicalize_claims(claims: list[ClaimCandidate],
                 elif judge is not None:
                     # 결정적 미결 쌍만 LLM (05 §4.2) — equivalent면 병합.
                     record = _judge_same(a, b, judge)
-                    if record is not None and record.relation == "equivalent":
-                        union(a.claim_candidate_id, b.claim_candidate_id)
+                    if record is not None:
+                        if llm_records is not None:
+                            llm_records.append(record)  # 영속용 누적 (S23).
+                        if record.relation == "equivalent":
+                            union(a.claim_candidate_id, b.claim_candidate_id)
 
         comps: dict[str, list[str]] = defaultdict(list)
         for cid in ids:

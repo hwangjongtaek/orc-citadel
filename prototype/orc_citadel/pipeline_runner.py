@@ -117,6 +117,29 @@ def _build_graph(gate: Gate) -> GraphService:
     return g
 
 
+def _persist_llm_canonical(zone, llm_records: list) -> None:
+    """canonicalize_claims가 누적한 LLM CanonicalRecord를 S23 테이블에 영속.
+
+    version tuple(03 §7.1 5축)을 조립해 canonical_llm_records에 저장 — 판정 근거가
+    judge flavor에 무관하게 보존된다 (S27: 기존 _persist_llm_verdicts는 확장형 judge의
+    `verdicts` 만 봐서 plain judge의 판정이 유실되는 통합 버그 수정).
+    """
+    from orc_citadel.canonicalize import LlmCanonicalRecord
+
+    for rec in llm_records:
+        if not isinstance(rec, LlmCanonicalRecord):
+            continue
+        zone.persist_canonical_llm_record(
+            claim_id_a=rec.claim_id_a, claim_id_b=rec.claim_id_b,
+            relation=rec.relation, canonical_text=rec.canonical_text,
+            confidence=rec.confidence, rationale=rec.rationale,
+            version_tuple={"ontology_version": "1.0.0", "schema_version": "0.1.0",
+                           "prompt_template_hash": "", "model_id": "",
+                           "extraction_code_version": "p1"},
+            judged_by=rec.judged_by,
+        )
+
+
 def _persist_llm_verdicts(zone, judge) -> None:
     """LLM 판정을 S23 테이블에 영속 — judge가 기록한 verdict를 소비.
 
@@ -143,7 +166,10 @@ def run_pipeline(metas, zone, judge=None) -> PipelineResult:
     promoted = [c for c in all_claims
                 if gate.result(c.claim_candidate_id) is not None
                 and gate.result(c.claim_candidate_id).promote]
-    canonicals = canonicalize_claims(promoted, judge=judge)
+    # LLM 캐노니컬 판정을 누적 → S23 영속 (judge가 _BoundedJudge든 평면 dict든 동작).
+    llm_records: list = []
+    canonicals = canonicalize_claims(promoted, judge=judge, llm_records=llm_records)
+    _persist_llm_canonical(zone, llm_records)
     for cc in canonicals:
         zone.persist_canonical(cc)
         for cid in cc.member_claim_ids:
