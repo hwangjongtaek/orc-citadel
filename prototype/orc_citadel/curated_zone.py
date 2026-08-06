@@ -194,6 +194,25 @@ class CuratedZone:
             )
             """
         )
+        # S34: 골든셋 영속 (설계 10 §2.3 저장·버저닝, human review as data §3-7).
+        # claim pair 골든셋 — split(ADR-1007), gold_version, labeled_by/at, rationale,
+        # original_prediction(원 모델 출력 — 회귀 대조용).
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS golden_pairs (
+                golden_id           VARCHAR PRIMARY KEY,
+                claim_a             VARCHAR NOT NULL,
+                claim_b             VARCHAR NOT NULL,
+                label               VARCHAR NOT NULL,
+                split               VARCHAR NOT NULL,
+                gold_version        VARCHAR NOT NULL,
+                labeled_by          VARCHAR,
+                labeled_at          VARCHAR,
+                rationale           VARCHAR,
+                original_prediction VARCHAR
+            )
+            """
+        )
         self._conn.execute("CREATE INDEX IF NOT EXISTS idx_mentions_doc ON mentions(doc_id)")
 
     def tables(self) -> list[str]:
@@ -600,6 +619,41 @@ class CuratedZone:
             out.append(d)
         return out
 
+    def persist_golden_pair(
+        self, claim_a: str, claim_b: str, label: str, split: str,
+        gold_version: str, labeled_by: str | None = None,
+        labeled_at: str | None = None, rationale: str | None = None,
+        original_prediction: str | None = None,
+    ) -> None:
+        """골든 claim pair 1건 upsert (결정적 golden_id → ON CONFLICT no-op, 10 §2.3).
+
+        결정적 ID: (claim_a, claim_b, label, split, gold_version) 기반 — 재실행 중복 없음
+        (03 §5). split은 ADR-1007(dev/test). original_prediction은 원 모델 출력 보존
+        (design 10 §2.2 human review as data — 회귀 대조용).
+        """
+        hashlib = __import__("hashlib")
+        key = "|".join([claim_a, claim_b, label, split, gold_version])
+        golden_id = "gold-" + hashlib.sha256(key.encode()).hexdigest()[:24]
+        self._conn.execute(
+            """
+            INSERT INTO golden_pairs
+                (golden_id, claim_a, claim_b, label, split, gold_version,
+                 labeled_by, labeled_at, rationale, original_prediction)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (golden_id) DO NOTHING
+            """,
+            [golden_id, claim_a, claim_b, label, split, gold_version,
+             labeled_by, labeled_at, rationale, original_prediction],
+        )
+
+    def golden_pairs(self) -> list[dict]:
+        cols = ["golden_id", "claim_a", "claim_b", "label", "split",
+                "gold_version", "labeled_by", "labeled_at", "rationale",
+                "original_prediction"]
+        rows = self._conn.execute(
+            f'SELECT {", ".join(cols)} FROM golden_pairs').fetchall()
+        return [dict(zip(cols, r)) for r in rows]
+
     def export_parquet(self, out_dir: str) -> None:
         """mentions/dup_clusters를 Parquet으로 export (그래프·검색 입력용)."""
         import pathlib
@@ -634,6 +688,9 @@ class CuratedZone:
         )
         self._conn.execute(
             f"COPY dup_clusters TO '{p / 'dup_clusters.parquet'}' (FORMAT PARQUET)"
+        )
+        self._conn.execute(
+            f"COPY golden_pairs TO '{p / 'golden_pairs.parquet'}' (FORMAT PARQUET)"
         )
 
     def close(self) -> None:

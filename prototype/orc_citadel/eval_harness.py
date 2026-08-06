@@ -72,7 +72,16 @@ class EvalHarness:
 
         self._conflicts = list(conflicts) if conflicts is not None \
             else (zone.conflict_candidates() if zone is not None else [])
-        self._golden = list(golden) if golden is not None else []
+        # 골든 — 주입 우선, zone이면 golden_pairs 자동 로드 (10 §2.3).
+        if golden is not None:
+            self._golden = list(golden)
+        elif zone is not None:
+            self._golden = [GoldenPair(
+                claim_a=g["claim_a"], claim_b=g["claim_b"], label=g["label"],
+                split=g["split"], rationale=g.get("rationale") or "",
+            ) for g in zone.golden_pairs()]
+        else:
+            self._golden = []
 
         # claim → canonical_id 맵.
         self._claim_canonical = {r["claim_id"]: r["canonical_claim_id"]
@@ -133,13 +142,20 @@ class EvalHarness:
     def report(self, split: str | None = None) -> dict:
         cc = self.canonicalization_metrics(split)
         cd = self.contradiction_metrics(split)
+        cc_golden = [g for g in self._golden
+                     if g.label in ("equivalent", "unrelated")]
+        cd_golden = [g for g in self._golden if g.label in ("contradicts", "unrelated")]
+        # 골든셋이 비어 있으면 vacuous pass (gate 강제를 위한 골든이 없으므로 block 안 함).
+        cc_pass = (len(cc_golden) == 0) or (cc.f1 >= CANONICAL_GATE)
+        cd_pass = (len(cd_golden) == 0) or (
+            cd.precision >= CONTRADICTION_GATE_P
+            and cd.recall >= CONTRADICTION_TARGET_R)
         return {
             "canonicalization": {
                 "metrics": {"tp": cc.tp, "fp": cc.fp, "fn": cc.fn,
                             "precision": cc.precision, "recall": cc.recall,
                             "f1": cc.f1},
-                "gate": {"threshold": CANONICAL_GATE,
-                         "pass": cc.f1 >= CANONICAL_GATE},
+                "gate": {"threshold": CANONICAL_GATE, "pass": cc_pass},
             },
             "contradiction": {
                 "metrics": {"tp": cd.tp, "fp": cd.fp, "fn": cd.fn,
@@ -148,7 +164,9 @@ class EvalHarness:
                 "gate": {"threshold_p": CONTRADICTION_GATE_P,
                          "target_r": CONTRADICTION_TARGET_R,
                          "pass_p": cd.precision >= CONTRADICTION_GATE_P,
-                         "pass_r": cd.recall >= CONTRADICTION_TARGET_R},
+                         "pass_r": cd.recall >= CONTRADICTION_TARGET_R,
+                         "pass": cd_pass},
             },
+            "promotion_blocked": not (cc_pass and cd_pass),
             "golden_count": len(self._golden),
         }
