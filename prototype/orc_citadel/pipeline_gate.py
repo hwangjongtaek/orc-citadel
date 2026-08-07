@@ -52,10 +52,11 @@ class PromotionGate:
                 else "gate 미달"),
         }
 
-    def align(self, snapshot: EvalSnapshot) -> bool:
+    def align(self, snapshot: EvalSnapshot, ontology: str | None = None) -> bool:
         """승격 진행 — passed 시 현재 active를 superseded로, 신규 baseline 영속.
 
         blocked이면 영속하지 않고 False 반환 (baseline 유지).
+        ontology는 5축 version-aware 승격(S40)의 major bump 비교용.
         """
         res = self.evaluate(snapshot)
         if res["blocked"]:
@@ -64,5 +65,6 @@ class PromotionGate:
         if current is not None:
             self._zone.mark_baseline_superseded(current["version"])
         self._zone.persist_promotion_baseline(version=snapshot.version,
-                                              metrics=snapshot.metrics)
+                                              metrics=snapshot.metrics,
+                                              ontology=ontology)
         return True

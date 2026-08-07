@@ -221,6 +221,7 @@ class CuratedZone:
                 baseline_id VARCHAR PRIMARY KEY,
                 version     VARCHAR NOT NULL,
                 metrics     VARCHAR NOT NULL,
+                ontology    VARCHAR,
                 promoted_at VARCHAR,
                 promoted_by VARCHAR,
                 status      VARCHAR NOT NULL
@@ -669,11 +670,13 @@ class CuratedZone:
         return [dict(zip(cols, r)) for r in rows]
 
     def persist_promotion_baseline(self, version: str, metrics: dict,
-                                   promoted_by: str = "pipeline") -> str:
+                                   promoted_by: str = "pipeline",
+                                   ontology: str | None = None) -> str:
         """last-promoted baseline 1건 upsert (결정적 baseline_id, 10 §3.1/ADR-1003).
 
         같은 version 재영속은 no-op (idempotent). 승격 시 신규 version은 새 active로.
         baseline_id는 version 기반 결정적 — 재실행 중복 없음 (03 §5).
+        ontology는 5축 version-aware 승격(S40)의 major bump 비교용 (02 §6.3).
         """
         hashlib = __import__("hashlib")
         baseline_id = "base-" + hashlib.sha256(
@@ -681,12 +684,13 @@ class CuratedZone:
         self._conn.execute(
             """
             INSERT INTO promotion_baselines
-                (baseline_id, version, metrics, promoted_at, promoted_by, status)
-            VALUES (?, ?, ?, ?, ?, ?)
+                (baseline_id, version, metrics, ontology, promoted_at, promoted_by,
+                 status)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (baseline_id) DO NOTHING
             """,
-            [baseline_id, version,
-             self._safe_json(metrics), None, promoted_by, "active"],
+            [baseline_id, version, self._safe_json(metrics), ontology,
+             None, promoted_by, "active"],
         )
         return baseline_id
 
@@ -705,7 +709,7 @@ class CuratedZone:
         )
 
     def promotion_baselines(self) -> list[dict]:
-        cols = ["baseline_id", "version", "metrics", "promoted_at",
+        cols = ["baseline_id", "version", "metrics", "ontology", "promoted_at",
                 "promoted_by", "status"]
         rows = self._conn.execute(
             f'SELECT {", ".join(cols)} FROM promotion_baselines').fetchall()
@@ -721,12 +725,12 @@ class CuratedZone:
 
     def active_baseline(self) -> dict | None:
         rows = self._conn.execute(
-            "SELECT baseline_id, version, metrics, promoted_at, promoted_by, status "
-            "FROM promotion_baselines WHERE status='active' ORDER BY version "
-            "DESC LIMIT 1").fetchall()
+            "SELECT baseline_id, version, metrics, ontology, promoted_at, "
+            "promoted_by, status FROM promotion_baselines "
+            "WHERE status='active' ORDER BY version DESC LIMIT 1").fetchall()
         if not rows:
             return None
-        cols = ["baseline_id", "version", "metrics", "promoted_at",
+        cols = ["baseline_id", "version", "metrics", "ontology", "promoted_at",
                 "promoted_by", "status"]
         d = dict(zip(cols, rows[0]))
         try:

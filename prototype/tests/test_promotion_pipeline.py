@@ -158,3 +158,78 @@ def test_determinism():
         return PromotionPipeline(z).run(version="v2")
     a, b = run_twice(), run_twice()
     assert a.action == b.action and a.realized == b.realized
+
+
+# --- 5축 version-aware (S40) ---------------------------------------------
+
+def _perfect_zone_vt(ontology="1.0.0"):
+    from orc_citadel.versioning import fingerprint
+    z = _perfect_zone()
+    vt = {"ontology_version": ontology, "schema_version": "0.1.0",
+          "prompt_template_hash": "sha256:abc", "model_id": "claude-opus-4-8",
+          "extraction_code_version": "p1"}
+    z.persist_promotion_baseline(version=fingerprint(vt), metrics=M100,
+                                 ontology=ontology)
+    return z, vt
+
+
+def test_run_vt_initialized():
+    """5축 dict로 run → fingerprint baseline, INITALIZED."""
+    from orc_citadel.promotion_pipeline import PromotionPipeline
+    z = _perfect_zone()  # baseline 없음.
+    res = PromotionPipeline(z).run(version_tuple=VT)
+    assert res.action == "INITIALIZED"
+    assert res.version.startswith("vt-")
+
+
+def test_run_vt_promoted_identical_ontology():
+    """동일 5축 baseline → PROMOTED, major 없음."""
+    from orc_citadel.promotion_pipeline import PromotionPipeline
+    z, vt = _perfect_zone_vt()
+    res = PromotionPipeline(z).run(version_tuple=vt)
+    assert res.action == "PROMOTED"
+    assert res.ontology_major_bump is False
+
+
+def test_run_vt_ontology_major_bump():
+    """온톨로지 major bump → revalidate_required 신호."""
+    from orc_citadel.promotion_pipeline import PromotionPipeline
+    z, _ = _perfect_zone_vt(ontology="1.0.0")
+    vt2 = dict(VT, ontology_version="2.0.0")
+    res = PromotionPipeline(z).run(version_tuple=vt2)
+    assert res.revalidate_required is True
+
+
+def test_run_vt_ontology_minor_no_bump():
+    """온톨로지 minor → 재평가 불필요, 정상 판정."""
+    from orc_citadel.promotion_pipeline import PromotionPipeline
+    z, _ = _perfect_zone_vt(ontology="1.0.0")
+    vt2 = dict(VT, ontology_version="1.1.0")
+    res = PromotionPipeline(z).run(version_tuple=vt2)
+    assert res.revalidate_required is False
+
+
+def test_run_string_version_still_works():
+    """뒤쪽 호환 — 기존 문자열 version 그대로 동작."""
+    from orc_citadel.promotion_pipeline import PromotionPipeline
+    z = _perfect_zone()
+    z.persist_promotion_baseline(version="v1", metrics=M100)
+    res = PromotionPipeline(z).run(version="v2")
+    assert res.action == "PROMOTED"
+
+
+def test_dry_run_vt_read_only():
+    """5축 dry_run — 영속 없음."""
+    from orc_citadel.promotion_pipeline import PromotionPipeline
+    z, _ = _perfect_zone_vt()
+    before = len(z.promotion_baselines())
+    res = PromotionPipeline(z).dry_run(version_tuple=VT)
+    assert res.realized is False
+    assert len(z.promotion_baselines()) == before
+
+
+VT = {
+    "ontology_version": "1.0.0", "schema_version": "0.1.0",
+    "prompt_template_hash": "sha256:abc", "model_id": "claude-opus-4-8",
+    "extraction_code_version": "p1",
+}
