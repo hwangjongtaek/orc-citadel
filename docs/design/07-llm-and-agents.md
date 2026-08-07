@@ -240,6 +240,8 @@ blueprint §9.4 파이프라인을 **상태 기계(state machine)**로 확정한
 - **종료 로직:** `A ∧ B ∧ C` 충족 → 정상 종료(SYNTHESIZE). `D` 도달 → 조기 종료(현재까지 verified subgraph로 SYNTHESIZE, 불확실성 명시). confidence 변화 폭은 A·B 수렴 판단의 보조 신호로 사용한다.
 - **task budget:** L5 조사 루프는 token task budget(고성능 reasoning의 self-pacing)을 설정해 예산 내에서 우아하게 마무리하게 한다. `max_tokens`는 별도 hard ceiling.
 
+> **Prototype 구현 노트 (2026-08-03, S43–S47):** 조사 루프의 read-only 지형을 prototype으로 확인했다 — Graph Explorer(§3.3)·Counter-Evidence(§3.6)·Synthesis/Audit(§3.8/§3.9)의 출력(vector: subgraph/independence, hypotheses/negative_queries/contradiction_candidates, evidence-first report/audit violations)이 커리티드 존·소비 계층(S28–S31) 위에서 결정적·read-only로 동작(불변식 §3-3). evidence coverage(§4.2)와 종료 조건(coverage ≥ 0.80·no_new_evidence·budget)도 구현(S43/S46). LLM routing·expected_info_gain 보정치(§2.3, ADR-706)·task budget token 활용은 Phase 1 실측에서 조정. 계약 변경 없음 — 구현은 이 정본을 충실 반영.
+
 ---
 
 ## 5. Evidence-first 생성 계약 (불변식 §3-5)

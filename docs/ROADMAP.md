@@ -14,7 +14,7 @@
 | 상세 설계 (Design SSOT) | 🟡 Review | 12개 문서 Review 승격. 리뷰 패스 완료(BLOCKER 3 + MAJOR 36 해소, 상호 일관성 재검증 전항목 PASS). Stable 확정 대기 |
 | 도메인·소스 선정 | ✅ 완료 | AI 반도체·데이터센터 공급망 확정, 초기 Scout 5종 선정(04 §1.4) |
 | 1만 문서 샘플 | ⬜ 예정 | Phase 0 완료 조건 |
-| Prototype 구현 | 🟡 진행 중 (S1–S37) | 결정적+LLM 하이브리드 파이프라인 · bitemporal · 소비 계층 · 평가 하네스 구현됨 ([§5 Changelog](#5-changelog)) |
+| Prototype 구현 | 🟡 진행 중 (S1–S47 + Q2/Q3/Q5) | 결정적+LLM 하이브리드 파이프라인 · bitemporal · 소비 계층(S28–31) · 평가/승격 트랙(S33–41) · **조사 에이전트 트랙(S43–47)** 구현 · Q2·Q3 해소 ([§5 Changelog](#5-changelog)) |
 
 범례: ✅ 완료 · 🟡 진행 중 · ⬜ 예정 · ⛔ 블록됨
 
@@ -129,6 +129,20 @@
 가장 최신이 위로. 스펙·설계 변경을 기록한다 (구현 세부 커밋은 git 이력).
 
 ### 2026-08-03
+- **새 기능 트랙 완성 — LLM 저장-기반 조사 에이전트 (S43–S47, 07 조사 루프).** 소비·평가 계층(S28–S41)을 **read-only·evidence-first**로 재사용해 조사 사이클을 prototype 완결:
+  - **S43 evidence coverage** (07 §4·10 §1.3) — subclaim별 근거 coverage·gap·expected_info_gain.
+  - **S44 Graph Explorer** (07 §3.3) — subgraph + relation_paths + independence_summary (S26/S29 재사용).
+  - **S45 Counter-Evidence** (07 §3.6) — hypotheses + negative_queries + 모순 후보(근거·판정 이유 포함, binary 금지).
+  - **S46 Investigation Runner** (07 §4) — coverage→explorer→counter-evidence 루프, 종료(coverage≥0.80 / no_new_evidence / budget).
+  - **S47 Synthesis/Audit** (07 §9.3·README §3-5) — 결론 봉투(09 §4) + evidence-first report(asserted/fact는 claim_ref 필수) + Audit 위반 차단.
+  - **공통 불변식**: Agent는 graph mutate 금지(§3-3), 무출처 문장은 prediction만(§3-5), 결정적·TDD, main 직접 머지.
+- **평가·승격 트랙 완성 (S38–S41).** design 10 3/6 승격 게이트 종단 구현 + Q2/Q3/Q5 진행:
+  - **S38 durable promotion gate** — last-promoted baseline을 zone 영속(10 §3.1, ADR-1003), active/superseded 승격 이력.
+  - **S39 end-to-end promotion pipeline** — EvalSuite→PromotionGate 자동 승격/차단 (PROMOTED/BLOCKED/INITIALIZED).
+  - **S40 5-axis version-aware** — 5축 tuple(03 §7.1) fingerprint baseline, 온톨로지 major bump 시 전량 재평가(revalidate_required).
+  - **S41 phase0 report** — 실데이터 승격 적용 + Q3/Q5 최소 실측 (29 claim confidence 균일 0.8, 결정적-only → LLM 비용 미측정 표기).
+
+### 2026-08-03 (이전 — Q3–Q6)
 - **Q3–Q6 결정 및 Q5 진행(S42).** Open Question 상세 리스트업 후 권장안으로 확정:
   - **Q3 해소(회피)** — ER은 결정적 외부식별자 exact match만 자동 병합(05 ADR-507)이라 임계값 튜닝 대상 아님. 점수·LLM 고신뢰는 POSSIBLY 후보만 유지(precision-first).
   - **Q4·Q6 Phase 1 예약** — 그래프 DB 한계·Iceberg 트리거는 규모 부족(prototype in-memory·DuckDB/parquet)으로 관측 대기, 10만 문서 진입 시 06/03 정본에서 측정·확정.
