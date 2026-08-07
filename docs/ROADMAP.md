@@ -129,6 +129,9 @@
 가장 최신이 위로. 스펙·설계 변경을 기록한다 (구현 세부 커밋은 git 이력).
 
 ### 2026-08-03
+- **Q2 해소 — near-dup MinHash 임계값 실측.** 초기 수집 395문서 MinHash Jaccard 분포를 측정: intra/inter 모두 0.5~0.7 겹침(진짜 복제만 0.9+), 단일 임계 신뢰 판정 불가 확인 → 설계 04 ADR-403의 3-tier(MinHash→embedding→LLM ③) 전략 재확인. prototype `JACCARD_THRESHOLD`를 (구)0.6 → **0.90**으로 상향해 확실한 복제만 병합, 애매(0.80~0.90)는 수준 ③ 위임. (구)0.6 오결합 후보 5152쌍 실증 제거, 신규 임계에서 진짜 복제 6쌍만 잡음. [04 ADR-403](./design/04-ingestion-and-parsing.md)에 실측 근거 기록.
+
+### 2026-08-03 (이전 — Phase 0 prototype 구현)
 - **Phase 0 prototype 전방위 구현 (S1–S37).** Review 확정 스펙(0.1.0)의 **결정적+LLM 하이브리드 파이프라인**을 TDD(Red→Green)로 구현·검증. git 이력(`protoal/plain commit`, `feat(S#)`), 단계 계획(`.claude/plans/s#-*.md`)이 기록 지점.
   - **결정적 체인** — 수집(S1–S3 SEC/arXiv) → 중복(S4) → 파싱(S5) → ER/해소(S6) → claim 추출(S7) → 게이트(S8, S13) → 캐노니컬(S9) → 모순(S10) → assertion(S11) → 그래프 mutation(S15–S18). **bitemporal AS-OF**(S25, ADR-606).
   - **LLM 계층** — ClaudeJudge(S21)·결정적-우선 하이브리드(S22)·판정 영속(S23), ADR-507 노-자동-병합 준수.
@@ -158,11 +161,10 @@
 
 ## 6. 열린 질문 (Open Questions)
 
-설계 확정 전 해소가 필요한 항목. 해소 시 해당 design 문서 ADR로 이전한다. (Q1은 2026-08-03 해소 → [04](./design/04-ingestion-and-parsing.md) §1.4로 이전.)
+설계 확정 전 해소가 필요한 항목. 해소 시 해당 design 문서 ADR로 이전한다. (Q1은 2026-08-03 해소 → [04](./design/04-ingestion-and-parsing.md) §1.4, Q2는 2026-08-03 해소 → [04](./design/04-ingestion-and-parsing.md) ADR-403.)
 
 | # | 질문 | 관련 스펙 |
 | --- | --- | --- |
-| Q2 | near-duplicate 방법: MinHash vs 임베딩 임계값 실측 필요 | 04 |
 | Q3 | Entity Resolution accept/reject 임계값 도메인 실측 | 05, 10 |
 | Q4 | 그래프 DB: Neo4j Community 한계 도달 시점(노드 수·query latency) | 06, 01 |
 | Q5 | LLM 비용 목표(문서당·investigation당) 실측 기준선 | 07, 10 |

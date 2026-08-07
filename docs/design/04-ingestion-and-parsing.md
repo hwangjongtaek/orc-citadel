@@ -293,3 +293,5 @@ blueprint §11·§14. Scouts·S1–S4의 건전성을 감시한다. **지표 정
 | embedding cosine (③ LLM 회부) | `[0.82, 0.90)` | 확정도 배제도 아닌 구간 → 수준 ③(LLM) 후보로 전달 |
 
 - 위 값은 초기 도메인(§1.3)·언어(§3.5)별로 달라질 수 있으므로 source_type·language 축으로 별도 튜닝할 수 있다. 최종값은 [`10`](./10-evaluation-and-testing.md) golden set 회귀로 검증한다.
+
+> **Q2 실측(2026-08-03) 근거:** 초기 수집 395문서의 MinHash Jaccard 분포를 측정한 결과, intra-source·inter-source 모두 **0.5~0.7 구간에 겹쳐 첨두**(각 median ≈0.63/0.61)를 이루고 진짜 복제만 0.9+ (근접 쌍 J=1.0이 실제 중복)였다. 즉 단일 MinHash 임계로는 0.80~0.90 애매 구간에서 near-dup 독립성을 신뢰 판정할 수 없다. prototype은 **minhash-only 병합 회선을 0.90**(위 표의 "embedding cosine 보강 확정"에 해당)으로 사용해 확실한 복제만 병합하고, 애매 구간은 수준 ③(embedding/LLM)로 위임한다 — 위 3-tier 설계와 정합. (구) 0.6 임계는 동 데이터에서 오결합 후보 5152쌍을 유발함을 확인. 최종 확정은 [`10`](./10-evaluation-and-testing.md) golden dedup 회귀로 갱신한다.
