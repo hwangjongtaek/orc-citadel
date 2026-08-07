@@ -129,6 +129,12 @@
 가장 최신이 위로. 스펙·설계 변경을 기록한다 (구현 세부 커밋은 git 이력).
 
 ### 2026-08-03
+- **Q3–Q6 결정 및 Q5 진행(S42).** Open Question 상세 리스트업 후 권장안으로 확정:
+  - **Q3 해소(회피)** — ER은 결정적 외부식별자 exact match만 자동 병합(05 ADR-507)이라 임계값 튜닝 대상 아님. 점수·LLM 고신뢰는 POSSIBLY 후보만 유지(precision-first).
+  - **Q4·Q6 Phase 1 예약** — 그래프 DB 한계·Iceberg 트리거는 규모 부족(prototype in-memory·DuckDB/parquet)으로 관측 대기, 10만 문서 진입 시 06/03 정본에서 측정·확정.
+  - **Q5 진행(S42)** — `ClaudeJudge`에 토큰·비용 누적 추가(`usage()`/`cost_usd()`, design 10 §1.4): LLM 판정 호출 input/output tokens 집계, token→USD 환산 placeholder. 기준선은 Phase 1 실제 LLM 하이브리드 실행에서 확정.
+
+### 2026-08-03 (이전 — Q2, prototype)
 - **Q2 해소 — near-dup MinHash 임계값 실측.** 초기 수집 395문서 MinHash Jaccard 분포를 측정: intra/inter 모두 0.5~0.7 겹침(진짜 복제만 0.9+), 단일 임계 신뢰 판정 불가 확인 → 설계 04 ADR-403의 3-tier(MinHash→embedding→LLM ③) 전략 재확인. prototype `JACCARD_THRESHOLD`를 (구)0.6 → **0.90**으로 상향해 확실한 복제만 병합, 애매(0.80~0.90)는 수준 ③ 위임. (구)0.6 오결합 후보 5152쌍 실증 제거, 신규 임계에서 진짜 복제 6쌍만 잡음. [04 ADR-403](./design/04-ingestion-and-parsing.md)에 실측 근거 기록.
 
 ### 2026-08-03 (이전 — Phase 0 prototype 구현)
@@ -161,11 +167,11 @@
 
 ## 6. 열린 질문 (Open Questions)
 
-설계 확정 전 해소가 필요한 항목. 해소 시 해당 design 문서 ADR로 이전한다. (Q1은 2026-08-03 해소 → [04](./design/04-ingestion-and-parsing.md) §1.4, Q2는 2026-08-03 해소 → [04](./design/04-ingestion-and-parsing.md) ADR-403.)
+설계 확정 전 해소가 필요한 항목. 해소 시 해당 design 문서 ADR로 이전한다. (Q1은 2026-08-03 해소 → [04](./design/04-ingestion-and-parsing.md) §1.4, Q2는 2026-08-03 해소 → [04](./design/04-ingestion-and-parsing.md) ADR-403, Q3은 2026-08-03 결정 → [05](./design/05-resolution-and-extraction.md) ADR-507.)
 
-| # | 질문 | 관련 스펙 |
-| --- | --- | --- |
-| Q3 | Entity Resolution accept/reject 임계값 도메인 실측 | 05, 10 |
-| Q4 | 그래프 DB: Neo4j Community 한계 도달 시점(노드 수·query latency) | 06, 01 |
-| Q5 | LLM 비용 목표(문서당·investigation당) 실측 기준선 | 07, 10 |
-| Q6 | Iceberg 승격 트리거 정량화 | 03, 01 |
+| # | 질문 | 관련 스펙 | 상태 |
+| --- | --- | --- | --- |
+| Q3 | Entity Resolution accept/reject 임계값 | 05, 10 | ✅ **결정적 ER 채택으로 회피 해소** — 자동 병합 경로는 결정적 외부식별자 exact match뿐(ADR-507), 점수·LLM은 POSSIBLY 후보만 유지 → 임계값 튜닝 대상 아님 |
+| Q4 | 그래프 DB: Neo4j Community 한계 | 06, 01 | ⬜ **Phase 1 부하 후 판정 예약** — in-memory prototype 규모로 측정 불가, 10만 문서 진입 시 06 정본·교체 비용 격리(저장소 추상) 유지 |
+| Q5 | LLM 비용 목표 실측 | 07, 10 | 🟡 **집계 인프라 완성(S42)**, 기준선은 Phase 1 LLM 하이브리드 실행 후 |
+| Q6 | Iceberg 승격 트리거 정량화 | 03, 01 | ⬜ **Phase 1 범위로 설계 확정** — DuckDB/parquet 단계에선 관측 미대상, 확장 시 트리거 기준 정량화 |
