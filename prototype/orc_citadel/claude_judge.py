@@ -65,6 +65,7 @@ class _AnthropicClient:
 
         self._client = anthropic.Anthropic(api_key=api_key, base_url=base_url)
         self.model = model
+        self.last_usage = {}  # 최근 호출 usage (S42 비용 집계).
 
     def messages_create(self, model, system, user, max_tokens, temperature):
         # 주입된 client의 자체 모델을 우선 — judge가 넘긴 alias(MODEL_ID)를 덮어써서
@@ -77,6 +78,12 @@ class _AnthropicClient:
             temperature=temperature,
             messages=[{"role": "user", "content": user}],
         )
+        # S42: 응답 usage(input/output tokens)를 캡처 — judge가 누적·비용 집계.
+        usage = getattr(resp, "usage", None)
+        self.last_usage = {
+            "input_tokens": getattr(usage, "input_tokens", 0) or 0,
+            "output_tokens": getattr(usage, "output_tokens", 0) or 0,
+        }
         text = resp.content[0].text if resp.content else ""
         try:
             parsed = json.loads(text)
@@ -107,6 +114,37 @@ class ClaudeJudge:
         self._stub = DeterministicStub()
         self._canonical_prompt = _CANONICAL_SCHEMA_INSTRUCTION
         self._contradiction_prompt = _CONTRADICTION_SCHEMA_INSTRUCTION
+        # S42: LLM 비용·토큰 누적 (design 10 §1.4). 기본 환산율은 placeholder.
+        self._input_tokens = 0
+        self._output_tokens = 0
+        self._calls = 0
+        self._IN_PER_MT = 3.0    # USD / MTok input (placeholder)
+        self._OUT_PER_MT = 15.0  # USD / MTok output (placeholder)
+
+    # --- S42 비용·토큰 (Q5 해소 진행) ---
+    def _accumulate_usage(self) -> None:
+        """최근 client 호출의 usage를 누적 (실제 LLM 호출 시)."""
+        if self._client is None:
+            return
+        u = getattr(self._client, "last_usage", None) or {}
+        self._input_tokens += u.get("input_tokens", 0)
+        self._output_tokens += u.get("output_tokens", 0)
+        self._calls += 1
+
+    def usage(self) -> dict:
+        """누적 토큰·호출 수 (design 10 §1.4 tokens_in/out·tool_calls)."""
+        return {"input_tokens": self._input_tokens,
+                "output_tokens": self._output_tokens, "calls": self._calls}
+
+    def cost_usd(self, input_per_mtok: float | None = None,
+                 output_per_mtok: float | None = None) -> float:
+        """누적 비용 USD — token→USD 환산 (placeholder, 프로바이더별 조정).
+
+        design 10 §1.4 `llm_usd`. 기본 환산율은 생성자 placeholder.
+        """
+        i = input_per_mtok if input_per_mtok is not None else self._IN_PER_MT
+        o = output_per_mtok if output_per_mtok is not None else self._OUT_PER_MT
+        return self._input_tokens / 1e6 * i + self._output_tokens / 1e6 * o
 
     # --- version tuple (07 §6.1) ---
     def _version(self) -> dict:
@@ -139,6 +177,7 @@ class ClaudeJudge:
                 model=MODEL_ID, system=system, user=user,
                 max_tokens=512, temperature=0,
             )
+            self._accumulate_usage()  # S42: 성공 LLM 호출 토큰 누적.
         except Exception:
             # API 예외 → 안전 폴백 (외부 의존 격리).
             return self._stub.judge_canonicalization(pair)
@@ -168,6 +207,7 @@ class ClaudeJudge:
                 model=MODEL_ID, system=system, user=user,
                 max_tokens=512, temperature=0,
             )
+            self._accumulate_usage()  # S42: 성공 LLM 호출 토큰 누적.
         except Exception:
             return self._stub.judge_contradiction(pair)
         verdict = validate_contradiction_verdict(raw)
