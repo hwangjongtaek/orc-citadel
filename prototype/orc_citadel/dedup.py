@@ -22,12 +22,13 @@ from .identity import new_ulid
 # 분할·정규화·MinHash 파라미터 조합을 식별 (bump → dedup 재생성, 04 §4.2).
 DEDUP_VERSION = "d1"
 
-# 기본 임계값 (ADR-403 placeholder → 실측 조정).
-# 실수집 smoke로 튜닝: MinHash는 소형 삽입·재표현에 민감(진짜 복제가 0.7~1.0,
-# 무관 문서도 공유 boilerplate로 0.73~0.78까지 오름) → 구간이 겹친다. 이 애매 구간은
-# 설계의 level-③(embedding/LLM) 영역이다. prototype은 MIN_TEXT_CHARS 이하의 짧은
-# 본문(boilerplate 지배)을 near-dup 후보에서 제외해 짧은 무관 문서의 오결합을 막는다.
-JACCARD_THRESHOLD = 0.6
+# 기본 임계값 (Q2 실측, 2026-08-03 → 04 ADR-403 정합).
+# 실수집 395문서 MinHash Jaccard 분포 측정 결과: intra-source·inter-source 모두
+# 0.5~0.7에 첨두로 겹치고, 진짜 복제만 0.9+ (근접 3쌍 J=1.0이 실제 중복). 즉 단일
+# MinHash 임계로는 겹치는 애매 구간(0.80~0.90)에서 near-dup을 신뢰 판정할 수 없다.
+# 설계 04 ADR-403 전략에 따라: 확실한 복제(0.90+)만 minhash로 병합하고, 애매 구간은
+# level-③(embedding/LLM) 후보로 위임한다. (기존 0.6은 intra 오결합 5152쌍 유발.)
+JACCARD_THRESHOLD = 0.90
 MIN_TEXT_CHARS = 200
 MINHASH_PERMS = 64  # min-hash 회수(결정적 — 해시 시드 고정)
 SHINGLE_K = 5

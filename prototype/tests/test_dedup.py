@@ -26,6 +26,7 @@ TEXT_A_NEAR = (
     "The results cover the second quarter of fiscal year 2027 which ended July 26 2026. "
     "Executives will take questions from analysts about data center demand and HBM supply."
 )
+TEXT_A_UNIQ = TEXT_A + " Inc."  # 진짜 복제 (Jaccard ~0.97, Q2 실측 임계 0.90 이상)
 TEXT_B = (
     "TSMC starts construction on a new advanced packaging fab in Arizona. "
     "The facility will focus on CoWoS capacity to meet growing AI chip demand. "
@@ -53,19 +54,36 @@ def test_exact_same_content_same_cluster():
 
 
 # ---- 2. near (② MinHash/Jaccard) ----
+# Q2 실측(2026-08-03) 근거: intra/inter MinHash Jaccard가 0.5~0.7에 겹쳐, 단일 임계로는
+# 진짜 복제(0.9+)만 신뢰 판정 가능. 애매 구간(0.80~0.90)은 embedding/LLM(level-③)로
+# 위임하는 설계 04 ADR-403 전략을 따른다. prototype은 임계를 0.90으로 상향해
+# 확실한 복제만 merge하고, 미만은 level-③ 후보로 유지한다.
 def test_near_duplicate_same_cluster():
+    """거의 동일(진짜 복제, Jaccard 0.90+) → 같은 cluster (Q2 실측 임계)."""
     d = Deduplicator()
     docs = [
         _doc("doc-a", TEXT_A, "2026-08-01T00:00:00+00:00", "official"),
-        _doc("doc-a2", TEXT_A_NEAR, "2026-08-01T00:00:00+00:00", "press"),
+        _doc("doc-a2", TEXT_A_UNIQ, "2026-08-01T00:00:00+00:00", "press"),  # Jaccard 0.969
         _doc("doc-b", TEXT_B, "2026-08-03T00:00:00+00:00", "press"),
     ]
     clusters = d.dedup(docs)
     def find_cluster(doc_id):
         return next(c for c in clusters if doc_id == c.root_doc_id or doc_id in c.member_doc_ids)
     cl = find_cluster("doc-a")
-    assert "doc-a2" in cl.member_doc_ids  # near-dup 병합
+    assert "doc-a2" in cl.member_doc_ids  # 진짜 복제 병합
     assert "doc-b" not in cl.member_doc_ids and cl.root_doc_id != "doc-b"
+
+
+def test_ambiguous_near_not_merged():
+    """애매 구간(Jaccard 0.80~0.90, 예: TEXT_A_NEAR 0.688)은 minhash로 병합 안 함
+    → level-③(embedding/LLM) 후보로 유지 (설계 04 ADR-403 전략)."""
+    d = Deduplicator()
+    docs = [
+        _doc("doc-a", TEXT_A, "2026-08-01T00:00:00+00:00", "official"),
+        _doc("doc-a2", TEXT_A_NEAR, "2026-08-01T00:00:00+00:00", "press"),  # Jaccard 0.688
+    ]
+    clusters = d.dedup(docs)
+    assert len(clusters) == 2  # 분리 — 애매 minor는 embedding으로.
 
 
 def test_unrelated_docs_separate_clusters():
@@ -82,7 +100,7 @@ def test_unrelated_docs_separate_clusters():
 def test_root_is_earliest_publication():
     d = Deduplicator()
     docs = [
-        _doc("doc-late", TEXT_A_NEAR, "2026-08-03T00:00:00+00:00", "press"),
+        _doc("doc-late", TEXT_A_UNIQ, "2026-08-03T00:00:00+00:00", "press"),
         _doc("doc-early", TEXT_A, "2026-08-01T00:00:00+00:00", "official"),
     ]
     cl = d.dedup(docs)[0]
@@ -93,7 +111,7 @@ def test_root_tiebreak_by_doc_id():
     d = Deduplicator()
     docs = [
         _doc("doc-z", TEXT_A, "2026-08-01T00:00:00+00:00", "press"),
-        _doc("doc-a", TEXT_A_NEAR, "2026-08-01T00:00:00+00:00", "press"),
+        _doc("doc-a", TEXT_A_UNIQ, "2026-08-01T00:00:00+00:00", "press"),
     ]
     cl = d.dedup(docs)[0]
     assert cl.root_doc_id == "doc-a"  # 동률 → doc_id 사전순(앞)
@@ -105,7 +123,7 @@ def test_independent_subset_member_root_disjoint():
     docs = [
         _doc("doc-root", TEXT_A, "2026-08-01T00:00:00+00:00", "official"),
         # 복제인데 독립 추가 문장 포함
-        _doc("doc-copy-plus", TEXT_A_NEAR + " The company also announced a stock buyback.", "2026-08-02T00:00:00+00:00", "press"),
+        _doc("doc-copy-plus", TEXT_A_UNIQ + " The company also announced a stock buyback.", "2026-08-02T00:00:00+00:00", "press"),
     ]
     cl = d.dedup(docs)[0]
     assert set(cl.independent_addition_doc_ids) <= set(cl.member_doc_ids)  # ⊆
@@ -117,7 +135,7 @@ def test_independent_subset_member_root_disjoint():
 def test_deduplication_is_deterministic():
     d = Deduplicator()
     docs = [  # 순서 뒤섞어도 동일 cluster 결정 (재현성, §4.2)
-        _doc("doc-copy", TEXT_A_NEAR, "2026-08-02T00:00:00+00:00", "press"),
+        _doc("doc-copy", TEXT_A_UNIQ, "2026-08-02T00:00:00+00:00", "press"),
         _doc("doc-root", TEXT_A, "2026-08-01T00:00:00+00:00", "official"),
     ]
     c1 = d.dedup(docs)
