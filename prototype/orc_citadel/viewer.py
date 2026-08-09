@@ -90,6 +90,44 @@ class Handler(BaseHTTPRequestHandler):
                             "modality": r["modality"]})
         return {"subject_id": subj, "items": out}
 
+    @_j
+    def _api_investigate(self, qs):
+        """조사 에이전트 end-to-end (S43–S47) — read-only, 결정적."""
+        from orc_citadel.investigation import Subclaim, InvestigationCoverage
+        from orc_citadel.investigation_runner import InvestigationRunner
+        from orc_citadel.synthesis import Synthesizer
+        from orc_citadel.graph_service import GraphService
+
+        subj = unquote(qs.get("subject", ""))
+        facade = self.facade
+        z = facade.zone
+        # ABOUT 그래프 재구축 (read-only 조회용).
+        g = GraphService()
+        for a in z.assertions():
+            for node, uid in ((a["subject_id"], f"n-{a['assertion_id']}"),
+                              (a["claim_id"], f"n2-{a['assertion_id']}")):
+                g.apply([{"mutation_id": uid, "idempotency_key": uid,
+                          "op": "create_node", "payload": {"id": node, "props": {}, "labels": []}}])
+            g.apply([{"mutation_id": f"e-{a['assertion_id']}",
+                      "idempotency_key": f"e-{a['assertion_id']}",
+                      "op": "create_edge",
+                      "payload": {"type": "ABOUT", "from": a["subject_id"],
+                                  "to": a["claim_id"], "props": {}}}])
+        subclaims = [Subclaim("s1", "announces?", subject_id=subj)]
+        inv = InvestigationRunner(z, g).run(subclaims)
+        rep = Synthesizer(z).synthesize(inv, subj)
+        return {
+            "subject_id": subj,
+            "coverage": inv.coverage,
+            "terminated_by": inv.terminated_by,
+            "gaps": inv.gaps,
+            "counter_evidence": len(inv.counter_evidence),
+            "conclusion": rep.conclusion,
+            "statements": rep.statements,
+            "open_questions": rep.open_questions,
+            "audit": rep.audit,
+        }
+
     def do_GET(self):
         if Handler.facade is None:
             Handler.facade = _build()
@@ -110,6 +148,10 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body); return
         if parsed.path == "/api/subject_claims":
             body = self._api_subject_claims(qs).encode()
+            self.send_response(200); self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body); return
+        if parsed.path == "/api/investigate":
+            body = self._api_investigate(qs).encode()
             self.send_response(200); self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body); return
 
@@ -155,6 +197,9 @@ _PAGE = """<!doctype html><html lang="ko"><meta charset="utf-8">
 <h2>🔍 Subject 조사 보고서 <span class="dim">(S30 · 09 §3 conclusion</span></h2>
 <div class="grid" id="reports"></div>
 
+<h2>🔁 조사 에이전트 <span class="dim">(S43–S47 · coverage→explorer→counter-evidence→report)</span></h2>
+<div class="card"><div id="investigation"><span class="muted">subject 보고서에서 "조사 실행"을 누르면 end-to-end 조사가 렌더링됩니다.</span></div></div>
+
 <h2>🧾 Claim 근거 <span class="dim">(S29 · 09 §2.3 evidence)</span></h2>
 <div class="card"><div id="evidence"><span class="muted">subject를 선택한 뒤 근거를 로드하세요.</span></div></div>
 
@@ -192,10 +237,13 @@ async function selectSubject(subj){
       <p class="dim">${esc(c.basis)}</p>
       <p><b>predicate</b>: ${Object.entries(r.by_predicate).map(([p,v])=>esc(p)+' ('+v.count+')').join(', ')}</p>
       ${openQ?`<p class="err"><b>미결 질문</b>: ${r.open_questions.map(q=>esc(q.predicate)+'('+esc(q.reason)+')').join(', ')}</p>`:''}
-      <p style="margin:12px 0 0"><a data-subj="${esc(subj)}" class="loadClaims">근거 조회</a></p>
+      <p style="margin:12px 0 0"><a data-subj="${esc(subj)}" class="loadClaims">근거 조회</a> ·
+        <a data-subj="${esc(subj)}" class="loadInvest">🔁 조사 실행</a></p>
     </div>`;
   const a=document.querySelector('.loadClaims');
   if(a) a.onclick=e=>loadClaims(e.target.dataset.subj);
+  const b=document.querySelector('.loadInvest');
+  if(b) b.onclick=e=>loadInvestigation(e.target.dataset.subj);
 }
 
 async function loadClaims(subj){
@@ -214,6 +262,24 @@ async function loadOneEvidence(claim){
     <span class="dim">${esc(it.evidence_id.slice(0,16))}…</span></div>`).join('');
   $('#evidence').innerHTML=`<p class="dim">claim ${esc(claim)} — evidence ${r.items.length}건 (next_cursor: ${r.page.next_cursor?'있음':'null'})</p>`+
     (inner||'<span class="muted">근거 없음</span>');
+}
+
+async function loadInvestigation(subj){
+  $('#investigation').innerHTML='<span class="muted">🔁 조사 실행 중…</span>';
+  const r=await (await fetch('/api/investigate?subject='+encodeURIComponent(subj))).json();
+  const c=r.conclusion,d=c.dimensions;
+  $('#investigation').innerHTML=`
+    <p class="dim">subject ${esc(subj)} — <b>조사 루프 (S43–S47)</b></p>
+    <p>coverage <b>${esc(r.coverage)}</b> · terminated_by <code>${esc(r.terminated_by)}</code>
+      · gaps ${Array.isArray(r.gaps)?r.gaps.length:0} · counter_evidence ${esc(r.counter_evidence)}건</p>
+    <p>결론 신뢰도 <b>${valBar(c.value)}</b> · 근거 ${c.evidence_count} · 독립 ${c.independent_source_count}
+      <span class="dim">(support ${d.support.toFixed(2)} · contradiction ${d.contradiction.toFixed(2)} · coverage ${d.coverage.toFixed(2)})</span></p>
+    <p><b>statements (evidence-first)</b>:</p>
+    ${(r.statements||[]).map(s=>`<div style="padding:4px 0;border-bottom:1px solid var(--line)">
+      [${esc(s.modality)}] ${esc(s.text)} <span class="dim">(claim_ref ${esc((s.claim_ref||'').slice(0,14))})</span></div>`).join('')||'<span class="muted">문장 없음</span>'}
+    ${(r.open_questions&&r.open_questions.length)?`<p class="err"><b>open_questions</b>: ${r.open_questions.map(q=>esc(q.subquestion)).join(', ')}</p>`:''}
+    <p>Audit: ${r.audit&&r.audit.passed?'<span class="pill hi">PASS</span>':'<span class="pill lo">FAIL</span>'}
+      <span class="dim">(${r.audit?r.audit.violations.length:0} violations)</span></p>`;
 }
 </script>
 <script>
