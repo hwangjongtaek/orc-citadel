@@ -290,3 +290,8 @@ merge/승격을 차단하는 게이트를 명시한다.
 | ADR-1007 | 골든셋을 **`dev`(튜닝)·`test`(held-out 게이트)로 grouping split**하고 승격 게이트는 `test`에서만 판정(§2.4) | 튜닝셋=게이트셋 재사용에 의한 게이트 과대평가(leakage) 방지, entity·doc 단위 grouping으로 train/test 누수 차단 (blueprint §20) | Accepted |
 | ADR-1008 | 상대 회귀 허용치를 **per-metric placeholder**(resolution `P`·오병합률 0p, F1·contradiction `P` ≤1%p, 기타 gate ≤2%p)로 명시하고 `dev`에서 실측 재조정(§3.2) | 단일 "예: 1%p" 비구속·모호 → 지표별 명시로 상대 게이트 실효화 | Accepted |
 | ADR-1009 | §1.4 시스템 성능 지표를 CI 차단 `gate:`가 아닌 **`slo-gate:`(비차단 nightly 경보)**로 재분류 | 성능은 부하·운영 SLO로 검증(§6.3), CI 회귀 게이트 아님 — `gate:` 토큰 의미(§1.4 intro) 정합 | Accepted |
+
+> **Q3 ER 임계 재실측 게이트 (2026-08-03 확정):** 현재 ER은 **결정적 외부식별자 exact match만 자동 병합**(05 ADR-507)이라 스코어 임계값 자체가 없어 Q3를 회피 해소했다. 만약 추후 **embedding/LLM 기반 ER**(POSSIBLY 후보 → 확정 병합)을 도입하는 경우에만 임계값 실측이 필요해지며, 그때의 판정 게이트:
+> - §2.4 `dev` 파티션에서 임계값(cosine·확신)을 튜닝하고, **`test`(held-out) 파티션에서만 게이트 판정** (ADR-1007).
+> - 게이트는 ADR-1001 precision-first 유지: **entity resolution `P ≥ 0.97`, 오병합률 ≤ 0.02**(하락 불허, hard).
+> - 실측 시점은 데이터 다변화(S9 여러 source/predicate의 ER 후보) 이후. 현재 실데이터(29 claim, confidence 균일 0.8, S41)는 구분력이 없어 임계 실측이 무의미함을 확인.

@@ -50,10 +50,14 @@
 | 초기 도메인·source 3~5개 선정 | [04](./design/04-ingestion-and-parsing.md) | ✅(5종 확정) |
 | 최소 ontology 정의 | [02](./design/02-ontology.md) | ✅(v1.0.0 초안) |
 | 데이터 이용 조건(라이선스) 검토 | [11](./design/11-observability-and-governance.md) | ✅(04 §1.4 반영) |
-| 1만 문서 샘플 확보 | [04](./design/04-ingestion-and-parsing.md) | ⬜ |
+| 1만 문서 샘플 확보 | [04](./design/04-ingestion-and-parsing.md) | ⬜ arXiv 1만 수집(`--limit 10000 --sec 5`) 사용자 실행 대기 (현재 395문서) |
 | provenance·bitemporal 모델 prototype | [03](./design/03-storage-and-data-model.md) | ✅ |
+| 결정적+LLM 하이브리드 파이프라인 prototype | [05](./design/05-resolution-and-extraction.md) | ✅ S1–S42 (수집→어세션→캐노니컬→모순→승격) |
+| 소비·조사 에이전트·평가 트랙 | [07](./design/07-llm-and-agents.md), [10](./design/10-evaluation-and-testing.md) | ✅ S28–S47 (read-only 소비·조사 루프·평가/승격·성능) |
 
 **DoD:** ① 원문↔graph element 왕복 추적 가능 ② 동일 문서 재처리 시 중복 mutation 없음.
+
+> **Phase 0 → Phase 1 진입 게이트 (2026-08-03):** ① 1만 문서 샘플 확보(사용자 arXiv 실행) ② Q4/Q6 측정 게이트는 Phase 1 부하에서 첫 판정 ③ 골든·승격 기준선(22건, S41/B2) 재검증. DoD ①②는 prototype에서 이미 충족(S27/S37 E2E 검증).
 
 ### Phase 1 — 10만 문서 MVP (3~5주)
 
@@ -129,6 +133,11 @@
 가장 최신이 위로. 스펙·설계 변경을 기록한다 (구현 세부 커밋은 git 이력).
 
 ### 2026-08-03
+- **D 항목 확정 — 잔여 Open Question·Phase 게이트 (Q4/Q6/Q3·Phase 1).** 남은 할일(D)의 측정 가능 기준을 설계 정본에 게이트로 명시 (Phase 1에서 측정·판정):
+  - **Q4 (06 §9)** — Neo4j 한계 측정 게이트: 노드 ≥1e6, 그래프 조회 p95 ≥500ms, 재구축 > 증분 10× → Memgraph 물리 분리/교체 (ADR-601/603 저장소 추상 유지).
+  - **Q6 (03 §9)** — Iceberg 승격은 Scale(100만)·증분 처리 단계에서 기준 수립 (Phase 1 관측 대기).
+  - **Q3 (10 §7)** — ER은 결정적 exact match 채택으로 회피 해소; embedding/LLM ER 도입 시에만 dev 실측 + test 게이트(P≥0.97) 재적용 (데이터 다변화 후).
+  - **Phase 0→1 진입 게이트** — 1만 문서 확보(사용자 arXiv 실행)·Q4/Q6 첫 측정·골든/승격 기준선 재검증. DoD ①②는 prototype에서 충족(S27/S37).
 - **Q5 기준선 실측 (B1).** dev proxy(bunker-flash)로 실제 LLM 판정 3쌍(canonicalization)을 실행해 S42 usage 집계로 **토큰·비용 기준선 확보**: input 628 / output 160 tokens, **호출당 ≈0.0014 USD**(placeholder 환산). 문서당·조사당 비용 목표는 Phase 1 하이브리드 대량 실행에서 확정 (design 10 §1.4). 전체 arXiv 1만 수집(`--limit 10000 --sec 5`)은 사용자 실행 대기.
 
 ### 2026-08-03 (이전 — 새 기능 트랙)

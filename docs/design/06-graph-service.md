@@ -309,3 +309,10 @@ RETURN a, c;
 | ADR-605 | entity merge는 canonical 매핑 + view rewrite, ID 재작성 금지, unmerge로 가역 | 오병합 복구·precision-first(blueprint §8.5, 불변식 §3-4) | Accepted |
 | ADR-606 | bitemporal 버전 단위는 `Assertion`(valid/tx·supersede·AS-OF·인덱스 모두 Assertion에 부착), Claim은 reified statement | 03 §6.2와 정합, Claim/Assertion 축 분열 제거 | Accepted |
 | ADR-607 | rollback은 log truncation이 아니라 역이벤트(`delete`/`unmerge`/`supersede`) 발행으로 표현, 이후 incremental rebuild | append-only 불변식 §3-3, 감사·재현성 보존([`03`](./03-storage-and-data-model.md) §7.2) | Accepted |
+
+> **Q4 한계 측정 게이트 (2026-08-03 확정):** Neo4j Community 한계 도달은 **Phase 1(10만 문서 기준선) 부하 테스트에서 측정**한다. 교체·물리 분리 판정을 트리거하는 임계(설계 게이트, 측정은 Phase 1):
+> - **노드 수** ≥ `1e6` (Community 단일 인스턴스 실용 한계) 또는
+> - **그래프 조회 p95 latency** ≥ `500 ms` (SLO 게이트, 09 §2.2 조회 계약) 또는
+> - **재구축(이벤트 replay) 벽시계** > 증분 재구축의 `10×` (백필 비용 분기).
+>
+> 이 임계 하나라도 초과하면 06 ADR-601/603의 저장소 추상·라벨 분리 계약 위에서 **Memgraph 등 물리 분리/교체**로 전환한다 (교체 비용은 이미 격리됨). prototype(in-memory)은 이 측정의 대상이 아니며, Phase 0 완료 조건에는 영향 없다.
