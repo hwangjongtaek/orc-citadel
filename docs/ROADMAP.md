@@ -129,6 +129,9 @@
 가장 최신이 위로. 스펙·설계 변경을 기록한다 (구현 세부 커밋은 git 이력).
 
 ### 2026-08-03
+- **Q5 기준선 실측 (B1).** dev proxy(bunker-flash)로 실제 LLM 판정 3쌍(canonicalization)을 실행해 S42 usage 집계로 **토큰·비용 기준선 확보**: input 628 / output 160 tokens, **호출당 ≈0.0014 USD**(placeholder 환산). 문서당·조사당 비용 목표는 Phase 1 하이브리드 대량 실행에서 확정 (design 10 §1.4). 전체 arXiv 1만 수집(`--limit 10000 --sec 5`)은 사용자 실행 대기.
+
+### 2026-08-03 (이전 — 새 기능 트랙)
 - **새 기능 트랙 완성 — LLM 저장-기반 조사 에이전트 (S43–S47, 07 조사 루프).** 소비·평가 계층(S28–S41)을 **read-only·evidence-first**로 재사용해 조사 사이클을 prototype 완결:
   - **S43 evidence coverage** (07 §4·10 §1.3) — subclaim별 근거 coverage·gap·expected_info_gain.
   - **S44 Graph Explorer** (07 §3.3) — subgraph + relation_paths + independence_summary (S26/S29 재사용).
@@ -187,5 +190,5 @@
 | --- | --- | --- | --- |
 | Q3 | Entity Resolution accept/reject 임계값 | 05, 10 | ✅ **결정적 ER 채택으로 회피 해소** — 자동 병합 경로는 결정적 외부식별자 exact match뿐(ADR-507), 점수·LLM은 POSSIBLY 후보만 유지 → 임계값 튜닝 대상 아님 |
 | Q4 | 그래프 DB: Neo4j Community 한계 | 06, 01 | ⬜ **Phase 1 부하 후 판정 예약** — in-memory prototype 규모로 측정 불가, 10만 문서 진입 시 06 정본·교체 비용 격리(저장소 추상) 유지 |
-| Q5 | LLM 비용 목표 실측 | 07, 10 | 🟡 **집계 인프라 완성(S42)**, 기준선은 Phase 1 LLM 하이브리드 실행 후 |
+| Q5 | LLM 비용 목표 실측 | 07, 10 | 🟡 **집계 인프라(S42) + 기준선 실측(B1)** — dev proxy(bunker-flash) 실제 LLM 판정 3쌍: input 628/output 160 tokens, **호출당 ≈0.0014 USD** (placeholder 환산) |
 | Q6 | Iceberg 승격 트리거 정량화 | 03, 01 | ⬜ **Phase 1 범위로 설계 확정** — DuckDB/parquet 단계에선 관측 미대상, 확장 시 트리거 기준 정량화 |
