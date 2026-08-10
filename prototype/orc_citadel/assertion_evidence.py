@@ -53,6 +53,21 @@ class AssertionEvidenceProjector:
         self._conflicts = zone.conflict_candidates()
         self._assertions = zone.assertions()
         self._doc_root = self._build_doc_root()
+        # C2: 근거·모순 조회를 O(1) 인덱스로 — 전체 스캔 반복 제거.
+        # _supporting_claims / n_conflict 가 모든 assertion에서 전체 claims·conflicts를
+        # 매번 스캔해 ConclusionProjector.all() 이 O(subjects×claims) 로 비약했다.
+        self._claims_by_key = {}
+        for c in self._claims:
+            self._claims_by_key.setdefault(
+                (c["subject_id"], c["predicate"], _obj_key(c)), []).append(c)
+        self._conflict_count = {}
+        self._conflict_others = {}
+        for cf in self._conflicts:
+            a, b = cf["claim_id_a"], cf["claim_id_b"]
+            for cid in (a, b):
+                self._conflict_count[cid] = self._conflict_count.get(cid, 0) + 1
+            self._conflict_others.setdefault(a, set()).add(b)
+            self._conflict_others.setdefault(b, set()).add(a)
 
     def _build_doc_root(self) -> dict:
         """doc_id → dup_cluster root (복제 보정). 무클러스터는 미등록(자기=root)."""
@@ -64,10 +79,11 @@ class AssertionEvidenceProjector:
         return root
 
     def _supporting_claims(self, subj: str, pred: str, obj: tuple) -> list[dict]:
-        """같은 (subject, predicate, object) 주장을 입증하는 claim 후보 전체."""
-        return [c for c in self._claims
-                if c["subject_id"] == subj and c["predicate"] == pred
-                and _obj_key(c) == obj]
+        """같은 (subject, predicate, object) 주장을 입증하는 claim 후보 전체.
+
+        C2: 인덱스 조회(구축 시 1회 스캔, 이후 O(1)) — 전체 claims 스캔 반복 제거.
+        """
+        return self._claims_by_key.get((subj, pred, obj), [])
 
     def _root_of(self, doc_id: str) -> str:
         return self._doc_root.get(doc_id, doc_id)
@@ -81,12 +97,9 @@ class AssertionEvidenceProjector:
         docs = sorted({c["doc_id"] for c in supporting})
         n_support = len(docs)
         indep = len({self._root_of(d) for d in docs})
-        n_conflict = sum(1 for cf in self._conflicts
-                         if claim_id in (cf["claim_id_a"], cf["claim_id_b"]))
-        contra_ids = sorted({cf["claim_id_a"] if cf["claim_id_b"] == claim_id
-                             else cf["claim_id_b"]
-                             for cf in self._conflicts
-                             if claim_id in (cf["claim_id_a"], cf["claim_id_b"])})
+        # C2: 모순 조회 O(1) 인덱스 — 전체 conflicts 스캔 제거.
+        n_conflict = self._conflict_count.get(claim_id, 0)
+        contra_ids = sorted(self._conflict_others.get(claim_id, ()))
 
         support = 1.0 - 1.0 / (n_support + 1) if n_support > 0 else 0.0
         contradiction = 1.0 - 1.0 / (n_conflict + 1) if n_conflict > 0 else 0.0
