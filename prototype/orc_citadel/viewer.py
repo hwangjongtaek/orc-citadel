@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import html
 import json
+import os
 import pathlib
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -21,7 +22,8 @@ from orc_citadel.api_facade import ApiFacade
 from orc_citadel.curated_zone import CuratedZone
 from orc_citadel.graph_service import GraphService
 
-HOST, PORT = "127.0.0.1", 8791
+# 컨테이너에서는 VIEWER_HOST=0.0.0.0 으로 외부 바인딩 (docker-compose.yml).
+HOST, PORT = os.environ.get("VIEWER_HOST", "127.0.0.1"), 8791
 DB = pathlib.Path(__file__).resolve().parent.parent / "data" / "curated.duckdb"
 
 # JSON serialization — datetime/tuple을 str로.
