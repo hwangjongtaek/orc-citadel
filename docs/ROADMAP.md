@@ -58,6 +58,7 @@
 **DoD:** ① 원문↔graph element 왕복 추적 가능 ② 동일 문서 재처리 시 중복 mutation 없음.
 
 > **Phase 0 → Phase 1 진입 게이트 (2026-08-03):** ① 1만 문서 샘플 확보(사용자 arXiv 실행) ② Q4/Q6 측정 게이트는 Phase 1 부하에서 첫 판정 ③ 골든·승격 기준선(22건, S41/B2) 재검증. DoD ①②는 prototype에서 이미 충족(S27/S37 E2E 검증).
+> **게이트 판정 (2026-08-11):** ① ✅ 총 raw 11,361건 확보 ③ ✅ 골든 22건 로드·평가 스위트 무회귀(canonicalization F1=1.0 유지, suite PASS)·promotion dry_run INITIALIZED/passed — 호스트·컨테이너 양쪽 동일 결과. ②는 예정대로 Phase 1 부하에서 첫 판정.
 
 ### Phase 1 — 10만 문서 MVP (3~5주)
 
@@ -133,6 +134,7 @@
 가장 최신이 위로. 스펙·설계 변경을 기록한다 (구현 세부 커밋은 git 이력).
 
 ### 2026-08-11
+- **골든·승격 기준선 재검증 (Phase 0→1 게이트 ③).** curated zone의 골든 22건 + 저장 기준선(vt-adf4482…, superseded)으로 평가 스위트(S36)·promotion dry_run(S38–40) 재실행: canonicalization F1=1.0/P=1.0 유지, **회귀 0건, suite PASS**, dry_run INITIALIZED/passed (S41 리포트와 동일 상태 재현). 호스트 venv와 prototype 컨테이너 양쪽에서 동일 결과 — 게이트 ①·③ 충족, ②(Q4/Q6)는 Phase 1 부하 측정 예약.
 - **1만 문서 샘플 확보 (Phase 0 완료 조건 ①).** 컨테이너 기반 `collect_large --limit 10000 --sec 5` 실행으로 arXiv 1만 처리(saved 9,979 / skipped 21 / errors 0) + RSS 30 + SEC 5 — 총 raw 11,361건. 과정에서 abs 페이지 스크레이핑이 anti-bot 429를 반복 유발(크래시 4회)해 **04 §1.4 정본 경로(API metadata CC0)로 수집 전환**: `ArxivConnector.discover_entries`(entry 원문 XML을 raw 문서로, 문서당 GET 0회, 페이지 1000건×10회), `_with_retry`(429/5xx·URLError/Timeout 지수 backoff·Retry-After 준수), 파서 Atom entry 지원(`extract_html` 분기). 전 과정 TDD — 스위트 407→424개 통과. 신규 XML 문서 파싱 E2E 검증(title/published/segments) 완료.
 - **infra: docker-compose 스택 착수 (design 01 §6.1 부분 구현).** postgres/minio/neo4j/opensearch 4종을 버전 고정·healthcheck·named volume으로 구성, prototype viewer는 `--profile prototype` 컨테이너(python:3.12-slim, `data/` 볼륨 마운트, `VIEWER_HOST` 바인딩 주입)로 선택 실행. api/worker는 FastAPI 코드 확보 후, grafana는 메트릭 소스 확보 후 추가. 크리덴셜은 `.env` 주입(`.env.example` 갱신).
 
