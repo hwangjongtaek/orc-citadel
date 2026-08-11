@@ -3,7 +3,7 @@
 > 이 문서는 프로젝트 **진행 내역을 추적**한다. 스펙 정의는 [`docs/design/`](./design/README.md)(SSOT)에 있고, 여기서는 "무엇을 언제 어디까지 했는가"만 관리한다.
 > 규칙: 설계·구현 변경은 (1) 해당 design 문서 수정 (2) `design/README.md` Spec version 반영 (3) 본 문서 §5 Changelog 기록의 3단계를 거친다.
 
-- **최종 갱신:** 2026-08-03
+- **최종 갱신:** 2026-08-11
 - **현재 단계:** Phase 0 (설계·데이터 검증) — *설계 문서 Review 승격 완료, Stable 확정 대기*
 - **Spec version:** 0.1.0 · **Ontology version:** 1.0.0
 
@@ -13,7 +13,7 @@
 | --- | --- | --- |
 | 상세 설계 (Design SSOT) | 🟡 Review | 12개 문서 Review 승격. 리뷰 패스 완료(BLOCKER 3 + MAJOR 36 해소, 상호 일관성 재검증 전항목 PASS). Stable 확정 대기 |
 | 도메인·소스 선정 | ✅ 완료 | AI 반도체·데이터센터 공급망 확정, 초기 Scout 5종 선정(04 §1.4) |
-| 1만 문서 샘플 | ⬜ 예정 | Phase 0 완료 조건 |
+| 1만 문서 샘플 | ✅ 완료 | 2026-08-11 arXiv metadata 1만 + RSS/SEC — 총 raw 11,361건 |
 | Prototype 구현 | 🟡 진행 중 (S1–S47 + Q2/Q3/Q5) | 결정적+LLM 하이브리드 파이프라인 · bitemporal · 소비 계층(S28–31) · 평가/승격 트랙(S33–41) · **조사 에이전트 트랙(S43–47)** 구현 · Q2·Q3 해소 ([§5 Changelog](#5-changelog)) |
 
 범례: ✅ 완료 · 🟡 진행 중 · ⬜ 예정 · ⛔ 블록됨
@@ -50,7 +50,7 @@
 | 초기 도메인·source 3~5개 선정 | [04](./design/04-ingestion-and-parsing.md) | ✅(5종 확정) |
 | 최소 ontology 정의 | [02](./design/02-ontology.md) | ✅(v1.0.0 초안) |
 | 데이터 이용 조건(라이선스) 검토 | [11](./design/11-observability-and-governance.md) | ✅(04 §1.4 반영) |
-| 1만 문서 샘플 확보 | [04](./design/04-ingestion-and-parsing.md) | ⬜ arXiv 1만 수집(`--limit 10000 --sec 5`) 사용자 실행 대기 (현재 395문서) |
+| 1만 문서 샘플 확보 | [04](./design/04-ingestion-and-parsing.md) | ✅ arXiv metadata 경로(04 §1.4 CC0)로 1만 수집 완료 — saved 9,979 / skipped 21 / errors 0, 총 raw 11,361건 (2026-08-11) |
 | provenance·bitemporal 모델 prototype | [03](./design/03-storage-and-data-model.md) | ✅ |
 | 결정적+LLM 하이브리드 파이프라인 prototype | [05](./design/05-resolution-and-extraction.md) | ✅ S1–S42 (수집→어세션→캐노니컬→모순→승격) |
 | 소비·조사 에이전트·평가 트랙 | [07](./design/07-llm-and-agents.md), [10](./design/10-evaluation-and-testing.md) | ✅ S28–S47 (read-only 소비·조사 루프·평가/승격·성능) |
@@ -131,6 +131,10 @@
 ## 5. Changelog
 
 가장 최신이 위로. 스펙·설계 변경을 기록한다 (구현 세부 커밋은 git 이력).
+
+### 2026-08-11
+- **1만 문서 샘플 확보 (Phase 0 완료 조건 ①).** 컨테이너 기반 `collect_large --limit 10000 --sec 5` 실행으로 arXiv 1만 처리(saved 9,979 / skipped 21 / errors 0) + RSS 30 + SEC 5 — 총 raw 11,361건. 과정에서 abs 페이지 스크레이핑이 anti-bot 429를 반복 유발(크래시 4회)해 **04 §1.4 정본 경로(API metadata CC0)로 수집 전환**: `ArxivConnector.discover_entries`(entry 원문 XML을 raw 문서로, 문서당 GET 0회, 페이지 1000건×10회), `_with_retry`(429/5xx·URLError/Timeout 지수 backoff·Retry-After 준수), 파서 Atom entry 지원(`extract_html` 분기). 전 과정 TDD — 스위트 407→424개 통과. 신규 XML 문서 파싱 E2E 검증(title/published/segments) 완료.
+- **infra: docker-compose 스택 착수 (design 01 §6.1 부분 구현).** postgres/minio/neo4j/opensearch 4종을 버전 고정·healthcheck·named volume으로 구성, prototype viewer는 `--profile prototype` 컨테이너(python:3.12-slim, `data/` 볼륨 마운트, `VIEWER_HOST` 바인딩 주입)로 선택 실행. api/worker는 FastAPI 코드 확보 후, grafana는 메트릭 소스 확보 후 추가. 크리덴셜은 `.env` 주입(`.env.example` 갱신).
 
 ### 2026-08-03
 - **D 항목 확정 — 잔여 Open Question·Phase 게이트 (Q4/Q6/Q3·Phase 1).** 남은 할일(D)의 측정 가능 기준을 설계 정본에 게이트로 명시 (Phase 1에서 측정·판정):
