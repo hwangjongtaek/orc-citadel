@@ -47,6 +47,25 @@ class ArxivConnector(SourceConnector):
                     hint = None
             yield DiscoveredRef(url=url, hint_modified=hint)
 
+    def discover_entries(self, config: dict, cursor: str | None):
+        """페이지 Atom 응답의 (id url, <entry> 원문 XML bytes)를 낸다.
+
+        04 §1.4 metadata(CC0) 경로 — entry 자체가 raw 문서가 되므로 문서당
+        추가 HTTP GET이 없다.
+        """
+        query = config.get("query") or "cat:cs.CR OR cat:cs.AI"
+        params = urllib.parse.urlencode({"search_query": query, "start": cursor or 0,
+                                         "max_results": config.get("max_results", 100)})
+        xml = self._http_get(f"{ARXIV_SEARCH}?{params}")
+        body = xml.decode("utf-8", errors="replace")
+        import re
+
+        for entry in re.findall(r"<entry>(.*?)</entry>", body, re.S):
+            m_id = re.search(r"<id>\s*(.*?)\s*</id>", entry, re.S)
+            if not m_id:
+                continue
+            yield m_id.group(1).strip(), f"<entry>{entry}</entry>".encode("utf-8")
+
     def fetch(self, ref: DiscoveredRef, prior_etag: str | None) -> FetchResult:
         content = self._http_get(ref.url)
         return FetchResult(

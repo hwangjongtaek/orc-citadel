@@ -34,6 +34,10 @@ _WS = re.compile(r"\s+")
 # 본문 컨테이너 후보 (클래스/id) — 순서대로 우선. 산문 본문 외 nav·footer boilerplate 배제.
 # 시작 태그를 찾은 뒤 열린 컨테이너 깊이만큼 대응 닫는 태그까지 잘라내기 위해,
 # 정규식은 시작 태그의 tag명을 잡고, 파싱은 _container_content()로 처리한다.
+# arXiv API Atom <entry> (04 §1.4 metadata CC0 경로) — HTML이 아닌 raw 문서 유형.
+_ATOM_ENTRY_OPEN = re.compile(r"<entry[\s>]", re.I)
+_ATOM_SUMMARY = re.compile(r"<summary[^>]*>(.*?)</summary>", re.S | re.I)
+_ATOM_PUBLISHED = re.compile(r"<published>\s*(.*?)\s*</published>", re.S | re.I)
 _ARTICLE_CONTAINER_OPEN = re.compile(
     r'<(?P<tag>\w+)[^>]*(?:class|id)\s*=\s*["\'][^"\']*?(?:article-body|article_body|'
     r'entry-content|post-content|post_content|pna_l_article_wrapper|main-content|'
@@ -112,9 +116,28 @@ def _parse_iso(text: str) -> datetime | None:
         return None
 
 
+def _extract_atom_entry(xml: str, url: str) -> ParsedDoc:
+    """Atom <entry> metadata → title + summary 본문 (04 §1.4)."""
+    m_title = _TITLE_TAG.search(xml)
+    title = _clean_fragment(m_title.group(1)) if m_title else ""
+    m_sum = _ATOM_SUMMARY.search(xml)
+    body = _clean_fragment(m_sum.group(1)) if m_sum else ""
+    if not body and not title:
+        raise ValueError(f"no parseable content: {url}")
+    pub = None
+    m_pub = _ATOM_PUBLISHED.search(xml)
+    if m_pub:
+        pub = _parse_iso(m_pub.group(1))
+    return ParsedDoc(text=body, title=title, publication_time=pub,
+                     parser_version=PARSER_VERSION)
+
+
 def extract_html(html_bytes: bytes, url: str) -> ParsedDoc:
-    """S3 §3.1: HTML에서 clean text + title + publication_time 추출."""
-    html = _SCRIPT_STYLE.sub(" ", html_bytes.decode("utf-8", errors="replace"))
+    """S3 §3.1: HTML(또는 Atom entry)에서 clean text + title + publication_time 추출."""
+    raw = html_bytes.decode("utf-8", errors="replace")
+    if _ATOM_ENTRY_OPEN.search(raw) and _ATOM_SUMMARY.search(raw):
+        return _extract_atom_entry(raw, url)
+    html = _SCRIPT_STYLE.sub(" ", raw)
     if not _TAG.sub("", html).strip():
         raise ValueError(f"no parseable content: {url}")
 

@@ -18,6 +18,7 @@ import argparse
 import json
 import pathlib
 import time
+import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 
@@ -34,7 +35,9 @@ RAW = ROOT / "data" / "raw"
 
 USER_AGENT = "OrcCitadel-Research (prototype; contact research@example.com)"
 ARXIV_INTERVAL = 3.0  # 1 req/3s (04 §1.3)
-ARXIV_PAGE = 100
+# 페이지당 1000: metadata 경로는 호출 수 자체를 줄이는 것이 anti-bot 429 회피에 유효
+# (1만 = API 10회). arXiv API의 대량 슬라이스 사용 패턴.
+ARXIV_PAGE = 1000
 
 SOURCES = {
     "official-nvidia-news": ("rss", "https://nvidianews.nvidia.com/rss.xml"),
@@ -49,6 +52,35 @@ def arxiv_batches(total: int, page: int = ARXIV_PAGE) -> list[tuple[int, int]]:
     순수 함수 — 오프라인 테스트 대상.
     """
     return [(i, min(page, total - i)) for i in range(0, total, page) if total - i > 0]
+
+
+RETRYABLE_HTTP = {429, 500, 502, 503, 504}
+
+
+class _EmptyPage(Exception):
+    """arXiv API가 일시적으로 빈 결과를 반환하는 quirk — transient로 재시도."""
+
+
+def _with_retry(fn, retries: int = 5):
+    """transient HTTP 실패(429/5xx) 지수 backoff 재시도 (01 §4 retry 경로).
+
+    Retry-After 헤더가 있으면 우선, 없으면 30s·2^n (상한 300s). 마지막 시도
+    실패는 그대로 전파 — 데이터 결함(4xx 등)은 재시도 대상이 아니다.
+    """
+    for attempt in range(retries):
+        try:
+            return fn()
+        except urllib.error.HTTPError as e:
+            if e.code not in RETRYABLE_HTTP or attempt == retries - 1:
+                raise
+            ra = (e.headers.get("Retry-After") or "").strip() if e.headers else ""
+            delay = float(ra) if ra.isdigit() else min(30.0 * 2 ** attempt, 300.0)
+            time.sleep(delay)
+        except (urllib.error.URLError, TimeoutError, ConnectionError, _EmptyPage):
+            # 네트워크 계층 transient (SSL read timeout·DNS·연결 거부·빈 페이지).
+            if attempt == retries - 1:
+                raise
+            time.sleep(min(30.0 * 2 ** attempt, 300.0))
 
 
 def _get(url: str) -> tuple[bytes, dict]:
@@ -80,10 +112,12 @@ def _save_zone(source_id: str, url: str, content: bytes, meta: dict,
 
 
 def collect_arxiv(total: int) -> dict:
-    """arXiv 페이징 수집. return {saved, skipped, errors}.
+    """arXiv 페이징 metadata 수집. return {saved, skipped, errors}.
 
-    `total`을 실제 상한으로 강제한다 — ArxivConnector.discover는 페이지당 최대 100을
-    요청하지만, 여기서 총 budget(total)에서 정지해 limit을 지킨다.
+    04 §1.4 metadata(CC0) 경로: API Atom 응답의 <entry> 원문 XML을 그대로 raw
+    문서로 저장한다 — 문서당 abs 페이지 GET 없음(anti-bot 429 회피, 정책 준수).
+    `total`을 실제 상한으로 강제하고, 재시도 후에도 빈 페이지면 결과 소진으로
+    보고 정상 종료한다.
     """
     conn = ArxivConnector()
     counts = {"saved": 0, "skipped": 0, "errors": 0}
@@ -91,23 +125,29 @@ def collect_arxiv(total: int) -> dict:
     for start, mx in arxiv_batches(total):
         if fetched >= total:
             break
-        for ref in conn.discover(config={"query": ARXIV_QUERY}, cursor=str(start)):
+        _sleep_for_arxiv()  # politeness: 페이지 API 호출 전 1 req/3s 대기.
+
+        def _page() -> list:
+            entries = list(conn.discover_entries(
+                config={"query": ARXIV_QUERY, "max_results": mx}, cursor=str(start)))
+            if not entries:
+                raise _EmptyPage(f"start={start}")
+            return entries
+
+        try:
+            # 페이지 호출이 10회뿐이므로 재시도 인내를 넉넉히 (호출당 최대 ~22분).
+            entries = _with_retry(_page, retries=8)
+        except _EmptyPage:
+            break  # 재시도에도 빈 페이지 → 쿼리 결과 소진.
+        for url, raw in entries:
             if fetched >= total:
                 break
-            try:
-                # politeness: 각 진짜 문서 GET 직전 1 req/s 대기 (arXiv).
-                _sleep_for_arxiv()
-                content, hdrs = _get(ref.url)
-            except Exception as e:
-                counts["errors"] += 1
-                continue
             _doc_id, created = _save_zone(
-                "research-arxiv-cs-cr", ref.url, content,
-                {"http_status": 200, "content_type": hdrs.get("Content-Type")},
+                "research-arxiv-cs-cr", url, raw,
+                {"http_status": 200, "content_type": "application/atom+xml;type=entry"},
             )
             fetched += 1
             counts["saved" if created else "skipped"] += 1
-        time.sleep(ARXIV_INTERVAL)  # page 단위 3초
     return counts
 
 
@@ -185,8 +225,8 @@ def main() -> None:
             c = collect_rss(url, source_id)
             print(f"  -> {c}")
 
-    print(f"[research-arxiv-cs-cr] arXiv 페이징 수집 (total={args.limit}, "
-          f"1 req/3s) — 수 시간 소요 가능")
+    print(f"[research-arxiv-cs-cr] arXiv metadata 페이징 수집 (total={args.limit}, "
+          f"페이지당 1 req/3s)")
     c = collect_arxiv(args.limit)
     print(f"  -> {c}")
 

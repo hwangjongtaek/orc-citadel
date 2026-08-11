@@ -96,3 +96,67 @@ def test_save_is_idempotent_across_fetch():
     d2 = store.put("src-01J9...", "https://x", b"same content")
     assert d1 == d2
     assert len(store._raw) == 1
+
+
+# ---- S49: arXiv metadata 경로 (04 §1.4 — API Atom entry가 raw 문서) ----
+
+ARXIV_PAGE_XML = b"""<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <entry>
+    <id>http://arxiv.org/abs/2401.00001v1</id>
+    <title>Paper One</title>
+    <summary>First abstract.</summary>
+    <published>2026-01-03T18:30:00Z</published>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2401.00002v1</id>
+    <title>Paper Two</title>
+    <summary>Second abstract.</summary>
+    <published>2026-01-04T09:00:00Z</published>
+  </entry>
+</feed>"""
+
+
+def test_arxiv_discover_entries_yields_url_and_raw_entry():
+    """discover_entries는 (id url, <entry> 원문 XML bytes)를 낸다."""
+    conn = ArxivConnector()
+    with mock.patch.object(conn, "_http_get", return_value=ARXIV_PAGE_XML):
+        out = list(conn.discover_entries(config={"query": "cat:cs.CR"}, cursor="0"))
+    assert [u for u, _ in out] == [
+        "http://arxiv.org/abs/2401.00001v1",
+        "http://arxiv.org/abs/2401.00002v1",
+    ]
+    assert out[0][1].startswith(b"<entry>")
+    assert b"First abstract." in out[0][1]
+    assert b"Second abstract." not in out[0][1]  # entry 단위 분리
+
+
+def test_arxiv_discover_entries_empty_page():
+    """entry가 없는 응답 → 빈 iterator (판단은 호출자 몫)."""
+    conn = ArxivConnector()
+    empty = b'<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"></feed>'
+    with mock.patch.object(conn, "_http_get", return_value=empty):
+        assert list(conn.discover_entries(config={}, cursor="0")) == []
+
+
+def test_arxiv_discover_entries_honors_max_results():
+    """config.max_results가 API 쿼리에 반영된다 (대량 페이지 — 호출 수 축소)."""
+    conn = ArxivConnector()
+    seen = {}
+
+    def fake_get(url):
+        seen["url"] = url
+        return ARXIV_PAGE_XML
+
+    with mock.patch.object(conn, "_http_get", side_effect=fake_get):
+        list(conn.discover_entries(config={"max_results": 1000}, cursor="0"))
+    assert "max_results=1000" in seen["url"]
+
+
+def test_arxiv_discover_entries_default_max_results():
+    conn = ArxivConnector()
+    seen = {}
+    with mock.patch.object(conn, "_http_get",
+                           side_effect=lambda u: seen.update(url=u) or ARXIV_PAGE_XML):
+        list(conn.discover_entries(config={}, cursor="0"))
+    assert "max_results=100" in seen["url"]
