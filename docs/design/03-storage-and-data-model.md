@@ -280,7 +280,7 @@ blueprint §7.3.
 | ADR-301 | raw zone 완전 immutable, URL 변경분은 새 doc_id로 보존 | 재현성·버전 추적(blueprint §7.1) | Accepted · **구현(P1 ②)**: `MinioRawStore`로 MinIO raw 객체 스토어 영속 — content-hash doc_id·ADR-301 보존(`prototype/orc_citadel/minio_raw_store.py`, 2026-08-11) |
 | ADR-302 | `segments`에 원문·정규화 offset **양방향** 저장 | provenance 왕복 보장(§8.2) | Accepted |
 | ADR-303 | bitemporal 2축을 assertions에 필수 저장 | 변화 이력 재현(blueprint §6.4) | Accepted |
-| ADR-304 | 그래프 변경은 `graph_mutations` 이벤트로만, replay로 재구축 | SoT는 log, graph는 파생(§17) | Accepted · **구현(P1 ①)**: `PostgresMutationLog`로 postgres `graph_mutations` SoT 영속 + 순서 보존 replay 검증 (`prototype/orc_citadel/postgres_mutation_log.py`, 2026-08-11) |
+| ADR-304 | 그래프 변경은 `graph_mutations` 이벤트로만, replay로 재구축 | SoT는 log, graph는 파생(§17) | Accepted · **구현(P1 ①)**: `PostgresMutationLog` SoT 영속 + 순서 보존 replay 검증(`postgres_mutation_log.py`) · **구현(P1 ⑤)**: `graph_replay.replay_graph`가 postgres 로그→`GraphService` 재생으로 materialized graph 재구축 (`graph_replay.py`, 2026-08-11) |
 | ADR-305 | provenance_ref 없는 element는 quarantine | 무출처 사실 차단(blueprint §13) | Accepted · **구현(P1 ③)**: curated zone에 `extraction_records` 테이블 신설 + gate가 `provenance_ref` 없으면 quarantine(`missing_provenance_record`) — 파이프라인이 추출 시 record 영속·ref 부여 (`prototype/orc_citadel/curated_zone.py`·`gate.py`·`pipeline_runner.py`, 2026-08-11) |
 | ADR-306 | 별도 `claims` 테이블 없이 `claim_candidates(status=promoted)`를 claim-of-record로 선언, promote 시 §7 이벤트로 Assertion emission | 후보/정본 이중 테이블 제거, `assertions.claim_id` FK 대상 확정(§4.2) | Accepted |
 | ADR-307 | `assertions`는 append-only SoT가 아니라 `graph_mutations`의 system-versioned projection — 허용 in-place write는 supersession 시 `tx_to` close뿐 | append-only 오표기 정정, SoT 단일화(§6.2, §7) | Accepted |
