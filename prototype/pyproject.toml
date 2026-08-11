@@ -5,6 +5,7 @@ description = "Orc Citadel provenance & idempotency model prototype (Phase 0, de
 requires-python = ">=3.11"
 dependencies = [
     "duckdb",
+    "psycopg[binary]>=3.3.4",
     "requests>=2.34.2",
 ]
 

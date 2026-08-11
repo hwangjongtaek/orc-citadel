@@ -280,7 +280,7 @@ blueprint §7.3.
 | ADR-301 | raw zone 완전 immutable, URL 변경분은 새 doc_id로 보존 | 재현성·버전 추적(blueprint §7.1) | Accepted |
 | ADR-302 | `segments`에 원문·정규화 offset **양방향** 저장 | provenance 왕복 보장(§8.2) | Accepted |
 | ADR-303 | bitemporal 2축을 assertions에 필수 저장 | 변화 이력 재현(blueprint §6.4) | Accepted |
-| ADR-304 | 그래프 변경은 `graph_mutations` 이벤트로만, replay로 재구축 | SoT는 log, graph는 파생(§17) | Accepted |
+| ADR-304 | 그래프 변경은 `graph_mutations` 이벤트로만, replay로 재구축 | SoT는 log, graph는 파생(§17) | Accepted · **구현(P1 ①)**: `PostgresMutationLog`로 postgres `graph_mutations` SoT 영속 + 순서 보존 replay 검증 (`prototype/orc_citadel/postgres_mutation_log.py`, 2026-08-11) |
 | ADR-305 | provenance_ref 없는 element는 quarantine | 무출처 사실 차단(blueprint §13) | Accepted |
 | ADR-306 | 별도 `claims` 테이블 없이 `claim_candidates(status=promoted)`를 claim-of-record로 선언, promote 시 §7 이벤트로 Assertion emission | 후보/정본 이중 테이블 제거, `assertions.claim_id` FK 대상 확정(§4.2) | Accepted |
 | ADR-307 | `assertions`는 append-only SoT가 아니라 `graph_mutations`의 system-versioned projection — 허용 in-place write는 supersession 시 `tx_to` close뿐 | append-only 오표기 정정, SoT 단일화(§6.2, §7) | Accepted |
