@@ -228,6 +228,26 @@ class CuratedZone:
             )
             """
         )
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS extraction_records (
+                extraction_id          VARCHAR PRIMARY KEY,
+                element_id             VARCHAR NOT NULL,
+                doc_id                 VARCHAR NOT NULL,
+                segment_id             VARCHAR,
+                char_start             BIGINT NOT NULL,
+                char_end               BIGINT NOT NULL,
+                content_hash           VARCHAR,
+                fetched_at             VARCHAR,
+                published_at           VARCHAR,
+                model_id               VARCHAR,
+                prompt_template_hash   VARCHAR,
+                schema_version         VARCHAR,
+                preprocess_code_version VARCHAR,
+                review_history         VARCHAR
+            )
+            """
+        )
         self._conn.execute("CREATE INDEX IF NOT EXISTS idx_mentions_doc ON mentions(doc_id)")
 
     def tables(self) -> list[str]:
@@ -314,6 +334,55 @@ class CuratedZone:
             "WHERE claim_candidate_id=?",
             [status, reason, claim_candidate_id],
         )
+
+    def persist_extraction_record(self, element_id: str, doc_id: str,
+                                  segment_id: str | None = None,
+                                  char_start: int = 0, char_end: int = 0,
+                                  content_hash: str | None = None,
+                                  fetched_at: str | None = None,
+                                  published_at: str | None = None,
+                                  model_id: str | None = None,
+                                  prompt_template_hash: str | None = None,
+                                  schema_version: str | None = None,
+                                  preprocess_code_version: str | None = None) -> str:
+        """§8.2 extraction_record 영속 — element_id → extraction_id 결정적 매핑.
+
+        extraction_id 는 element_id 로부터 결정적 생성 → 동일 element 재영속은 동일
+        extraction_id (ON CONFLICT no-op, 불변식 §3-6). element 1건에 추출 기록 1개.
+        """
+        import hashlib
+
+        extraction_id = "ext-" + hashlib.sha256(element_id.encode()).hexdigest()[:24]
+        self._conn.execute(
+            """
+            INSERT INTO extraction_records
+                (extraction_id, element_id, doc_id, segment_id, char_start, char_end,
+                 content_hash, fetched_at, published_at, model_id,
+                 prompt_template_hash, schema_version, preprocess_code_version)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (extraction_id) DO NOTHING
+            """,
+            [extraction_id, element_id, doc_id, segment_id, char_start, char_end,
+             content_hash, fetched_at, published_at, model_id,
+             prompt_template_hash, schema_version, preprocess_code_version],
+        )
+        return extraction_id
+
+    def extraction_records(self) -> list:
+        """전체 extraction_record 조회 (추적·provenance 왕복용)."""
+        rows = self._conn.execute(
+            "SELECT * FROM extraction_records ORDER BY extraction_id"
+        ).fetchall()
+        cols = [d[0] for d in self._conn.execute("DESCRIBE extraction_records").fetchall()]
+        return [dict(zip(cols, r)) for r in rows]
+
+    def has_extraction_record(self, element_id: str) -> bool:
+        """element_id 소유 추출 기록 존재 — ADR-305 게이트 근거."""
+        row = self._conn.execute(
+            "SELECT 1 FROM extraction_records WHERE element_id = ? LIMIT 1",
+            [element_id],
+        ).fetchone()
+        return row is not None
 
     def persist_canonical(self, cc) -> None:
         """CanonicalClaim 1건 upsert + MEMBER_OF 엣지 (02 §2.4·§3.1, 정본 소속)."""

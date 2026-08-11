@@ -20,7 +20,7 @@ from orc_citadel.gate import (
 
 def _claim(conf: float = 0.8, predicate: str = "announces",
            subject: str | None = "org-abc", seg=0, start=0, end=12,
-           frag="will host") -> ClaimCandidate:
+           frag="will host", provenance_ref: list | None = None) -> ClaimCandidate:
     return ClaimCandidate(
         claim_candidate_id=claim_id_for("doc-1", seg, start, end, predicate),
         doc_id="doc-1", predicate=predicate, subject_id=subject,
@@ -28,6 +28,7 @@ def _claim(conf: float = 0.8, predicate: str = "announces",
         polarity="positive", confidence=conf, seg_order=seg,
         char_start=start, char_end=end, surface_fragment=frag,
         event_type_hint="earnings", status="candidate",
+        provenance_ref=provenance_ref or ["ext-1"],
     )
 
 

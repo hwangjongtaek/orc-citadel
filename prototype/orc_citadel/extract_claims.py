@@ -43,6 +43,9 @@ class ClaimCandidate:
     surface_fragment: str
     event_type_hint: str | None = None
     status: str = "candidate"
+    # §8.2 extraction_record id[] — authoritative graph 진입 전 ADR-305 게이트가 요구.
+    # 추출 단계가 record를 영속하고 이 ref를 채운다. 기본값 빈 list.
+    provenance_ref: list | None = None
 
     def to_row(self) -> dict:
         """curated_zone claim_candidates 테이블(row)로 변환 (03 §4.2)."""

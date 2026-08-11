@@ -73,9 +73,12 @@ class Gate:
             reasons.append("confidence_out_of_range")
         if not c.doc_id:
             reasons.append("missing_doc_id")
-        # (2) provenance — source_span 정상 (03 §8.2, ADR-302).
+        # (2) provenance — source_span 정상 (03 §8.2, ADR-302) + 추출 기록 존재 (ADR-305).
         if not (0 <= c.char_start < c.char_end):
             reasons.append("invalid_source_span")
+        # ADR-305 — provenance_ref(=extraction_id[]) 없는 claim은 authoritative 진입 금지 → quarantine.
+        if not getattr(c, "provenance_ref", None):
+            reasons.append("missing_provenance_record")
         # (3) predicate 폐쇄성 (02 §4-2·§5.1).
         if c.predicate not in CONTROLLED_PREDICATES:
             reasons.append(f"unknown_predicate:{c.predicate}")

@@ -75,6 +75,16 @@ def _run_chain(metas, zone, gate, resolver, judge, result: PipelineResult) -> li
         claims = extract_claims(m["doc_id"], segs, resolved,
                                 {e.entity_id: e for e in entities})
         for c in claims:
+            # §8.2 extraction_record 영속 → claim에 provenance_ref 부여 (ADR-305 게이트 충족).
+            ext_id = zone.persist_extraction_record(
+                element_id=c.claim_candidate_id,
+                doc_id=c.doc_id,
+                segment_id=f"{c.doc_id}#p{c.seg_order}",
+                char_start=c.char_start, char_end=c.char_end,
+                model_id="det",
+            )
+            # frozen dataclass — object.__setattr__ 로 provenance_ref 부여
+            object.__setattr__(c, "provenance_ref", [ext_id])
             zone.persist_claim(c)
             cr = gate.evaluate(c)
             zone.update_claim_status(c.claim_candidate_id, cr.status,
