@@ -316,3 +316,5 @@ RETURN a, c;
 > - **재구축(이벤트 replay) 벽시계** > 증분 재구축의 `10×` (백필 비용 분기).
 >
 > 이 임계 하나라도 초과하면 06 ADR-601/603의 저장소 추상·라벨 분리 계약 위에서 **Memgraph 등 물리 분리/교체**로 전환한다 (교체 비용은 이미 격리됨). prototype(in-memory)은 이 측정의 대상이 아니며, Phase 0 완료 조건에는 영향 없다.
+>
+> **구현(P1 Q4 하니스)**: 측정 도구 `neo4j_q4_harness.py` 신설 — 결정적 합성 그래프(`synthetic_graph`, 동일 인자→동일 그래프)를 가동 Neo4j Community 에 MERGE 적재(`measure_load`)·샘플 인접 조회(`measure_query_latency`→p95)·판정(`evaluate_q4`, 위 상수를 `NODE_GATE`/`LATENCY_GATE_MS`/`REBUILD_RATIO_GATE` 로). 그래프 생성·판정은 순수 함수(오프라인 단위검증), 측정은 통합(가동 시 실측, 오프라인 skip). 실측 판정은 Phase 1 10만 문서 기준선 부하에서 수행 (2026-08-11 세션 470→481).
