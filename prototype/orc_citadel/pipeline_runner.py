@@ -48,8 +48,13 @@ class PipelineResult:
     edges: int = 0
 
 
-def _run_chain(metas, zone, gate, resolver, judge, result: PipelineResult) -> list:
-    """문서별 결정적 추출·해소·게이트·claim·어세션 체인. 전체 claim 리스트 반환."""
+def _run_chain(metas, zone, gate, resolver, judge, result: PipelineResult,
+               mutation_log=None) -> list:
+    """문서별 결정적 추출·해소·게이트·claim·어세션 체인. 전체 claim 리스트 반환.
+
+    `mutation_log`(① postgres SoT) 제공 시, 승격 claim 의 그래프 mutation 을
+    `create_node {id, props}` 로 기록한다 (ADR-602 — 그래프 변경은 로그로만).
+    """
     all_claims = []
     for m in metas:
         result.docs += 1
@@ -93,6 +98,18 @@ def _run_chain(metas, zone, gate, resolver, judge, result: PipelineResult) -> li
                 mut = next((mm["mutation_id"] for mm in gate.mutations()
                             if mm["op"] == "create_node"
                             and mm["element_ref"] == c.claim_candidate_id), "")
+                # ① postgres SoT 배선 — 그래프 변경을 append-only 로그에 기록 (ADR-602).
+                if mutation_log is not None:
+                    mutation_log.apply(
+                        doc_id=c.doc_id,
+                        op="create_node",
+                        source_span=(f"{c.doc_id}#p{c.seg_order}", c.char_start, c.char_end),
+                        idempotency_key=f"create_node:{c.claim_candidate_id}",
+                        payload={"id": c.claim_candidate_id, "props": {}},
+                        actor="pipeline",
+                        version_tuple={"ontology_version": "1.0.0", "schema_version": "0.1.0",
+                                       "model_id": "det", "extraction_code_version": "p1"},
+                    )
                 observed = doc.publication_time or FALLBACK_OBSERVED_AT
                 a = materialize(c, observed_at=observed, mutation=mut)
                 zone.persist_assertion(a)
@@ -164,13 +181,19 @@ def _persist_llm_verdicts(zone, judge) -> None:
     _p(zone, judge)
 
 
-def run_pipeline(metas, zone, judge=None) -> PipelineResult:
-    """raw docs(meta list)를 단일 진입점으로 실행해 결정적 체인 + 그래프 + 영속 완료."""
+def run_pipeline(metas, zone, judge=None, mutation_log=None) -> PipelineResult:
+    """raw docs(meta list)를 단일 진입점으로 실행해 결정적 체인 + 그래프 + 영속 완료.
+
+    `mutation_log`(① postgres SoT) 제공 시 graph mutation 을 로그에 기록하고,
+    그래프는 로그의 **replay**(⑤ `replay_graph`)로 재구축한다 (ADR-304 실경로).
+    미제공 시 기존 in-memory `_build_graph(gate)` 유지 (파괴 없음).
+    """
     resolver = EntityResolver()
     gate = Gate()
     result = PipelineResult()
 
-    all_claims = _run_chain(metas, zone, gate, resolver, judge, result)
+    all_claims = _run_chain(metas, zone, gate, resolver, judge, result,
+                            mutation_log=mutation_log)
 
     # 캐노니컬·모순 — judge 주입 시 미결 쌍만 LLM (05 §4.2·§5.2).
     promoted = [c for c in all_claims
@@ -199,7 +222,13 @@ def run_pipeline(metas, zone, judge=None) -> PipelineResult:
     result.llm_conflict_verdicts = len(zone.conflict_verdicts())
 
     # 그래프 재구축 (06 §2) + aggregate.
-    g = _build_graph(gate)
+    # mutation_log(① postgres SoT) 제공 시 로그 재생(⑤)으로, 아니면 기존 in-memory(파괴 없음).
+    if mutation_log is not None:
+        from orc_citadel.graph_replay import replay_graph
+
+        g = replay_graph(mutation_log.all_mutations())
+    else:
+        g = _build_graph(gate)
     result.nodes = len(g.nodes())
     result.edges = len(g.edges())
 
