@@ -233,3 +233,21 @@ def test_read_only_no_mutation():
     f = ApiFacade(z, g)
     for bad in ("apply", "persist", "create_node", "create_edge", "insert", "delete"):
         assert not hasattr(f, bad), f"read-only 위반: {bad} 노출"
+
+
+def test_get_investigation_graph_returns_subgraph():
+    """09 §2.2 GET /v1/investigations/{id}/graph — investigation subgraph (progressive seed)."""
+    z = _populate_zone()
+    f = ApiFacade(z, _make_graph())
+    result = f.get_investigation_graph("org-a")
+    assert "subgraph" in result
+    sub = result["subgraph"]
+    # 조사 서브그래프 스키마 — subject entity(id) + entities + claims + evidence (06 §8.1)
+    assert "entity" in sub and "entities" in sub and "claims" in sub
+    assert sub["entity"] == "org-a"
+    assert any(e["id"] == "org-a" for e in sub["entities"])
+    assert any(c["id"] == "clm-a" for c in sub["claims"])
+    assert result["subject_id"] == "org-a"
+    # read-only: subgraph + relation_paths + independence_summary
+    assert "relation_paths" in result
+    assert "independence_summary" in result

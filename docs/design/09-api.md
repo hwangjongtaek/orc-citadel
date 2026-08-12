@@ -391,5 +391,5 @@ GET  /v1/investigations/{id}/status → 도메인 진행률(coverage·cost, §2.
 | ADR-903 | 경로·필드는 **기술 용어 우선**, 세계관 명칭은 표시 레이어 | UI 명칭 변경이 API를 깨지 않게 함([`README`](./README.md) §2.1, blueprint §1.4) | Accepted |
 | ADR-904 | **Cursor 페이지네이션** 채택(offset 불가) | 대량 그래프·bitemporal 이벤트에서 안정 페이징, ULID 시간정렬 활용([`README`](./README.md) §2.2) | Accepted |
 | ADR-905 | Confidence는 **다차원 봉투 필수**(단일 게이지 금지) | 신뢰도 과대평가·오해 방지(blueprint §1.4·§5.2·§11), mockup `never a lone gauge` | Accepted |
-| ADR-906 | Graph API는 **read-only**, mutation 미노출 | event-driven mutation 불변식 §3-3, Agent·클라이언트의 직접 그래프 변경 차단([`01`](./01-architecture.md) 경계 규칙) | Accepted |
+| ADR-906 | Graph API는 **read-only**, mutation 미노출 | event-driven mutation 불변식 §3-3, Agent·클라이언트의 직접 그래프 변경 차단([`01`](./01-architecture.md) 경계 규칙) | Accepted · **구현(P1 B)**: `ApiFacade.get_investigation_graph`가 investigation subgraph(§2.2 seed)+relation_paths+independence_summary 노출 (`prototype/orc_citadel/api_facade.py`, 2026-08-11) |
 | ADR-907 | 원문 span→provenance를 **≤3 왕복**으로 보장하는 전용 엔드포인트 | 감사 가능성 완료 기준(blueprint §1.4-3), Hall of Witnesses UX | Accepted |

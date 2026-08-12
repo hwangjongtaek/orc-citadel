@@ -18,6 +18,7 @@ from __future__ import annotations
 from orc_citadel.assertion_evidence import AssertionEvidenceProjector
 from orc_citadel.catalog import Catalog, CatalogGraph
 from orc_citadel.conclusion import ConclusionProjector
+from orc_citadel.graph_explorer import GraphExplorer
 from orc_citadel.ranking import ConclusionRanking
 
 DEFAULT_EVIDENCE_LIMIT = 30
@@ -49,6 +50,7 @@ class ApiFacade:
         self._evidence = AssertionEvidenceProjector(zone)
         self._conclusion = ConclusionProjector(zone, low_confidence=low_confidence)
         self._ranking = ConclusionRanking(zone, high_confidence=high_confidence)
+        self._explorer = GraphExplorer(zone, graph)
         # claim_candidates (claim_id → row) / assertions 조회용.
         self._claims_rows = {r["claim_candidate_id"]: r for r in zone.claims()}
         self._assertions = zone.assertions()
@@ -165,3 +167,16 @@ class ApiFacade:
                      _hex_cursor(f"{page[-1]['id']}:{page[-1]['type']}") if has_more
                      else None, "limit": limit},
         }
+
+    def get_investigation_graph(self, subject_id: str, hops: int = 1,
+                                subclaim_id: str | None = None) -> dict:
+        """09 §2.2 GET /v1/investigations/{id}/graph — investigation subgraph seed.
+
+        서브그래프 + relation_paths + independence_summary 를 반환하는 progressive
+        disclosure seed (06 §8.1·§8.3, design 09 §2.2). read-only (불변식 §3-3).
+        """
+        return self._explorer.explore(
+            subclaim_id=subclaim_id if subclaim_id is not None
+            else f"subclaim:{subject_id}",
+            subject_id=subject_id, hops=hops,
+        )
