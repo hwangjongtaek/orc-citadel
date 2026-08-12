@@ -337,7 +337,7 @@ Agent Runtime은 도구를 계층별로 노출한다. Agent가 그래프를 muta
 | --- | --- | --- | --- |
 | ADR-701 | 모델 tier를 소형=`claude-haiku-4-5` / 중급=`claude-sonnet-5` / 고성능·reasoning=`claude-opus-4-8`로 매핑(alias 표기 통일, 산출물 핀은 §2.1 정책), provider-neutral 계층 의미 유지 | 최고 비용 모델 남용 방지, 비용 폭증 위험 대응 (blueprint §9.2, §18) | Accepted |
 | ADR-702 | Agent는 그래프 read-only, mutation은 Lorekeepers→Graph Service 경로만 (ADR-103 재확인) | event-driven·rollback 가능성 강제 (README §3-3) | Accepted |
-| ADR-703 | Evidence-first 강제: verified subgraph 확정 후에만 문장 생성, Audit Agent 역추적 미통과 문장 차단 | 무출처 사실 방지, 감사 가능성 (README §3-5, blueprint §17, §21-8) | Accepted |
+| ADR-703 | Evidence-first 강제: verified subgraph 확정 후에만 문장 생성, Audit Agent 역추적 미통과 문장 차단 | 무출처 사실 방지, 감사 가능성 (README §3-5, blueprint §17, §21-8) | Accepted · **구현(P1 C)**: pipeline→조사 루프→보고서 end-to-end 드라이버(5개 질문) + `ApiFacade.get_evidence_provenance`가 extraction_record char span을 trail에 연결(DoD ②) (`tests/test_investigation_e2e.py`·`api_facade.py`, 2026-08-11) |
 | ADR-704 | 추출·판정은 강제 JSON schema(`output_config.format`/strict tool use), prefill 금지 | 자유 요약 금지·contract test 정합 (blueprint §8.6, §15) | Accepted |
 | ADR-705 | 모델·프롬프트 교체는 골든셋 회귀 통과 후 단계 승격, 버전 튜플·ROADMAP 기록 | 재현성·회귀 방지 (blueprint §9.5, §12.5, → [10](./10-evaluation-and-testing.md)) | Accepted |
 | ADR-706 | routing 승급 임계 `τ_tier`(0.75/0.70/0.65)·종료 수렴 `δ`(0.02)를 초기 기본값으로 고정, `expected_info_gain`=coverage-delta 휴리스틱·`call_cost`=토큰 추정으로 산정(§2.3, §4.3) | 미측정 양 의존 제거해 라우팅/종료 구현 가능화; placeholder는 [10](./10-evaluation-and-testing.md) 실측 조정 | Accepted |

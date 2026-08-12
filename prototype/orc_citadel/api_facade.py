@@ -113,15 +113,32 @@ class ApiFacade:
         ev = self._evidence.for_assertion_by_claim(claim_id)
         if ev is None or doc not in ev.supporting_docs:
             return None
+        # DoD ② — 추출 기록(extraction_record)의 char span 을 trail 에 연결 (03 §8, ADR-305).
+        # claim_id 와 일치하는 record 의 segment_id·char offset 을 원문 왕복(불변식 §3-2)으로 노출.
+        er_step = None
+        for rec in self.zone.extraction_records():
+            if rec["element_id"] == claim_id:
+                er_step = {
+                    "step": "extraction_record",
+                    "extraction_id": rec["extraction_id"],
+                    "segment_id": rec["segment_id"],
+                    "char_start": rec["char_start"],
+                    "char_end": rec["char_end"],
+                    "content_hash": rec["content_hash"],
+                }
+                break
+        trail = [
+            {"step": "claim", "claim_id": claim_id,
+             "predicate": ev.predicate},
+        ]
+        if er_step is not None:
+            trail.append(er_step)
+        trail.append({"step": "document", "doc_id": doc})
         return {
             "evidence_id": evidence_id,
             "relation": "supports",
             "strength": ev.confidence["dimensions"]["support"],
-            "trail": [
-                {"step": "claim", "claim_id": claim_id,
-                 "predicate": ev.predicate},
-                {"step": "document", "doc_id": doc},
-            ],
+            "trail": trail,
         }
 
     # --- investigation report ----------------------------------------------
