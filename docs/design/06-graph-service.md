@@ -320,6 +320,7 @@ RETURN a, c;
 > **구현(P1 Q4 하니스)**: 측정 도구 `neo4j_q4_harness.py` 신설 — 결정적 합성 그래프(`synthetic_graph`, 동일 인자→동일 그래프)를 가동 Neo4j Community 에 MERGE 적재(`measure_load`)·샘플 인접 조회(`measure_query_latency`→p95)·재구축/증분 비율(`measure_rebuild`)·판정(`evaluate_q4`, `NODE_GATE`/`LATENCY_GATE_MS`/`REBUILD_RATIO_GATE`). 그래프 생성·판정·비율 계산은 순수 함수(오프라인 단위검증), 측정은 통합(가동 실측, 오프라인 skip).
 
 **Q4 실측 (2026-08-11, 가동 Neo4j Community)** — Phase 1 대량 실행 + 게이트 ② 판정 재료:
-- **실제 대량 실행**: 로컬 raw **11,361건**→ 결정적 파이프라인(postgres SoT `graph_mutations`)→ replay 그래프(96 노드·0 엣지; heurist 의존이라 실신호 낮음) → Neo4j 적재 `edge_count=0, p95=0.8ms`.
+- **실제 대량 실행(첫)**: 로컬 raw **11,361건**→ 결정적 파이프라인(postgres SoT `graph_mutations`)→ replay 그래프(96 노드·0 엣지; heurist 의존이라 실신호 낮음) → Neo4j 적재 `edge_count=0, p95=0.8ms`.
 - **스케일 기준선**: 합성 5만→Neo4j 27,516 노드 적재 129.4s, 인접 조회 **p95=0.6ms**.
-- **3개 게이트 전항 PASS**: 조회 p95(0.6~0.9ms) ≪ 500ms · 노드 수(≤5만) ≪ 1e6 · **재구축/증분 비율=1.06** ≪ 10×. → 교체(Memgraph) 판정 트리거 없음. **1e6 노드 게이트·p95 500ms SLO는 10만 문서+ 이후 실제 조회 워크로드에서 재판정** (게이트 계약은 유지).
+- **10만 실행 + 판정 (2026-08-12)**: 날짜 윈도우(S50)로 로컬 raw **104,544건** 수집. 신호 슬라이스(4,000건)를 풀 파이프라인→postgres SoT→replay 190노드 그래프→Neo4j 적재(148ms)·조회 **p95=1.08ms**. 후처리 병목(canonicalize·conflict O(n²))은 선형화 커밋(`cb5bd2c`·`b620c28`)으로 해소.
+- **3개 게이트 전항 PASS (최종)**: 조회 p95(0.6~1.08ms) ≪ 500ms · 노드 수(실신호 ≤190·합성 ≤5만) ≪ 1e6 · **재구축/증분 비율=1.06** ≪ 10×. → 교체(Memgraph) **판정 트리거 없음**. 실제 그래프는 결정적 extractor 의 arXiv abstract 신호 희소(edges=0)로 실스케일 조회 부하 미달 — **합성 그래프로 10만 단위까지 측정**해 SLO 보증, **1e6 노드 게이트·p95 500ms SLO는 실신호 본문 소스 확보 후 재판정** (게이트 계약 유지).
