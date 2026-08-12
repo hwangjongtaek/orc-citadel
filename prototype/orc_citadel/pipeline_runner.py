@@ -46,6 +46,7 @@ class PipelineResult:
     llm_conflict_verdicts: int = 0
     nodes: int = 0
     edges: int = 0
+    clusters: int = 0  # S4 dedup — 근접 복제 클러스터 수.
 
 
 def _run_chain(metas, zone, gate, resolver, judge, result: PipelineResult,
@@ -56,6 +57,7 @@ def _run_chain(metas, zone, gate, resolver, judge, result: PipelineResult,
     `create_node {id, props}` 로 기록한다 (ADR-602 — 그래프 변경은 로그로만).
     """
     all_claims = []
+    docs_meta: list = []  # S4 dedup 배선용 (04 §4) — 근접 복제 축소.
     for m in metas:
         result.docs += 1
         try:
@@ -64,6 +66,14 @@ def _run_chain(metas, zone, gate, resolver, judge, result: PipelineResult,
             result.parse_fail += 1
             continue
         segs = parse_document(m["doc_id"], doc)
+        # S4 입력 — 결정적 체인에서 생성된 clean text·시간·신뢰 메타 수집.
+        docs_meta.append({
+            "doc_id": m["doc_id"],
+            "text": doc.text,
+            "publication_time": (doc.publication_time or "").isoformat()
+            if hasattr(doc.publication_time, "isoformat") else (doc.publication_time or ""),
+            "source_type": m.get("source_type", ""),
+        })
         ms = extract_mentions(m["doc_id"], doc, segs)
         for men in ms:
             zone.persist_mention(men)
@@ -116,6 +126,21 @@ def _run_chain(metas, zone, gate, resolver, judge, result: PipelineResult,
                 result.assertions += 1
         result.claims += len(claims)
         all_claims.extend(claims)
+
+    # S4 dedup 배선 — 근접 복제를 dup_clusters 로 축소 (04 §4, ADR-403). 결정적.
+    if docs_meta:
+        from .dedup import Deduplicator
+
+        clusters = Deduplicator().dedup(docs_meta)
+        for cl in clusters:
+            zone.persist_cluster(
+                cluster_id=cl.cluster_id,
+                root_doc_id=cl.root_doc_id,
+                member_doc_ids=list(cl.member_doc_ids),
+                independent_addition_doc_ids=list(cl.independent_addition_doc_ids),
+                dedup_method=cl.dedup_method,
+            )
+        result.clusters = len(clusters)
     return all_claims
 
 

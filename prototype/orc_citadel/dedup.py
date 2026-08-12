@@ -17,8 +17,6 @@ import hashlib
 import re
 from dataclasses import dataclass
 
-from .identity import new_ulid
-
 # 분할·정규화·MinHash 파라미터 조합을 식별 (bump → dedup 재생성, 04 §4.2).
 DEDUP_VERSION = "d1"
 
@@ -169,8 +167,11 @@ def _finalize(members: list[str], docs_all: list[dict]) -> Cluster:
     root_sents = {s for s in _sentences(doc_by_id[root]["text"])}
     independents = [m for m in derived if _has_new_sentence(doc_by_id[m]["text"], root_sents)]
 
+    # 결정적 cluster_id — (정렬 members + dedup_version) 해시 (04 §4.2 재생성 계약).
+    seed = "|".join(sorted(members)) + "|" + DEDUP_VERSION
+    cluster_id = "clus-" + hashlib.sha256(seed.encode()).hexdigest()[:24]
     return Cluster(
-        cluster_id=new_ulid("clus"),
+        cluster_id=cluster_id,
         root_doc_id=root,
         member_doc_ids=tuple(sorted(derived)),
         independent_addition_doc_ids=tuple(sorted(independents)),

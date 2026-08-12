@@ -275,7 +275,7 @@ blueprint §11·§14. Scouts·S1–S4의 건전성을 감시한다. **지표 정
 | --- | --- | --- | --- |
 | ADR-401 | `doc_id`는 내용 기반 `sha256(raw_bytes)[:24]`, 변경분은 새 `doc_id`로 전부 보존 | S2 idempotency + 버전 추적([`README`](./README.md) §2.2, [`03`](./03-storage-and-data-model.md) ADR-301) | Accepted |
 | ADR-402 | S1 idempotency key = `hash(source_id, url, fetch_window)`, S2 idempotency(`doc_id`)와 분리 | 수집 창 중복 방지와 bytes 중복 저장 방지를 독립 계층으로(불변식 §3-6) | Accepted |
-| ADR-403 | near-dup은 MinHash/SimHash LSH로 후보 축소 후 애매 구간만 embedding 보강. 초기 임계값은 아래 placeholder로 고정하고 golden set 실측으로 조정 | LLM 없이 저비용 정밀, 임계값 튜닝 가능(blueprint §8.3) | Accepted |
+| ADR-403 | near-dup은 MinHash/SimHash LSH로 후보 축소 후 애매 구간만 embedding 보강. 초기 임계값은 아래 placeholder로 고정하고 golden set 실측으로 조정 | LLM 없이 저비용 정밀, 임계값 튜닝 가능(blueprint §8.3) | Accepted · **구현(P1 A)**: `Deduplicator`를 `run_pipeline`에 배선해 `dup_clusters` 영속 + 결정적 cluster_id(`sorted(members)+dedup_version`) (`prototype/orc_citadel/dedup.py`·`pipeline_runner.py`, 2026-08-11) |
 | ADR-404 | LLM 의미적 파생 판정은 near-dup이 남긴 후보 쌍에만 계단식 호출(S4 수준 ③) | LLM 비용 통제 + 재현성(version tuple 부착) | Accepted |
 | ADR-405 | 파싱 실패·인코딩 판정 실패는 dead-letter로 보내되 raw bytes는 유실 없이 보존, 버전 상향 후 재처리 | immutable raw 불변식·재현성([`03`](./03-storage-and-data-model.md) §2, 불변식 §3-1) | Accepted |
 
