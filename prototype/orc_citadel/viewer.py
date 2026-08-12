@@ -118,6 +118,8 @@ class Handler(BaseHTTPRequestHandler):
         subclaims = [Subclaim("s1", "announces?", subject_id=subj)]
         inv = InvestigationRunner(z, g).run(subclaims)
         rep = Synthesizer(z).synthesize(inv, subj)
+        # War Table — 조사 subgraph(진행식 disclosure 시드, 06 §8.1) 노출.
+        graph_view = facade.get_investigation_graph(subj, hops=1)
         return {
             "subject_id": subj,
             "coverage": inv.coverage,
@@ -128,6 +130,9 @@ class Handler(BaseHTTPRequestHandler):
             "statements": rep.statements,
             "open_questions": rep.open_questions,
             "audit": rep.audit,
+            "subgraph": graph_view["subgraph"],
+            "relation_paths": graph_view["relation_paths"],
+            "independence_summary": graph_view["independence_summary"],
         }
 
     def do_GET(self):
@@ -270,12 +275,23 @@ async function loadInvestigation(subj){
   $('#investigation').innerHTML='<span class="muted">🔁 조사 실행 중…</span>';
   const r=await (await fetch('/api/investigate?subject='+encodeURIComponent(subj))).json();
   const c=r.conclusion,d=c.dimensions;
+  const sg=r.subgraph||{entities:[],relationships:[]};
+  const nodes=[...new Set([sg.entity,...sg.entities.map(e=>e.id),...sg.relationships.map(rl=>rl.from),...sg.relationships.map(rl=>rl.to)])].filter(Boolean);
   $('#investigation').innerHTML=`
     <p class="dim">subject ${esc(subj)} — <b>조사 루프 (S43–S47)</b></p>
     <p>coverage <b>${esc(r.coverage)}</b> · terminated_by <code>${esc(r.terminated_by)}</code>
       · gaps ${Array.isArray(r.gaps)?r.gaps.length:0} · counter_evidence ${esc(r.counter_evidence)}건</p>
     <p>결론 신뢰도 <b>${valBar(c.value)}</b> · 근거 ${c.evidence_count} · 독립 ${c.independent_source_count}
       <span class="dim">(support ${d.support.toFixed(2)} · contradiction ${d.contradiction.toFixed(2)} · coverage ${d.coverage.toFixed(2)})</span></p>
+    <div id="wargraph" style="border:1px solid var(--line);border-radius:8px;padding:10px;margin:10px 0">
+      <p class="dim"><b>War Table</b> — 조사 subgraph (노드 ${nodes.length} · 관계 ${sg.relationships.length})</p>
+      <p class="dim">노드: ${nodes.map(n=>`<code>${esc(n)}</code>`).join(' ')}</p>
+      <p class="dim">관계: ${(sg.relationships||[]).map(rl=>`<code>${esc(rl.from)} <span style="color:#8ab">—${esc(rl.type)}→</span> ${esc(rl.to)}</code>`).join(' ')}</p>
+      ${r.relation_paths&&r.relation_paths.length?`<p class="dim">경로: ${r.relation_paths.map(p=>`<code>${esc(p)}</code>`).join(' · ')}</p>`:''}
+      <p class="dim">독립출처: <b>${r.independence_summary?r.independence_summary.independent_source_count:0}</b>
+        / 근거 ${r.independence_summary?r.independence_summary.evidence_count:0}
+        (dedup_ratio ${r.independence_summary?r.independence_summary.dedup_ratio.toFixed(2):0})</p>
+    </div>
     <p><b>statements (evidence-first)</b>:</p>
     ${(r.statements||[]).map(s=>`<div style="padding:4px 0;border-bottom:1px solid var(--line)">
       [${esc(s.modality)}] ${esc(s.text)} <span class="dim">(claim_ref ${esc((s.claim_ref||'').slice(0,14))})</span></div>`).join('')||'<span class="muted">문장 없음</span>'}
