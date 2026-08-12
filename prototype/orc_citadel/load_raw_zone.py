@@ -50,3 +50,43 @@ def load_raw_zone(raw_dir: pathlib.Path = RAW_DIR) -> RawStore:
                 "content": content,
             })
     return store, meta
+
+
+def load_raw_zone_minio(minio_store) -> tuple:
+    """MinIO(raw 객체 스토어 ②)로부터 파이프라인 meta list 재구성.
+
+    기존 `load_raw_zone`(로컬 fs)과 동일 계약 `(store, meta)` 를 반환해 파이프라인
+    입력으로 재사용한다. meta = [{source_id, url, doc_id, content}].
+    """
+    import json
+
+    store = RawStore()
+    meta: list[dict] = []
+    client = minio_store.client
+    for obj in client.list_objects(minio_store.bucket, recursive=True):
+        if not obj.object_name.endswith("/content.bin"):
+            continue
+        # §2.1 키: raw/<source_id>/<doc_id>/content.bin
+        doc_id = obj.object_name.split("/")[2]
+        resp = client.get_object(minio_store.bucket, obj.object_name)
+        try:
+            content = resp.read()
+        finally:
+            resp.close()
+            resp.release_conn()
+        # fetch.json → url
+        url = ""
+        try:
+            rec = minio_store.fetch_meta(doc_id)
+            url = rec.get("url", "")
+        except KeyError:
+            pass
+        source_id = obj.object_name.split("/")[1]
+        doc_id2 = store.put(source_id, url, content)
+        meta.append({
+            "source_id": source_id,
+            "url": url,
+            "doc_id": doc_id2,
+            "content": content,
+        })
+    return store, meta

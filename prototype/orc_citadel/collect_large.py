@@ -90,13 +90,29 @@ def _get(url: str) -> tuple[bytes, dict]:
 
 
 def _save_zone(source_id: str, url: str, content: bytes, meta: dict,
-               raw_dir: pathlib.Path | None = None) -> tuple[str, bool]:
+               raw_dir: pathlib.Path | None = None,
+               minio_store=None) -> tuple[str, bool]:
     """raw 3-zone 저장 — content-hash idempotency.
 
     returns (doc_id, created): created=True 새 저장, False 이미 존재(재개 무중복).
-    raw_dir: 테스트용 재정의 (기본 RAW).
+
+    저장 백엔드:
+    - `minio_store` 제공 시 → MinIO 객체 스토어(② `MinioRawStore`)에 §2.1 객체 키로 영속.
+    - 미제공 시 로컬 fs `data/raw/<source>/doc/<doc_id>/...` (기존 default).
+    `meta` 는 fetch.json 에 병합되며 governance(11) 필드 license/robots_allowed 기본값이
+    채워진다 (04 §1.4 재배포 제한 정합).
     """
     import hashlib
+
+    if minio_store is not None:
+        # MinIO 백엔드 — content-hash doc_id 로 재개 스킵 판별 후 put(② 저장소).
+        doc_id = "doc-" + hashlib.sha256(content).hexdigest()[:24]
+        existing = minio_store.has(doc_id)
+        meta = dict(meta)
+        meta.setdefault("license", "unknown")
+        meta.setdefault("robots_allowed", True)
+        minio_store.put(source_id, url, content, meta)
+        return doc_id, not existing
 
     base = raw_dir or RAW
     doc_id = "doc-" + hashlib.sha256(content).hexdigest()[:24]
@@ -105,6 +121,8 @@ def _save_zone(source_id: str, url: str, content: bytes, meta: dict,
         return doc_id, False
     d.mkdir(parents=True, exist_ok=True)
     (d / "content.bin").write_bytes(content)
+    meta.setdefault("license", "unknown")
+    meta.setdefault("robots_allowed", True)
     meta.update({"doc_id": doc_id, "url": url,
                  "fetched_at": datetime.now(timezone.utc).isoformat()})
     (d / "fetch.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2))
