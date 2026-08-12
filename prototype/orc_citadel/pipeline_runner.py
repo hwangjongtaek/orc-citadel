@@ -125,6 +125,35 @@ def _run_chain(metas, zone, gate, resolver, judge, result: PipelineResult,
                 a = materialize(c, observed_at=observed, mutation=mut)
                 zone.persist_assertion(a)
                 result.assertions += 1
+                # 정규 삼항 스키 (subject--predicate-->object) 로 공급망 관계 엣지 배선.
+                # object 가 해소 엔티티인 승격 claim 만 (미상은 노드만, GR 참조 무결성).
+                if mutation_log is not None and c.object_id is not None:
+                    # 엣지 끝점(엔티티) 노드를 먼저 보장 — replay 시 dangling_ref quarantine
+                    # 방지 (불변식 §3-4 참조 무결성: 양 끝 노드 존재). entity_id 별 멱등.
+                    for eid in (c.subject_id, c.object_id):
+                        mutation_log.apply(
+                            doc_id=c.doc_id,
+                            op="create_node",
+                            source_span=(f"{c.doc_id}#p{c.seg_order}", c.char_start, c.char_end),
+                            idempotency_key=f"create_entity:{eid}",
+                            payload={"id": eid, "props": {}},
+                            actor="pipeline",
+                            version_tuple={"ontology_version": "1.0.0",
+                                           "schema_version": "0.1.0",
+                                           "model_id": "det",
+                                           "extraction_code_version": "p1"},
+                        )
+                    mutation_log.apply(
+                        doc_id=c.doc_id,
+                        op="create_edge",
+                        source_span=(f"{c.doc_id}#p{c.seg_order}", c.char_start, c.char_end),
+                        idempotency_key=f"create_edge:{c.claim_candidate_id}",
+                        payload={"type": c.predicate, "from": c.subject_id,
+                                 "to": c.object_id, "props": {}},
+                        actor="pipeline",
+                        version_tuple={"ontology_version": "1.0.0", "schema_version": "0.1.0",
+                                       "model_id": "det", "extraction_code_version": "p1"},
+                    )
         result.claims += len(claims)
         all_claims.extend(claims)
 

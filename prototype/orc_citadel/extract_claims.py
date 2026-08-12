@@ -112,6 +112,25 @@ def _subject_for(seg: Segment, resolved: list[ResolvedMention]) -> tuple[str, st
     return "", ""
 
 
+def _object_for(seg: Segment, resolved: list[ResolvedMention],
+                subject_id: str, match_end: int) -> str | None:
+    """정규 삼항의 object — predicate 매치 이후 첫 해소 엔티티 (공급망 관계).
+
+    "TSMC supplies NVIDIA" → subject=TSMC, predicate 뒤 NVIDIA 를 object 로. subject 와
+    다른, predicate 매치 span(match_end) 이후에 surface 가 등장하는 첫 해소 entity 를
+    반환 (02 §4-3 Reference 무결성: object 도 해소되어야 엣지로 배선). 없으면 None.
+    """
+    for rm in resolved:
+        if rm.resolved_entity_id is None:
+            continue
+        if rm.resolved_entity_id == subject_id:
+            continue
+        # predicate match 이후 위치에 있다면 object.
+        if rm.mention.char_start >= match_end:
+            return rm.resolved_entity_id
+    return None
+
+
 def extract_claims(
     doc_id: str,
     segments: list[Segment],
@@ -121,7 +140,8 @@ def extract_claims(
     """세그먼트에서 결정적 predicate 규칙으로 claim 후보를 추출.
 
     - 각 segment 문장에 규칙 매칭 → predicate/event_type 확정, subject는 segment 내
-      해소 mention에서. object는 규칙이 없으면 object_literal=null (prototype 최소).
+      해소 mention에서. object는 predicate 이후 첫 해소 엔티티(정규 삼항 — 공급망 엣지용).
+      없으면 object_literal=null (prototype 최소).
     - surface_fragment: 매칭된 최초 형태소까지의 segment 텍스트 (source span slice).
     - 결정적 id, status=candidate.
     """
@@ -143,12 +163,13 @@ def extract_claims(
                 continue
             start, end = m.start(), m.end()
             fragment = text[start:end]  # provenance span slice와 정확 일치
+            object_id = _object_for(seg, resolved, subject_id, end)
             claims.append(ClaimCandidate(
                 claim_candidate_id=claim_id_for(doc_id, order, start, end, predicate),
                 doc_id=doc_id,
                 predicate=predicate,
                 subject_id=subject_id,
-                object_id=None,
+                object_id=object_id,
                 object_literal=None,
                 modality=modality,
                 polarity="positive",

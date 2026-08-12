@@ -100,3 +100,33 @@ def test_inmemory_path_unchanged_without_mutation_log():
     res = run_pipeline(_metas(), zone)
     assert res.promoted_claims > 0
     assert res.nodes > 0
+
+
+def test_run_pipeline_writes_and_survives_edges_for_object_claims(pg):
+    """subject--predicate-->object 정규 삼항이 엣지로 배선되고 그래프에 산다.
+
+    object 를 갖는 승격 claim 은 (1) subject/object 엔티티 노드가 create_node 되고
+    (2) create_edge 가 기록되어, replay 시 dangling_ref quarantine 없이 그래프에
+    실존해야 한다 (불변식 §3-4 참조 무결성). NVIDIA HTML 은 object 미상이므로,
+    object 를 만드는 문장("NVIDIA powers OpenAI accelerators") 을 사용한다.
+    """
+    metas = [{
+        "source_id": "src-obj", "url": "https://test.example/obj",
+        "doc_id": "doc-obj", "content": (
+            b"<html><body><article>"
+            b"<p>TSMC supplies NVIDIA with advanced silicon.</p>"
+            b"</article></body></html>"),
+    }]
+    log = PostgresMutationLog(pg, table=TEST_TABLE)
+    zone = CuratedZone(); zone.initialize()
+    res = run_pipeline(metas, zone, mutation_log=log)
+    rows = log.all_mutations()
+    edges = [m for m in rows if m.op == "create_edge"]
+    # object 를 갖는 문장이므로 엣지가 실제 기록되어야 한다.
+    assert edges, "object claim 이 있어야 create_edge 가 기록됨"
+    assert all("from" in e.payload and "to" in e.payload and "type" in e.payload
+               for e in edges)
+    # 재생 그래프에서 엣지가 실존 (양 끝 엔티티 노드 배선으로 quarantine 방지).
+    g = replay_graph(PostgresMutationLog(pg, table=TEST_TABLE).all_mutations())
+    assert g.edges(), "엣지 끝점 노드가 배선되어 그래프에 실존해야 함"
+    assert not g.quarantined_edges(), "dangling_ref quarantine 없어야 함"

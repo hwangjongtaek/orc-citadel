@@ -151,3 +151,36 @@ def test_partnership_claim():
     # partnership 을 잡는 규칙 대기 (subject 바인딩은 첫 해소 entity = TSMC or NVIDIA).
     sup = [c for c in claims if c.predicate == "announces"]
     assert part or sup  # 최소 announces(규칙) 는 기본적으로 잡혀야 함.
+
+
+# --- object 바인딩: 정규 삼항 완성 (공급망 엣지) ------------------------------
+
+def test_object_bound_to_second_entity_after_predicate():
+    """'TSMC supplies NVIDIA' → subject=TSMC, object=NVIDIA (엣지용 정규 삼항).
+
+    supply-chain predicate 뒤에 오는 두 번째 해소 엔티티를 object 로 묶는다.
+    """
+    doc_id, doc, segs, resolved, by_id = _doc(
+        "TSMC supplies NVIDIA with advanced silicon."
+    )
+    claims = extract_claims(doc_id, segs, resolved, by_id)
+    sup = [c for c in claims if c.predicate == "supplies"]
+    assert sup
+    c = sup[0]
+    # object 는 subject(TSMC)와 다른 해소 엔티티(NVIDIA).
+    assert c.object_id is not None
+    assert c.object_id != c.subject_id
+    assert c.object_id in by_id
+
+
+def test_object_literal_when_no_second_entity():
+    """'NVIDIA powers the data center' → 두 번째 해소 엔티티 없으면 object 미상(엣지 없음)."""
+    doc_id, doc, segs, resolved, by_id = _doc(
+        "NVIDIA powers the data center."
+    )
+    claims = extract_claims(doc_id, segs, resolved, by_id)
+    ann = [c for c in claims if c.predicate == "announces"]
+    assert ann
+    # 'data center' 는 해소 엔티티가 아니라면 object 는 None (object_literal 로 남김).
+    c = ann[0]
+    assert all(c.object_id is None for c in ann)
