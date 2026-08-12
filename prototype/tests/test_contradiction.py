@@ -85,3 +85,24 @@ def test_deterministic():
     b = find_conflict_candidates(claims)
     assert [(c.claim_id_a, c.claim_id_b, c.conflict_type) for c in a] == \
            [(c.claim_id_a, c.claim_id_b, c.conflict_type) for c in b]
+
+
+def test_large_group_conflict_linear_not_pairwise_stall():
+    """큰 same-subject 그룹 — 후보-최적 blocking 으로 전쌍 폭발 없이 후보만 (P1 회귀 방지).
+
+    동일 subject·predicate 에 positive/negative 가 다수 섞이면 polarity 상충 후보가
+    출력-크기로만 생성되어야 한다 (전쌍 O(n²) 계산 회피). 정확성도 유지:
+    모든 opposite-polarity 쌍은 후보로 잡혀야 하며, 항상 결정적 정렬이다.
+    """
+    claims = []
+    for i in range(150):
+        pol = "positive" if i % 2 == 0 else "negative"
+        claims.append(_c(f"clm-{i:04d}", "depends_on", "org-1", polarity=pol))
+    cc = find_conflict_candidates(claims)
+    # 75 pos × 75 neg = 5,625 polarity 후보 (체크를 위해 크기·완전성만).
+    assert len(cc) == 75 * 75
+    # 결정적 정렬 (재생성 — 03 §5).
+    keys = [(c.claim_id_a, c.claim_id_b) for c in cc]
+    assert keys == sorted(keys)
+    # 모든 후보는 polarity 상충 (opposite polarity 유일).
+    assert all(c.conflict_type == "polarity" for c in cc)
