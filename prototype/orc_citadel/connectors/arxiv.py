@@ -52,10 +52,21 @@ class ArxivConnector(SourceConnector):
 
         04 §1.4 metadata(CC0) 경로 — entry 자체가 raw 문서가 되므로 문서당
         추가 HTTP GET이 없다.
+
+        `config["date_window"]` = (start_ym, end_ym) 형식 "YYYYMMDDHHMM" 두 문자열 이면
+        `submittedDate:[start TO end]` 범위를 쿼리에 추가한다 (S50). arXiv 는 이 범위를
+        **리터럴 공백**으로 요구하므로, search_query 전체를 urlencode 하기 전에
+        필터 조각을 넣고 공백을 보존한다.
         """
         query = config.get("query") or "cat:cs.CR OR cat:cs.AI"
+        dw = config.get("date_window")
+        if dw is not None:
+            w0, w1 = dw
+            # arXiv 는 submittedDate:[.. TO ..] 내 공백을 리터럴로 요구 — %20 대신 공백 유지.
+            query = f"({query}) AND submittedDate:[{w0} TO {w1}]"
         params = urllib.parse.urlencode({"search_query": query, "start": cursor or 0,
-                                         "max_results": config.get("max_results", 100)})
+                                         "max_results": config.get("max_results", 100)},
+                                        quote_via=urllib.parse.quote)
         xml = self._http_get(f"{ARXIV_SEARCH}?{params}")
         body = xml.decode("utf-8", errors="replace")
         import re

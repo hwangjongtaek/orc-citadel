@@ -54,6 +54,30 @@ def arxiv_batches(total: int, page: int = ARXIV_PAGE) -> list[tuple[int, int]]:
     return [(i, min(page, total - i)) for i in range(0, total, page) if total - i > 0]
 
 
+def arxiv_windows(total: int, windows: int = 10, page: int = ARXIV_PAGE) -> list[tuple[int, int]]:
+    """날짜 윈도우 별 페이징 계획 — 단일 쿼리 10k 한계(S50) 우회.
+
+    arXiv 단일 검색 쿼리는 `start > ~10000` 에서 HTTP 500 을 반환(S49+ 실측)하므로,
+    총량 `total` 을 `windows` 개의 독립 날짜 윈도우 쿼리로 배분해 **각 윈도우 내 start 는
+    항상 < 10k 가 되게** 한다. 각 윈도우 자체는 04 §1.4(metadata CC0) 동일 경로.
+
+    반환 루프 순서: 각 윈도우의 페이지를 순회 — [(start, ε/윈도우), (start, ...)].
+    순수 함수 — 오프라인 테스트 대상. windows≤total 가정 시 균등 배분.
+    """
+    wins = max(1, windows)
+    per = max(1, total // wins)  # 윈도우당 할당량 (소진분은 마지막 윈도우로).
+    out: list[tuple[int, int]] = []
+    for w in range(wins):
+        remaining = total - w * per
+        if remaining <= 0:
+            break
+        quota = min(per, remaining)
+        # 윈도우 내 페이징 — start 는 0, page, 2*page... 로 최대 10k 미만 유지.
+        for s in range(0, quota, page):
+            out.append((s, min(page, quota - s)))
+    return out
+
+
 RETRYABLE_HTTP = {429, 500, 502, 503, 504}
 
 
@@ -129,49 +153,97 @@ def _save_zone(source_id: str, url: str, content: bytes, meta: dict,
     return doc_id, True
 
 
-def collect_arxiv(total: int) -> dict:
+def collect_arxiv(total: int, windows: int = 0) -> dict:
     """arXiv 페이징 metadata 수집. return {saved, skipped, errors}.
 
     04 §1.4 metadata(CC0) 경로: API Atom 응답의 <entry> 원문 XML을 그대로 raw
     문서로 저장한다 — 문서당 abs 페이지 GET 없음(anti-bot 429 회피, 정책 준수).
-    `total`을 실제 상한으로 강제하고, 재시도 후에도 빈 페이지면 결과 소진으로
-    보고 정상 종료한다.
+
+    S50 — 단일 쿼리의 `start>~10k` HTTP 500 한계를 우회해 대량(10k+)을 수집한다.
+    `windows>0` 이면 date_window 로 총량을 나눠 각 날짜 구간을 독립 쿼리(각 start<10k)로
+    페이징한다 (S49+ 실측: 10k 한계). 그렇지 않으면 기존 단일 쿼리 배치(arcbatches).
     """
     conn = ArxivConnector()
     counts = {"saved": 0, "skipped": 0, "errors": 0}
     fetched = 0
-    for start, mx in arxiv_batches(total):
+
+    if windows > 0:
+        # 날짜 윈도우 별 독립 쿼리 — 각 윈도우는 최신 ~10k 로 배분 (start<10k 유지).
+        dateranges = _arxiv_date_windows(windows)
+    else:
+        dateranges = [None]  # 단일 쿼리 (start 만 증가, 시작 10k 과거 데이터 호환).
+
+    for wi, dw in enumerate(dateranges):
         if fetched >= total:
             break
-        _sleep_for_arxiv()  # politeness: 페이지 API 호출 전 1 req/3s 대기.
-
-        def _page() -> list:
-            entries = list(conn.discover_entries(
-                config={"query": ARXIV_QUERY, "max_results": mx}, cursor=str(start)))
-            if not entries:
-                raise _EmptyPage(f"start={start}")
-            return entries
-
-        try:
-            # 페이지 호출이 10회뿐이므로 재시도 인내를 넉넉히 (호출당 최대 ~22분).
-            entries = _with_retry(_page, retries=8)
-        except _EmptyPage:
-            break  # 재시도에도 빈 페이지 → 쿼리 결과 소진.
-        except urllib.error.HTTPError:
-            # 지속 5xx(재시도 소진) 페이지는 전체 실행을 죽이지 않고 errors 로 집계 후
-            # 다음 배치로 계속 — S49+ resumable(한 페이지 때문에 100k 실행 중단 방지).
-            counts["errors"] += 1
-            continue
-        for url, raw in entries:
+        # 윈도우 별 최대 할당 ← 총량을 windows 로 균등 배분.
+        per_window = max(1, total // max(1, len(dateranges)))
+        for start, mx in arxiv_windows(per_window, windows=1, page=ARXIV_PAGE):
             if fetched >= total:
                 break
-            _doc_id, created = _save_zone(
-                "research-arxiv-cs-cr", url, raw,
-                {"http_status": 200, "content_type": "application/atom+xml;type=entry"},
-            )
-            fetched += 1
-            counts["saved" if created else "skipped"] += 1
+            _sleep_for_arxiv()  # politeness: 페이지 API 호출 전 1 req/3s 대기.
+
+            def _page() -> list:
+                cfg = {"query": ARXIV_QUERY, "max_results": mx}
+                if dw is not None:
+                    cfg["date_window"] = dw
+                entries = list(conn.discover_entries(config=cfg, cursor=str(start)))
+                if not entries:
+                    raise _EmptyPage(f"start={start} window={wi}")
+                return entries
+
+            try:
+                # 페이지 호출이 10회뿐이므로 재시도 인내를 넉넉히 (호출당 최대 ~22분).
+                entries = _with_retry(_page, retries=8)
+            except _EmptyPage:
+                break  # 재시도에도 빈 페이지 → 이 윈도우 결과 소진.
+            except urllib.error.HTTPError:
+                # 지속 5xx(재시도 소진) 페이지는 전체 실행을 죽이지 않고 errors 로 집계 후
+                # 다음 배치로 계속 — S49+ resumable(한 페이지 때문에 100k 실행 중단 방지).
+                counts["errors"] += 1
+                continue
+            for url, raw in entries:
+                if fetched >= total:
+                    break
+                _doc_id, created = _save_zone(
+                    "research-arxiv-cs-cr", url, raw,
+                    {"http_status": 200, "content_type": "application/atom+xml;type=entry"},
+                )
+                fetched += 1
+                counts["saved" if created else "skipped"] += 1
     return counts
+
+
+def _arxiv_date_windows(n_windows: int, start: str = "202608112359") -> list[tuple[str, str]]:
+    """과거로 후진하는 `n_windows` 월 구간 (start,end) — 각 <~10k 결과를 목표.
+
+    결정적 순수 함수 (역사 기반, 2026-08 현재). arXiv 는 start>~10k 에서 500(S50)이므로
+    **미수집 과거 연대부터** 윈도우를 흝는다 — 각 윈도우가 단일 쿼리의 10k 한계를
+    넘지 않게 1개월 구간으로 잡아, 재실행마다 새 (미수집) 연대를 채워 100k 로 누적한다.
+    반환은 최신→과거 순 [("YYYYMMDDHHMM","YYYYMMDDHHMM"), ...] (start 인자는 상한).
+    """
+    import datetime as _dt
+
+    y, m = int(start[:4]), int(start[4:6])
+    out: list[tuple[str, str]] = []
+    for _ in range(n_windows):
+        if y < 2007:  # arXiv 시작(1991) 이전 방지 — 하한 가드.
+            break
+        first = _dt.date(y, m, 1)
+        # 해당 월 시작·끝 (YYYYMMDD0000 .. 말일 2359).
+        start_s = first.strftime("%Y%m%d") + "0000"
+        if m == 12:
+            last = _dt.date(y, 12, 31)
+        else:
+            last = _dt.date(y, m + 1, 1) - _dt.timedelta(days=1)
+        end_s = last.strftime("%Y%m%d") + "2359"
+        out.append((start_s, end_s))
+        # 이전 달로 후진.
+        if m == 1:
+            y, m = y - 1, 12
+        else:
+            m -= 1
+    return out
 
 
 def _sleep_for_arxiv() -> None:
@@ -237,9 +309,12 @@ def main() -> None:
     p.add_argument("--skip-rss", action="store_true")
     p.add_argument("--sec", type=int, default=0,
                    help="SEC gov filing CIK당 수집 수 (기본 0=없음)")
+    p.add_argument("--windows", type=int, default=0,
+                   help="arXiv 날짜 윈도우 수 (S50 10k 한계 우회 — 과거 연대 채움. "
+                        "0=단일 쿼리)")
     args = p.parse_args()
 
-    print(f"== 대형 수집 러너 (limit={args.limit}) ==")
+    print(f"== 대형 수집 러너 (limit={args.limit}, windows={args.windows}) ==")
     RAW.mkdir(parents=True, exist_ok=True)
 
     if not args.skip_rss:
@@ -249,8 +324,8 @@ def main() -> None:
             print(f"  -> {c}")
 
     print(f"[research-arxiv-cs-cr] arXiv metadata 페이징 수집 (total={args.limit}, "
-          f"페이지당 1 req/3s)")
-    c = collect_arxiv(args.limit)
+          f"windows={args.windows}, 페이지당 1 req/3s)")
+    c = collect_arxiv(args.limit, windows=args.windows)
     print(f"  -> {c}")
 
     if args.sec:

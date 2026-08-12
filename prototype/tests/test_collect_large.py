@@ -315,3 +315,50 @@ def test_collect_arxiv_uses_page_size_in_config(monkeypatch):
     assert seen[1]["max_results"] == 5
 
 
+
+
+# --- arXiv 날짜 회전 쿼리 계획 (10k 페이징 한계 우회, S50) ---------------------
+
+def test_arxiv_windows_partitions_total():
+    """날짜 윈도우 별 쿼리 계획 — 각 윈도우가 max_results 한도 내(start<10k)로 쪼갠다.
+
+    단일 arXiv 쿼리는 start>~10k 에서 500 → 날짜 윈도우로 나눠 각각 <10k 페이징.
+    순수 함수: (total, per_window_queries) 계획.
+    """
+    from orc_citadel.collect_large import arxiv_windows
+
+    # 3 윈도우 * 각 2페이지 = 6 페이지 (total=6, windows=3, page=1 → 각 윈도우 2건).
+    wins = arxiv_windows(total=6, windows=3, page=1)
+    assert len(wins) == 6
+    # 각 배치가 (start, max_results) — start 는 항상 < 10k (페이징 한계 준수).
+    for start, mx in wins:
+        assert start < 10_000
+    # 각 윈도우는 page=1 → start 는 0/1 두 번씩 (같은 start 가 다른 윈도우에 재사용).
+    assert wins.count((0, 1)) == 3  # 3 윈도우 각각의 첫 페이지.
+
+
+def test_arxiv_windows_respect_page_cap_per_window():
+    """각 윈도우는 독립 쿼리 — 윈도우 내 페이지만 start 를 올린다."""
+    from orc_citadel.collect_large import arxiv_windows
+
+    # windows=2, page=100 → 각 윈도우는 start 0 하나씩 (작은 total).
+    wins = arxiv_windows(total=10, windows=2, page=100)
+    assert len(wins) == 2
+    assert all(start == 0 for start, _ in wins)
+    assert wins[0][1] == 5 and wins[1][1] == 5  # total 을 절반씩 배분.
+
+
+def test_arxiv_date_windows_returns_months_recent_first():
+    """날짜 윈도우 — 최신 월부터 내림차순, 각 (start_ym, end_ym) 月 경계."""
+    from orc_citadel.collect_large import _arxiv_date_windows
+
+    wins = _arxiv_date_windows(3)
+    assert len(wins) == 3
+    # 최신 달부터 — 각 start < end, 월 경계.
+    for i in range(1, len(wins)):
+        assert wins[i - 1][0] > wins[i][0]  # 내림차순
+    # 형식: YYYYMMDDHHMM
+    import re as _re
+    for s, e in wins:
+        assert _re.fullmatch(r"\d{12}", s) and _re.fullmatch(r"\d{12}", e)
+        assert s < e

@@ -43,8 +43,8 @@ def test_collect_arxiv_skips_persistent_5xx_page(monkeypatch):
 
     monkeypatch.setattr(cl.time, "sleep", lambda _s: None)  # 백오프·politeness 무시.
     monkeypatch.setattr(cl, "ArxivConnector", _Conn)
-    # 3 페이지 계획 (start=0/1/2, 각 1건).
-    monkeypatch.setattr(cl, "arxiv_batches", lambda total, page=1000: [(0, 1), (1, 1), (2, 1)])
+    # 3 페이지 계획 (start=0/1/2, 각 1건) — 새 날짜 윈도우 경로(arxiv_windows) 로.
+    monkeypatch.setattr(cl, "arxiv_windows", lambda total, windows=1, page=1000: [(0, 1), (1, 1), (2, 1)])
 
     counts = cl.collect_arxiv(3)
     # 첫 페이지는 항상 실패 — _with_retry 가 마지막 예외를 재전파, collect 가 errors 로 집계.
