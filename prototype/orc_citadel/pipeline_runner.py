@@ -47,6 +47,7 @@ class PipelineResult:
     nodes: int = 0
     edges: int = 0
     clusters: int = 0  # S4 dedup — 근접 복제 클러스터 수.
+    elapsed_ms: float = 0.0  # 대량 실행 드라이버 — 벽시계 (Q4/성능 기록용, 파이프라인 무관).
 
 
 def _run_chain(metas, zone, gate, resolver, judge, result: PipelineResult,
