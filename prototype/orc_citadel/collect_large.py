@@ -157,6 +157,11 @@ def collect_arxiv(total: int) -> dict:
             entries = _with_retry(_page, retries=8)
         except _EmptyPage:
             break  # 재시도에도 빈 페이지 → 쿼리 결과 소진.
+        except urllib.error.HTTPError:
+            # 지속 5xx(재시도 소진) 페이지는 전체 실행을 죽이지 않고 errors 로 집계 후
+            # 다음 배치로 계속 — S49+ resumable(한 페이지 때문에 100k 실행 중단 방지).
+            counts["errors"] += 1
+            continue
         for url, raw in entries:
             if fetched >= total:
                 break

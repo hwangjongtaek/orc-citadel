@@ -313,3 +313,5 @@ def test_collect_arxiv_uses_page_size_in_config(monkeypatch):
     assert counts["saved"] == cl.ARXIV_PAGE + 5
     assert seen[0]["max_results"] == cl.ARXIV_PAGE
     assert seen[1]["max_results"] == 5
+
+
