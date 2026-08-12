@@ -133,3 +133,22 @@ def test_measure_query_latency_p95_at_small_scale(store):
     assert "n_queries" in stats
     # 소규모에서는 p95 가 게이트(500ms) 미만이어야 정상 스케일 확인.
     assert stats["p95_ms"] < LATENCY_GATE_MS
+
+
+# --- 재구축 vs 증분 (3번째 게이트) 측정 — 통합 ---------------------------------
+
+def test_measure_rebuild_ratio_reports_full_and_incremental(store):
+    """재구축(full load) 대 증분(large delta append) 벽시계 비율 실측.
+
+    동일 규모의 그래프를 (a) 전체 재구축(빈 상태에서 load) (b) 기존 그래프에 증분 append
+    두 방식으로 적재해, '재구축 비용이 증분의 10× 내' 여부를 게이트에 공급한다 (06 §9 3항).
+    """
+    from orc_citadel.neo4j_q4_harness import measure_rebuild
+
+    # 소규모에서는 full/incremental 모두 빠르며 비율도 안정 — 계약만 검증.
+    stats = measure_rebuild(store, base_nodes=30, delta_nodes=20)
+    assert "full_ms" in stats and "incremental_ms" in stats
+    assert "ratio" in stats
+    assert stats["ratio"] > 0
+    # 증분이 full 보다 비싸진 않을 것 (전형적으로 full ≥ incremental).
+    # 엄밀하게는 같을 수도 있어 비율 하한만 보장한다.

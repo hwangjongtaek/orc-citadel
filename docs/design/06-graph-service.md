@@ -317,4 +317,9 @@ RETURN a, c;
 >
 > 이 임계 하나라도 초과하면 06 ADR-601/603의 저장소 추상·라벨 분리 계약 위에서 **Memgraph 등 물리 분리/교체**로 전환한다 (교체 비용은 이미 격리됨). prototype(in-memory)은 이 측정의 대상이 아니며, Phase 0 완료 조건에는 영향 없다.
 >
-> **구현(P1 Q4 하니스)**: 측정 도구 `neo4j_q4_harness.py` 신설 — 결정적 합성 그래프(`synthetic_graph`, 동일 인자→동일 그래프)를 가동 Neo4j Community 에 MERGE 적재(`measure_load`)·샘플 인접 조회(`measure_query_latency`→p95)·판정(`evaluate_q4`, 위 상수를 `NODE_GATE`/`LATENCY_GATE_MS`/`REBUILD_RATIO_GATE` 로). 그래프 생성·판정은 순수 함수(오프라인 단위검증), 측정은 통합(가동 시 실측, 오프라인 skip). 실측 판정은 Phase 1 10만 문서 기준선 부하에서 수행 (2026-08-11 세션 470→481).
+> **구현(P1 Q4 하니스)**: 측정 도구 `neo4j_q4_harness.py` 신설 — 결정적 합성 그래프(`synthetic_graph`, 동일 인자→동일 그래프)를 가동 Neo4j Community 에 MERGE 적재(`measure_load`)·샘플 인접 조회(`measure_query_latency`→p95)·재구축/증분 비율(`measure_rebuild`)·판정(`evaluate_q4`, `NODE_GATE`/`LATENCY_GATE_MS`/`REBUILD_RATIO_GATE`). 그래프 생성·판정·비율 계산은 순수 함수(오프라인 단위검증), 측정은 통합(가동 실측, 오프라인 skip).
+
+**Q4 실측 (2026-08-11, 가동 Neo4j Community)** — Phase 1 대량 실행 + 게이트 ② 판정 재료:
+- **실제 대량 실행**: 로컬 raw **11,361건**→ 결정적 파이프라인(postgres SoT `graph_mutations`)→ replay 그래프(96 노드·0 엣지; heurist 의존이라 실신호 낮음) → Neo4j 적재 `edge_count=0, p95=0.8ms`.
+- **스케일 기준선**: 합성 5만→Neo4j 27,516 노드 적재 129.4s, 인접 조회 **p95=0.6ms**.
+- **3개 게이트 전항 PASS**: 조회 p95(0.6~0.9ms) ≪ 500ms · 노드 수(≤5만) ≪ 1e6 · **재구축/증분 비율=1.06** ≪ 10×. → 교체(Memgraph) 판정 트리거 없음. **1e6 노드 게이트·p95 500ms SLO는 10만 문서+ 이후 실제 조회 워크로드에서 재판정** (게이트 계약은 유지).

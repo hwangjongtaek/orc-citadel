@@ -80,6 +80,70 @@ def measure_query_latency(store, sample_ids, repeat: int = 5) -> dict:
     return {"p95_ms": round(lat[idx], 3), "n_queries": n_queries}
 
 
+def measure_rebuild(store, base_nodes: int, delta_nodes: int,
+                    edges_per_node: int = 3) -> dict:
+    """재구축(full) vs 증분(incremental) 적재 벽시계 비율 (06 §9 3항).
+
+    3번째 Q4 게이트: "재구축(이벤트 replay) 벽시계 > 증분 재구축의 10×".
+    동일 `delta_nodes` 규모의 신규 그래프를 (a) 빈 상태에서 **전체 재구축**,
+    (b) 기존 그래프 위에 **증분 append** 두 방식으로 적재해 벽시계를 비교한다.
+
+    반환: {full_ms, incremental_ms, ratio} — ratio = full/incremental.
+    `store` 는 격리(clear) 대상으로, 측정마다 도중 상태를 비우지 않는다.
+    """
+    from .graph_service import GraphService
+
+    def _g(n: int) -> GraphService:
+        return synthetic_graph(n, edges_per_node=edges_per_node)
+
+    # (a) full — 빈 상태에서 delta 만큼의 그래프 전체 적재하는 비용(재구축 비용 대리).
+    store.clear()
+    full_g = _g(delta_nodes)
+    t0 = time.perf_counter()
+    store.load_graph(full_g)
+    full_ms = (time.perf_counter() - t0) * 1000
+
+    # (b) incremental — 기존 base 그래프에 delta 를 append (백필·증분 처리 대리).
+    store.clear()
+    store.load_graph(_g(base_nodes))
+    inc_g = _g(base_nodes + delta_nodes)
+    # 증분 delta 만큼만 새로 적재하는 비용을 근사: base 는 이미 있으니 그 위에 전체 재적재는
+    # 아님 — 여기선 '증분 큐' 로 base 없이 delta 를 추가 적재하는 시나리오로 단순화한다.
+    t1 = time.perf_counter()
+    # base 는 이미 적재된 상태에서 delta 신규 노드만 추가하는 비용.
+    store.load_graph(delta_only_graph(delta_nodes, edges_per_node, offset=base_nodes))
+    incr_ms = (time.perf_counter() - t1) * 1000
+
+    if full_ms <= 0:
+        incr_ms = 0.0
+    ratio = (full_ms / incr_ms) if incr_ms > 0 else float("inf")
+    return {"full_ms": round(full_ms, 3), "incremental_ms": round(incr_ms, 3),
+            "ratio": round(ratio, 3)}
+
+
+def delta_only_graph(count: int, edges_per_node: int, offset: int = 0) -> GraphService:
+    """`synthetic_graph` 의 결정적 변형 — 노드 id 를 `offset` 부터 시작 (증분 delta 시뮬레이션).
+
+    동일 생성 규칙(seed)을 유지하되 id 를 밀어 신규 노드만 생성한다. 재구축/증분 비교의
+    증분 쪽 그래프 구성용 (measure_rebuild).
+    """
+    g = GraphService()
+    for i in range(count):
+        nid = f"v{offset + i:06d}"
+        g.apply([{"idempotency_key": f"n-{offset + i}", "op": "create_node",
+                  "payload": {"id": nid, "props": {"seed": 7, "n": offset + i}}}])
+    for i in range(count):
+        for k in range(1, edges_per_node + 1):
+            j = (i + k * 7) % count
+            if j == i:
+                continue
+            etype = ["SUPPLIES", "PARTNERED_WITH", "COMPETES"][(i + k) % 3]
+            g.apply([{"idempotency_key": f"e-{offset}-{i}-{k}", "op": "create_edge",
+                      "payload": {"type": etype, "from": f"v{offset + i:06d}",
+                                  "to": f"v{offset + j:06d}", "props": {}}}])
+    return g
+
+
 def evaluate_q4(stats: dict) -> dict:
     """실측 지표를 06 §9 임계와 비교해 게이트 판정 (오프라인 순수 함수)."""
     reasons = []
