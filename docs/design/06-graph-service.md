@@ -302,7 +302,7 @@ RETURN a, c;
 
 | ID | 결정 | 근거 | 상태 |
 | --- | --- | --- | --- |
-| ADR-601 | 초기 그래프 DB로 Neo4j Community 채택, 스키마 매핑·Applier 계약을 저장소 독립으로 유지 | 성숙한 Cypher·생태계, 교체 비용 격리([`01`](./01-architecture.md)) | Accepted |
+| ADR-601 | 초기 그래프 DB로 Neo4j Community 채택, 스키마 매핑·Applier 계약을 저장소 독립으로 유지 | 성숙한 Cypher·생태계, 교체 비용 격리([`01`](./01-architecture.md)) | Accepted · **구현(P1 ③)**: `Neo4jGraphStore`가 재생 그래프를 Neo4j Community(bolt 7687)에 MERGE 적래+explorer 조회(`Entity` 노드·`id` 유일 제약) (`prototype/orc_citadel/neo4j_graph_store.py`, 2026-08-11) |
 | ADR-602 | 그래프에 대한 유일한 쓰기 경로는 `graph_mutations` 소비 Applier(직접 write 금지) | 불변식 §3-3 event-driven, replay·audit 보장 | Accepted |
 | ADR-603 | authoritative/quarantine를 초기엔 상태 라벨로 논리 분리, 확장 시 물리 분리 | Community 다중 DB 제약, blueprint §8.9 | Accepted |
 | ADR-604 | graph 재구축은 event log replay 기반(full/incremental), migration backfill도 replay 우선 | SoT는 log·graph는 파생([`03`](./03-storage-and-data-model.md) §7, §17) | Accepted |
