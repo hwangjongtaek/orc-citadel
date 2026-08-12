@@ -86,6 +86,54 @@ class Neo4jGraphStore:
             )
             return [rec["nid"] for rec in r]
 
+    def node_detail(self, node_id: str) -> dict | None:
+        """단일 노드 상세(explorer) — id + props. 미존재 시 None."""
+        with self._driver.session() as s:
+            r = s.run(
+                "MATCH (n:Entity {id:$id}) RETURN n.id AS id, n AS props",
+                id=node_id,
+            )
+            rec = r.single()
+            if rec is None:
+                return None
+            return {"id": rec["id"], "props": dict(rec["props"])}
+
+    def reconstruct_graph(self) -> "GraphService":
+        """Neo4j 그래프를 GraphService 로 read-back 재구축.
+
+        노드(:Entity id+props) + 관계를 쿼리해 `create_node`/`create_edge` 이벤트로
+        재구축한다 — orphaned 스토어를 explorer read 경로로 연결. (graph_service 의존).
+        """
+        from .graph_service import GraphService
+
+        g = GraphService()
+        events: list[dict] = []
+        with self._driver.session() as s:
+            # 노드
+            r = s.run("MATCH (n:Entity) RETURN n.id AS id, n AS props")
+            for rec in r:
+                events.append({
+                    "mutation_id": f"nn-{rec['id']}",
+                    "idempotency_key": f"nn-{rec['id']}",
+                    "op": "create_node",
+                    "payload": {"id": rec["id"], "props": dict(rec["props"])},
+                })
+            # 관계 (etype 은 controlled — 파라미터화 불가, isValid 가드)
+            q = ("MATCH (a:Entity)-[rel]->(b:Entity) "
+                 "RETURN a.id AS f, type(rel) AS t, b.id AS t2")
+            for rec in s.run(q):
+                etype = rec["t"]
+                if not (etype.isalnum() or "_" in etype):
+                    continue
+                events.append({
+                    "mutation_id": f"re-{rec['f']}-{rec['t2']}",
+                    "idempotency_key": f"re-{rec['f']}-{rec['t2']}",
+                    "op": "create_edge",
+                    "payload": {"type": etype, "from": rec["f"], "to": rec["t2"], "props": {}},
+                })
+        g.apply(events)
+        return g
+
     def clear(self) -> None:
         """전용 정리 — 전체 그래프 삭제 (격리·테스트 teardown)."""
         with self._driver.session() as s:

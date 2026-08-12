@@ -68,3 +68,19 @@ def test_empty_graph_load_noop(store):
     """빈 그래프 적재는 no-op (노드 0)."""
     store.load_graph(GraphService())
     assert store.node_count() == 0
+
+
+def test_reconstruct_graph_reads_back_from_neo4j(store):
+    """적래한 Neo4j 그래프를 다시 GraphService 로 read-back 재구축 (orphaned 스토어 → read 경로)."""
+    g = _graph()
+    store.load_graph(g)
+    # Neo4j → GraphService 재구축 — 노드·엣지 복원
+    back = store.reconstruct_graph()
+    assert {n["id"] for n in back.nodes()} == {n["id"] for n in g.nodes()}
+    assert back.edge_count("org-tsmc") == 1
+
+
+def test_reconstruct_empty_is_noop(store):
+    """Neo4j 비어있으면 빈 GraphService (read-back no-op)."""
+    back = store.reconstruct_graph()
+    assert len(back.nodes()) == 0
