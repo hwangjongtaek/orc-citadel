@@ -139,19 +139,41 @@ def canonicalize_claims(claims: list[ClaimCandidate],
         for cid in ids:
             parents[cid] = cid
         members_by_id = {c.claim_candidate_id: c for c in members}
-        for i in range(len(members)):
-            for j in range(i + 1, len(members)):
-                a, b = members[i], members[j]
-                if _claims_equivalent(a, b):
-                    union(a.claim_candidate_id, b.claim_candidate_id)
-                elif judge is not None:
-                    # 결정적 미결 쌍만 LLM (05 §4.2) — equivalent면 병합.
-                    record = _judge_same(a, b, judge)
-                    if record is not None:
-                        if llm_records is not None:
-                            llm_records.append(record)  # 영속용 누적 (S23).
-                        if record.relation == "equivalent":
-                            union(a.claim_candidate_id, b.claim_candidate_id)
+
+        if judge is None:
+            # 결정적 전용 — O(n²) 쌍 비교를 **선형 blocking** 으로 대체 (P1 병목 최적화).
+            # equivalence 는 (a) 같은 surface_fragment (b) 같은 seg 의 겹치는 span 뿐.
+            #  (a) surface 별 union.
+            by_surface: dict[str, list[str]] = defaultdict(list)
+            for c in members:
+                by_surface[c.surface_fragment.strip().lower()].append(c.claim_candidate_id)
+            for surf_ids in by_surface.values():
+                for other_id in surf_ids[1:]:
+                    union(surf_ids[0], other_id)
+            #  (b) seg 별 span 정렬 후 인접 중첩만 union (transitive 는 union-find 가 흡수).
+            by_seg: dict[int, list[ClaimCandidate]] = defaultdict(list)
+            for c in members:
+                by_seg[c.seg_order].append(c)
+            for seg_list in by_seg.values():
+                seg_list.sort(key=lambda c: (c.char_start, c.char_end))
+                for k in range(len(seg_list) - 1):
+                    a, b = seg_list[k], seg_list[k + 1]
+                    if a.char_start < b.char_end and b.char_start < a.char_end:
+                        union(a.claim_candidate_id, b.claim_candidate_id)
+        else:
+            # LLM 경로 — 임의 쌍을 LLM 이 equivalent 로 판정할 수 있어 전쌍 탐색 유지.
+            for i in range(len(members)):
+                for j in range(i + 1, len(members)):
+                    a, b = members[i], members[j]
+                    if _claims_equivalent(a, b):
+                        union(a.claim_candidate_id, b.claim_candidate_id)
+                    elif judge is not None:
+                        record = _judge_same(a, b, judge)
+                        if record is not None:
+                            if llm_records is not None:
+                                llm_records.append(record)  # 영속용 누적 (S23).
+                            if record.relation == "equivalent":
+                                union(a.claim_candidate_id, b.claim_candidate_id)
 
         comps: dict[str, list[str]] = defaultdict(list)
         for cid in ids:

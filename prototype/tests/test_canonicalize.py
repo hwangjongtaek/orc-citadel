@@ -101,3 +101,27 @@ def test_canonical_claim_id_deterministic():
     ]
     cc = canonicalize_claims(claims)
     assert cc[0].canonical_claim_id == canonical_claim_id_for("org-1", "announces", {"clm-a", "clm-b"})
+
+
+def test_large_same_surface_group_linear():
+    """큰 same-surface 그룹 — 선형 blocking 으로 전부 한 동치류 (P1 병목 회귀 방지).
+
+    동일 subject·predicate 에 같은 surface_fragment 를 가진 claim 이 수백 개여도
+    O(n²) 폭발 없이 하나의 CanonicalClaim 으로 수렴해야 한다 (05 §4.1 후보 축소).
+    """
+    from orc_citadel.extract_claims import ClaimCandidate
+
+    claims = []
+    for i in range(300):
+        claims.append(ClaimCandidate(
+            claim_candidate_id=f"clm-{i:04d}", doc_id="doc-1", predicate="announces",
+            subject_id="org-nvda", object_id=None, object_literal=None,
+            modality="asserted", polarity="positive", confidence=0.8,
+            seg_order=i % 5, char_start=i, char_end=i + 4,
+            surface_fragment="power", event_type_hint=None, status="candidate",
+        ))
+    cc = canonicalize_claims(claims)  # judge 미주입 (결정적 경로 — bulk 와 동일).
+    # 같은 surface "power" → 동일 동치류 → 단일 CanonicalClaim.
+    assert len(cc) == 1
+    assert set(cc[0].member_claim_ids) == {c.claim_candidate_id for c in claims}
+    assert cc[0].subject_id == "org-nvda"
