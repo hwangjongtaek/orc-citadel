@@ -87,6 +87,14 @@ _PREDICATE_RULES: list[tuple[re.Pattern, str, str, str | None]] = [
     # 제품·기술 역량 — powers/enables
     (re.compile(r"\bpower(s|ed)?\b", re.I), "announces", "asserted", "product_launch"),
     (re.compile(r"\benables?\b", re.I), "announces", "asserted", "product_launch"),
+    # 공급망 제조 — produce/suppl/manufactur (02 §5.1 반도체·데이터센터 공급망).
+    (re.compile(r"\b(produces|produce|manufactur\w*|suppl\w*|fabricat\w*|makes)\b", re.I),
+     "supplies", "asserted", "manufacturing"),
+    (re.compile(r"\b(supplies|provides|delivers)\s+(chips?|processors?|gpus?|semiconductor\w*)", re.I),
+     "supplies", "asserted", "manufacturing"),
+    # 공급망 파트너십/수급 계약 — partnership/agreement (02 §5.1 협력·공급관계).
+    (re.compile(r"\b(partnership|strategic\s+partnership|agreement|alliance)\b", re.I),
+     "partners", "asserted", "partnership"),
 ]
 
 

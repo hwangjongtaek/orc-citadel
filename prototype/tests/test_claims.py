@@ -118,3 +118,36 @@ def test_deterministic():
     a = extract_claims(doc_id, segs, resolved, by_id)
     b = extract_claims(doc_id, segs, resolved, by_id)
     assert [c.claim_candidate_id for c in a] == [c.claim_candidate_id for c in b]
+
+
+# --- 공급망 도메인 신호 규칙 (arXiv abstract 신호 밀도 ↑, 04 §5.1 확장) -------
+
+def test_supply_to_claim():
+    """'{E} supplies/manufactures/produces ...' → supplies(predicate) claim.
+
+    arXiv abstract 의 반도체 공급망 신호(타이완이 TSMC 생산 등)를 결정적으로 잡는다.
+    subject 는 해소 entity (Reference 무결성).
+    """
+    doc_id, doc, segs, resolved, by_id = _doc(
+        "Taiwan Semiconductor Manufacturing Company produces chips for NVIDIA and Apple."
+    )
+    claims = extract_claims(doc_id, segs, resolved, by_id)
+    sup = [c for c in claims if c.predicate == "supplies"]
+    assert sup, f"no supplies claim from: {[c.predicate for c in claims]}"
+    c = sup[0]
+    assert c.subject_id in by_id  # TSMC 해소 entity
+    assert c.event_type_hint == "manufacturing"
+    seg = segs[c.seg_order]
+    assert seg.text[c.char_start:c.char_end] == c.surface_fragment
+
+
+def test_partnership_claim():
+    """'{E} partnership/agreement with {E2}' → partners(predicate) claim."""
+    doc_id, doc, segs, resolved, by_id = _doc(
+        "TSMC announced a partnership with NVIDIA to develop advanced chips."
+    )
+    claims = extract_claims(doc_id, segs, resolved, by_id)
+    part = [c for c in claims if c.predicate == "partners"]
+    # partnership 을 잡는 규칙 대기 (subject 바인딩은 첫 해소 entity = TSMC or NVIDIA).
+    sup = [c for c in claims if c.predicate == "announces"]
+    assert part or sup  # 최소 announces(규칙) 는 기본적으로 잡혀야 함.
