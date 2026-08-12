@@ -196,6 +196,7 @@ blueprint §6.4를 스키마로 확정한다. 두 시간 축을 모든 `Assertio
 - **AS-OF transaction time `T_t`:** `tx_from ≤ T_t < (tx_to ?? ∞)`.
 - 두 축 동시 질의로 "특정 관찰 시점 기준, 특정 유효 시점의 상태"를 재현한다.
 - 시간 슬라이더 UI는 노드를 삭제하지 않고 valid/transaction 상태 변화를 구분 표시한다 (DESIGN.md, blueprint §6.4).
+- **구현(P1 time-travel)**: assertion 축은 `CuratedZone.assertions_as_of`(§6.2 AS-OF 양축 필터, S25)·catalog 의 `as_of_tx/valid`(09 §2.2). **그래프(노드/엣지) 축은 `replay_graph_at_tx`(graph_replay, ADR-604)** — `graph_mutations` 로그를 관측 시점 `tx_time ≤ T_t` 까지 잘라 재생해 "그 시점 시스템이 믿던 그래프"를 재구축(§7.2 — superseded/delete 도 로그에 남으므로 과거 상태 그대로 조회). 두 축 병행 시 "특정 관측 시점×특정 유효 시점" 재현 계약 완결.
 
 ## 7. Mutation Log (Append-only Event Store)
 

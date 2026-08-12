@@ -11,6 +11,8 @@ payload 는 jsonb 로 원형 보존되므로 재생 시 그대로 전달한다. 
 """
 from __future__ import annotations
 
+from datetime import datetime
+
 from .graph_service import GraphService
 from .postgres_mutation_log import Mutation
 
@@ -41,4 +43,28 @@ def replay_graph(mutations: list[Mutation]) -> GraphService:
     """
     g = GraphService()
     g.apply(events_from_mutations(mutations))
+    return g
+
+
+def replay_graph_at_tx(mutations: list[Mutation], tx_at: datetime) -> GraphService:
+    """time-travel — `tx_at` 이전(포함) 관측 그래프 재현 (03 §6.3, ADR-604).
+
+    `replay_graph`의 transaction-time AS-OF 변형. 관측 시점 `tx_at`까지 기록된
+    mutation(`tx_time ≤ tx_at`)만 순서대로 재생해 "그 시점 시스템이 믿던 그래프"를
+    재구축한다. superseded/delete 도 로그에 남으므로 과거 시점 상태를 그대로 조회
+    (불변식 §3-3: event log 에서 materialized graph 재구축 가능).
+
+    - tx_time 이 없는 mutation 은 항상 포함(현재 그래프와 동일)한다.
+    - assertion-축 time-travel(`CuratedZone.assertions_as_of`)과 병행 사용 시
+      "특정 관측 시점 기준, 특정 유효 시점" 의 상태를 재현한다 (06 §7.2 계약).
+    """
+    if tx_at is None:
+        # 명시 안 하면 전체 재생 — replay_graph 와 동일.
+        return replay_graph(mutations)
+    live = [
+        m for m in mutations
+        if m.tx_time is None or m.tx_time <= tx_at
+    ]
+    g = GraphService()
+    g.apply(events_from_mutations(live))
     return g
