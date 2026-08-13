@@ -96,3 +96,12 @@ def test_run_pipeline_deterministic_invariant():
     assert r1.mentions == r2.mentions
     assert r1.claims == r2.claims
     assert r1.assertions == r2.assertions
+
+
+def test_run_pipeline_tracks_per_doc_elapsed():
+    """MVP #9 — 결정적 체인이 각 성공 문서의 처리 시간(ms)을 수집 (design 10 §1.4)."""
+    z = _zone()
+    res = run_pipeline(_metas(), z)
+    # 처리된 문서(성공) 수와 per-doc 목록 길이가 일치 — 파싱 실패는 제외.
+    assert res.docs == res.parse_fail + len(res.per_doc_elapsed_ms)
+    assert all(t > 0 for t in res.per_doc_elapsed_ms)

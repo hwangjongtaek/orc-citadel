@@ -29,6 +29,13 @@ from orc_citadel.resolve import EntityResolver
 FALLBACK_OBSERVED_AT = datetime(2026, 8, 3, 12, 0, tzinfo=timezone.utc)
 
 
+def _now_ms() -> float:
+    """현재 벽시계 ms (MVP #9 문서당 처리 시간 계측용)."""
+    import time
+
+    return time.perf_counter() * 1000
+
+
 @dataclass
 class PipelineResult:
     """파이프라인 실행 요약 — aggregate + 그래프 + 판정 통계 (검증·감사 계약)."""
@@ -48,6 +55,7 @@ class PipelineResult:
     edges: int = 0
     clusters: int = 0  # S4 dedup — 근접 복제 클러스터 수.
     elapsed_ms: float = 0.0  # 대량 실행 드라이버 — 벽시계 (Q4/성능 기록용, 파이프라인 무관).
+    per_doc_elapsed_ms: list[float] = field(default_factory=list)  # MVP #9 — 문서당 벽시계 (design 10 §1.4 throughput/latency).
 
 
 def _run_chain(metas, zone, gate, resolver, judge, result: PipelineResult,
@@ -61,6 +69,7 @@ def _run_chain(metas, zone, gate, resolver, judge, result: PipelineResult,
     docs_meta: list = []  # S4 dedup 배선용 (04 §4) — 근접 복제 축소.
     for m in metas:
         result.docs += 1
+        _doc_t0 = _now_ms()  # MVP #9 — 문서당 벽시계 (design 10 §1.4).
         try:
             doc = extract_html(m["content"], m["url"])
         except Exception:
@@ -156,6 +165,8 @@ def _run_chain(metas, zone, gate, resolver, judge, result: PipelineResult,
                     )
         result.claims += len(claims)
         all_claims.extend(claims)
+        # MVP #9 — 문서당 처리 시간 (design 10 §1.4 latency). 파싱 실패는 제외.
+        result.per_doc_elapsed_ms.append(round(_now_ms() - _doc_t0, 3))
 
     # S4 dedup 배선 — 근접 복제를 dup_clusters 로 축소 (04 §4, ADR-403). 결정적.
     if docs_meta:

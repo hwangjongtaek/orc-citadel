@@ -79,6 +79,8 @@ Evaluation은 최종 조사 질문(§2.1 golden question) 실행 결과를 채�
 | Retry/DLQ 비율 | 재시도·dead-letter 이벤트 비율 | `(retries + dlq) / total_jobs` | `slo-gate: ≤ 0.05` |
 | Graph query p50/95/99 | 그래프 조회 지연 분위수 | percentile latency | `slo-gate: p99 ≤ SLO` |
 
+**구현 (MVP #9, 2026-08-12):** `pipeline_bench.py` — throughput·문서당 시간·문서당 LLM 비용을 순수 함수로 계산 (`throughput`·`per_doc_stats`·`llm_cost_per_doc`), `pipeline_runner`가 각 성공 문서의 벽시계를 `PipelineResult.per_doc_elapsed_ms`로 수집. **실측 (실신호 본문 138건, 결정적 체인 단일 프로세스)**: throughput **13.9 docs/s** (MVP 목표 50 미달 — 단일 프로세스 in-memory이며 분산 batch는 Phase 4), per-doc p50 **22.6ms**·p90 118.9ms·p99 195.9ms·max 201ms, 문서당 LLM 비용 0 (결정적 체인 LLM 미사용). `slo-gate:` 분류 유지 (CI 차단 아님, nightly 경보) — 50 docs/s 달성은 부하·분산 단계에서 재측정.
+
 ---
 
 ## 2. 골든 데이터셋 (§12.5)

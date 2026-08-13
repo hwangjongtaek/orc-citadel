@@ -126,7 +126,7 @@
 | 6 | valid/transaction time으로 변화 이력 재현 | [03](./design/03-storage-and-data-model.md) | ⬜ |
 | 7 | Research Agent 공백·반대 증거 탐색 | [07](./design/07-llm-and-agents.md) | ⬜ |
 | 8 | 보고서 검증 가능 문장 그래프·원문 감사 | [07](./design/07-llm-and-agents.md), [03](./design/03-storage-and-data-model.md) | ⬜ |
-| 9 | 문서당 비용·전체 처리 시간 측정 | [10](./design/10-evaluation-and-testing.md), [11](./design/11-observability-and-governance.md) | ⬜ |
+| 9 | 문서당 비용·전체 처리 시간 측정 | [10](./design/10-evaluation-and-testing.md), [11](./design/11-observability-and-governance.md) | ✅ |
 | 10 | 모델·프롬프트·ontology 버전 회귀 테스트 | [10](./design/10-evaluation-and-testing.md) | ⬜ |
 
 ## 5. Changelog
@@ -134,6 +134,7 @@
 가장 최신이 위로. 스펙·설계 변경을 기록한다 (구현 세부 커밋은 git 이력).
 
 ### 2026-08-11
+- **MVP #9 — 문서당 비용·처리 시간 측정 (design 10 §1.4).** MVP 최종 성공 기준 #9를 충족. `pipeline_bench.py`(순수 함수 — `throughput`·`per_doc_stats`·`llm_cost_per_doc`)와 `PipelineResult.per_doc_elapsed_ms`(문서별 벽시계 수집, 파싱 실패 제외) 추가. **실측 (실신호 본문 138건, 결정적 체인 단일 프로세스)**: throughput **13.9 docs/s**(MVP 목표 50 미달 — 단일 프로세스 in-memory, 분산 batch는 Phase 4) · per-doc **p50 22.6ms**·p90 118.9ms·p99 195.9ms·max 201ms · 문서당 LLM 비용 0(결정적 체인 LLM 미사용). `slo-gate`(비차단) 분류 유지 — 50 docs/s는 부하·분산 단계에서 재측정. TDD — `test_pipeline_bench` 신규 9개 + `test_pipeline_runner` per-doc 배선 1개 — 스위트 502→**512개 통과**.
 - **실신호 본문 소스 확장 — AMD IR RSS 정식 승격 (design 04 §1.4, #6).** 설계가 Phase 1+ 로 유보한 "AMD IR RSS(공식 2nd)"를 실신호 본문 소스로 정식 추가·승격. `collect_large.SOURCES`·`signal_source_runner.SIGNAL_SOURCE_IDS`에 `official-amd-ir` 등록(robots.txt 개방 확인 — `anthropic-ai` 차단 없음, 피드 실측 200). 10건 수집 후 실신호 재측정: **claims 240→299(+59)·엣지 49→70(+21, acquires/partnership/Instinct 공급망 관계)** · replay 237노드·**quarantine 0** · 조회 **p95=2.36ms** — **Q4 3게이트 전항 PASS 유지**(500ms SLO 대비 여유). **Q6 관측**: 현재 MVP 스케일(10만, template)은 Iceberg 승격 트리거(Scale/100만) 대비 **여전히 관측 미대상** — 승격 결정은 그대로 유보(게이트 계약 유지). 전 과정 TDD — `test_collect_large` AMD 등록 +1 — 스위트 501→**502개 통과**.
 - **실신호 본문 Q4 재판정 + 재현 러너 (design 06 §9, ADR-304·601·602).** 이전 판정이 유보한 "1e6/p95-500ms 는 실신호 본문 소스 확보 후 재판정"의 재료를 실제로 확보해 **실데이터 엣지 그래프에서 Q4 재판정**. `signal_source_runner`(신규 재현 러너 — `SIGNAL_SOURCE_IDS` 전용 반도체 언론 선택·파이프라인→postgres SoT→replay→Neo4j→Q4 조합)로 실신호 본문 128건(nvidianews 55·semiengineering 73) → **log 243 mutations·replay 194노드·49엣지**(announces 33·supplies 16, **quarantine 0**)·Neo4j 적재 420ms·조회 **p95=0.66~1.16ms**(970회) — **3개 게이트 전항 PASS, Memgraph 트리거 없음**. 합성 10만 조회 보증은 유지. 전 과정 TDD — `test_signal_source_runner` 신규 5개 — 스위트 496→**501개 통과**.
 - **object 바인딩 + 공급망 엣지 배선 (design 02 §2.5·05 §3·03 §7, ADR-302·602).** 실신호 본문(RSS) 그래프가 **엣지 0**이던 근본 갭 해소: ① 결정적 extractor 가 predicate 이후 첫 해소 엔티티를 **object 로 바인딩**(정규 삼항 완성 — `_object_for`, "TSMC supplies NVIDIA"→subject/object) ② 파이프라인이 승격 claim 의 **subject/object 엔티티 노드를 create_node**(entity_id 별 **멱등**) 배선 + **create_edge**(subject--predicate-->object) 기록 — replay 시 dangling_ref quarantine 없이 실제 공급망 관계 엣지가 그래프에 실존(불변식 §3-4). **실측**: RSS 본문 128건 → promoted 188 · log_edges 49 · **graph_edges 49 · quarantined 0** (관계 `announces` 33·`supplies` 16) — 이전 edges=0·quarantine 49 대비 해소. 전 과정 TDD — `test_claims` object 2개 + wiring 엣지 생존 1개 — 스위트 493→**496개 통과**.
