@@ -26,6 +26,7 @@ from orc_citadel.signal_source_runner import (
 def test_signal_source_ids_are_the_verified_signal_sources():
     """실신호가 집중된 전용 반도체/공급망 언론 소스만 선택 (메모리 확증)."""
     assert "official-nvidia-news" in SIGNAL_SOURCE_IDS
+    assert "official-amd-ir" in SIGNAL_SOURCE_IDS  # 공식 IR 보도자료 (Phase 1+ 확장)
     assert "press-semiengineering" in SIGNAL_SOURCE_IDS
 
 

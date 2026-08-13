@@ -10,8 +10,14 @@
 소스 선택**과 그 **조합 실행** 만 담는다. 저장소/연결은 주입·격리, 미가동 시 skip.
 """
 
-SIGNAL_SOURCE_IDS = ("official-nvidia-news", "press-semiengineering")
-"""실신호가 집중된 전용 반도체/공급망 언론 raw 소스 id (메모리 확증)."""
+SIGNAL_SOURCE_IDS = ("official-nvidia-news", "official-amd-ir",
+                     "press-semiengineering")
+"""실신호가 집중된 전용 반도체/공급망 언론 raw 소스 id (메모리 확증).
+
+- `official-nvidia-news`·`press-semiengineering`: object 바인딩 전부터 신호 집중 확인.
+- `official-amd-ir`: 공식 IR 보도자료(AMD acquires/partnership/Instinct) — 고신호 본문
+  (design 04 §1.4 Phase 1+ "AMD IR RSS(공식 2nd)", 2026-08-12 실측 feed·robots 개방).
+"""
 
 
 def select_signal_metas(metas: list[dict]) -> list[dict]:

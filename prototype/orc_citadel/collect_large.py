@@ -41,6 +41,7 @@ ARXIV_PAGE = 1000
 
 SOURCES = {
     "official-nvidia-news": ("rss", "https://nvidianews.nvidia.com/rss.xml"),
+    "official-amd-ir": ("rss", "https://ir.amd.com/news-events/press-releases/rss"),
     "press-semiengineering": ("rss", "https://semiengineering.com/feed/"),
 }
 ARXIV_QUERY = "cat:cs.CR OR cat:cs.AI OR cat:cs.SE OR cat:cs.AR OR cat:eess.SY"

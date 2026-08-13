@@ -9,7 +9,16 @@ import pathlib
 
 import pytest
 
-from orc_citadel.collect_large import _save_zone, arxiv_batches
+from orc_citadel.collect_large import _save_zone, arxiv_batches, SOURCES
+
+
+def test_sources_registers_amd_official_rss():
+    """실신호 확장 — AMD IR RSS(공식 2nd) 가 수집 소스로 등록 (design 04 §1.4 Phase 1+)."""
+    assert "official-amd-ir" in SOURCES
+    kind, url = SOURCES["official-amd-ir"]
+    assert kind == "rss"
+    assert url.startswith("https://ir.amd.com/")
+    assert "rss" in url.lower()
 
 
 class _NoSleep:

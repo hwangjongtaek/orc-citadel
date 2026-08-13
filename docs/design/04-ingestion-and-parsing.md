@@ -123,6 +123,7 @@ blueprint §8.1의 우선순위 **API › RSS › sitemap › download**를 sour
 | 3 | **CHIPS/NIST** | `gov` | 공식 RSS `nist.gov/news-events/electronics/rss.xml` | `gov-public` | RSS pubDate + `content_hash` |
 | 4 | **NVIDIA Newsroom** | `official` | 공식 RSS `nvidianews.nvidia.com/rss.xml` | store 허용, 재배포 제한 | RSS pubDate + `content_hash` |
 | 5 | **SemiEngineering** | `press` | RSS `semiengineering.com/feed/` | store 허용, 재배포 제한(라이선스 문구 미검증) | RSS pubDate + `content_hash` |
+| 6 | **AMD IR** | `official` | 공식 RSS `ir.amd.com/news-events/press-releases/rss` | store 허용, 재배포 제한(라이선스 문구 미검증) | RSS pubDate + `content_hash` |
 
 - **수집 제한 요약 (Phase 0 확인):**
   - SEC: **최대 10 req/sec**, 선언형 User-Agent 필수(`Name ContactEmail`), default HTTP client(WebFetch 포함)는 403 차단 → **curl + UA 사용**.
@@ -130,7 +131,7 @@ blueprint §8.1의 우선순위 **API › RSS › sitemap › download**를 sour
   - 상업 테크 프레스(EE Times·The Register·TechCrunch)는 robots.txt가 **AI 크롤러(`anthropic-ai`/`ClaudeBot`)를 명시 차단** → Phase 0 초기 세트에서 제외. SemiEngineering만 개방.
   - TSMC 프로미스룸(`pr.tsmc.com`)은 Cloudflare 403 → 1차 세트 제외.
 - **미확정 항목:** SEC 필링 내용의 정확한 법적 public-domain 프레이밍(SEC 저작권 페이지 404) · SemiEngineering/EE Times/TechCrunch 공식 라이선스 문구 — 실무상 store-only로 취급하고, 확정 시 `compliance.license`·`license_url` 갱신.
-- **추가 후보(Phase 1+):** BIS 수출통제(도메인 가치 최고, RSS 없어 scraping Medium), AMD IR RSS(공식 2nd).
+- **추가 후보(Phase 1+):** BIS 수출통제(도메인 가치 최고, RSS 없어 scraping Medium). (AMD IR RSS는 2026-08-12 실신호 확장으로 **#6 정식 소스 승격** — robotics 열려있음, 결정적 extractor 공급망 신호 고밀도: 10건 수집 → claims +59·엣지 +21 실측, `signal_source_runner` `SIGNAL_SOURCE_IDS` 포함.)
 
 ## 2. Fetch stage (S1) 계약
 
