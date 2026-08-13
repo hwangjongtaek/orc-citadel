@@ -118,14 +118,14 @@
 
 | # | 기준 | 검증 스펙 | 상태 |
 | --- | --- | --- | :---: |
-| 1 | 10만+ 실제 공개 문서 처리 | [04](./design/04-ingestion-and-parsing.md) | ⬜ |
-| 2 | 전체 데이터셋 처음부터 재처리 | [01](./design/01-architecture.md), [06](./design/06-graph-service.md) | ⬜ |
+| 1 | 10만+ 실제 공개 문서 처리 | [04](./design/04-ingestion-and-parsing.md) | ✅ |
+| 2 | 전체 데이터셋 처음부터 재처리 | [01](./design/01-architecture.md), [06](./design/06-graph-service.md) | ✅ |
 | 3 | 모든 authoritative claim에 source span·버전 | [02](./design/02-ontology.md), [03](./design/03-storage-and-data-model.md) | ⬜ |
 | 4 | ER·Claim Extraction 평가 수치 공개 | [10](./design/10-evaluation-and-testing.md) | ⬜ |
 | 5 | 동일 근원 파생 출처 독립 중복 계산 방지 | [04](./design/04-ingestion-and-parsing.md), [11](./design/11-observability-and-governance.md) | ✅ |
-| 6 | valid/transaction time으로 변화 이력 재현 | [03](./design/03-storage-and-data-model.md) | ⬜ |
+| 6 | valid/transaction time으로 변화 이력 재현 | [03](./design/03-storage-and-data-model.md) | ✅ |
 | 7 | Research Agent 공백·반대 증거 탐색 | [07](./design/07-llm-and-agents.md) | ⬜ |
-| 8 | 보고서 검증 가능 문장 그래프·원문 감사 | [07](./design/07-llm-and-agents.md), [03](./design/03-storage-and-data-model.md) | ⬜ |
+| 8 | 보고서 검증 가능 문장 그래프·원문 감사 | [07](./design/07-llm-and-agents.md), [03](./design/03-storage-and-data-model.md) | ✅ |
 | 9 | 문서당 비용·전체 처리 시간 측정 | [10](./design/10-evaluation-and-testing.md), [11](./design/11-observability-and-governance.md) | ✅ |
 | 10 | 모델·프롬프트·ontology 버전 회귀 테스트 | [10](./design/10-evaluation-and-testing.md) | ⬜ |
 
@@ -134,6 +134,7 @@
 가장 최신이 위로. 스펙·설계 변경을 기록한다 (구현 세부 커밋은 git 이력).
 
 ### 2026-08-11
+- **MVP 표-실제 정합 정리 (#1/#2/#6/#8).** MVP 최종 성공 기준 표가 실제 구현과 불일치(구현 완료 항목이 ⬜로 남음)하던 것을 교차 검증 후 반영: **#1**(raw 104,411(arXiv)+143=104,554건 수집, Q4 게이트 ② 실행) · **#2**(`bulk_pipeline` postgres SoT→replay→Neo4j 전체 재처리 실측) · **#6**(`replay_graph_at_tx`·`assertions_as_of`/catalog as_of — 시간여행) · **#8**(`get_evidence_provenance` char span 왕복, ADR-305) → ✅. 기존 ✅ #9·#5와 합쳐 **✅ 6개**. **⬜ 유지 4개는 실질 미완으로 판정**: #3(Assertion에 version tuple 미영속), #4(골든 로드 비면 — 수치 미측정), #7(Phase 3), #10(version 봉인 회귀 미정비). 표 반영은 구현·실행 증거 검증 후에만 — 과대 주장 없음.
 - **동일 근원 파생 출처 독립 중복 계산 방지 (design 11 §1.4, 04 §4.2, 09 §3).** MVP 최종 성공 기준 #5 충족. `assertion_evidence`의 `independent_source_count`가 §1.4 공식의 **둘째 항(지지 근거로 등장하는 `independent_addition_doc_ids[]` — 해당 claim에 새 증거를 더하는 문서) 가산**을 누락하고 root 축소만 하던 것을 보정(under-count 극복). 지지 근거 문서 distinct(root_source) + 독립 추가 문서 중 해당 claim을 지지하는 것만 가산(04 §4.2 disjoint, root ∉ independent_addition). TDD — `test_assertion_evidence` 신규 3개(독립 추가 가산·비지지 무가산·평범 파생 기존 계약 유지) — 스위트 512→**515개 통과**.
 - **MVP #9 — 문서당 비용·처리 시간 측정 (design 10 §1.4).** MVP 최종 성공 기준 #9를 충족. `pipeline_bench.py`(순수 함수 — `throughput`·`per_doc_stats`·`llm_cost_per_doc`)와 `PipelineResult.per_doc_elapsed_ms`(문서별 벽시계 수집, 파싱 실패 제외) 추가. **실측 (실신호 본문 138건, 결정적 체인 단일 프로세스)**: throughput **13.9 docs/s**(MVP 목표 50 미달 — 단일 프로세스 in-memory, 분산 batch는 Phase 4) · per-doc **p50 22.6ms**·p90 118.9ms·p99 195.9ms·max 201ms · 문서당 LLM 비용 0(결정적 체인 LLM 미사용). `slo-gate`(비차단) 분류 유지 — 50 docs/s는 부하·분산 단계에서 재측정. TDD — `test_pipeline_bench` 신규 9개 + `test_pipeline_runner` per-doc 배선 1개 — 스위트 502→**512개 통과**.
 - **실신호 본문 소스 확장 — AMD IR RSS 정식 승격 (design 04 §1.4, #6).** 설계가 Phase 1+ 로 유보한 "AMD IR RSS(공식 2nd)"를 실신호 본문 소스로 정식 추가·승격. `collect_large.SOURCES`·`signal_source_runner.SIGNAL_SOURCE_IDS`에 `official-amd-ir` 등록(robots.txt 개방 확인 — `anthropic-ai` 차단 없음, 피드 실측 200). 10건 수집 후 실신호 재측정: **claims 240→299(+59)·엣지 49→70(+21, acquires/partnership/Instinct 공급망 관계)** · replay 237노드·**quarantine 0** · 조회 **p95=2.36ms** — **Q4 3게이트 전항 PASS 유지**(500ms SLO 대비 여유). **Q6 관측**: 현재 MVP 스케일(10만, template)은 Iceberg 승격 트리거(Scale/100만) 대비 **여전히 관측 미대상** — 승격 결정은 그대로 유보(게이트 계약 유지). 전 과정 TDD — `test_collect_large` AMD 등록 +1 — 스위트 501→**502개 통과**.
