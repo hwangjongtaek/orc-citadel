@@ -83,3 +83,15 @@ def test_valid_from_to():
     assert a.valid_from is None
     assert a.valid_to is None
     assert a.time_precision == "unknown"
+
+
+# --- assertion ontology_version (03 §6.2, 02 §2: 모든 element에 version) ---
+
+def test_assertion_carries_ontology_version():
+    """authoritative claim Materialize가 추출 단계의 ontology_version 을 승격
+    (02 §2 — 저장 element 는 ontology_version 필수, 프로비넌스·버전 불변식)."""
+    c = _claim()
+    a = materialize(c, observed_at=_now(), mutation="mut-1")
+    # ClaimCandidate.to_row()["ontology_version"] = "1.0.0".
+    assert a.ontology_version == c.to_row()["ontology_version"]
+    assert a.ontology_version == "1.0.0"

@@ -129,7 +129,9 @@ class ApiFacade:
                 break
         trail = [
             {"step": "claim", "claim_id": claim_id,
-             "predicate": ev.predicate},
+             "predicate": ev.predicate,
+             # 02 §2 — authoritative claim 의 온톨로지 버전 (MVP #3, DoD ② 감사 trail).
+             "ontology_version": ev.ontology_version},
         ]
         if er_step is not None:
             trail.append(er_step)

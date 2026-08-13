@@ -42,6 +42,7 @@ class AssertionEvidence:
     contradicting_claims: tuple  # 반박 근거 claim 목록.
     evidence_count: int
     independent_source_count: int
+    ontology_version: str = ""  # 02 §2 — authoritative claim 의 온톨로지 버전 (MVP #3).
 
 
 class AssertionEvidenceProjector:
@@ -142,6 +143,7 @@ class AssertionEvidenceProjector:
             supporting_claims=tuple(c["claim_candidate_id"] for c in supporting),
             contradicting_claims=tuple(contra_ids),
             evidence_count=n_support, independent_source_count=indep,
+            ontology_version=a.get("ontology_version", ""),
         )
 
     def for_assertion(self, assertion_id: str) -> AssertionEvidence | None:

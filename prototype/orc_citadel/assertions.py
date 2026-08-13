@@ -41,6 +41,7 @@ class Assertion:
     supersedes_id: str | None
     mutation_id: str
     provenance_ref: tuple = field(default_factory=tuple)
+    ontology_version: str = ""  # 02 §2 — 저장 element 필수. 추출 단계 버전 승격(03 §6.2).
 
     def to_row(self) -> dict:
         return {
@@ -58,6 +59,7 @@ class Assertion:
             "supersedes_id": self.supersedes_id,
             "mutation_id": self.mutation_id,
             "provenance_ref": list(self.provenance_ref),
+            "ontology_version": self.ontology_version,
         }
 
 
@@ -91,4 +93,5 @@ def materialize(
             # claim(과 그 span)이 extraction_record·source span의 경로를 담는다 (§8.1).
             claim.claim_candidate_id,
         ),
+        ontology_version=getattr(claim, "ontology_version", "") or "",
     )

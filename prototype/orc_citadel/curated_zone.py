@@ -143,7 +143,8 @@ class CuratedZone:
                 tx_to           TIMESTAMP,
                 supersedes_id   VARCHAR,
                 mutation_id     VARCHAR NOT NULL,
-                provenance_ref  VARCHAR[]
+                provenance_ref  VARCHAR[],
+                ontology_version VARCHAR NOT NULL DEFAULT ''
             )
             """
         )
@@ -534,7 +535,8 @@ class CuratedZone:
         where = " AND ".join(clauses) if clauses else "1=1"
         cols = ["assertion_id", "claim_id", "subject_id", "predicate", "object_id",
                 "object_literal", "valid_from", "valid_to", "time_precision",
-                "tx_from", "tx_to", "supersedes_id", "mutation_id", "provenance_ref"]
+                "tx_from", "tx_to", "supersedes_id", "mutation_id", "provenance_ref",
+                "ontology_version"]
         rows = self._conn.execute(
             f'SELECT {", ".join(cols)} FROM assertions WHERE {where} '
             f'ORDER BY assertion_id', params
@@ -551,13 +553,14 @@ class CuratedZone:
             INSERT INTO assertions
                 (assertion_id, claim_id, subject_id, predicate, object_id,
                  object_literal, valid_from, valid_to, time_precision, tx_from,
-                 tx_to, supersedes_id, mutation_id, provenance_ref)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 tx_to, supersedes_id, mutation_id, provenance_ref, ontology_version)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (assertion_id) DO NOTHING
             """,
             [a.assertion_id, a.claim_id, a.subject_id, a.predicate, a.object_id,
              a.object_literal, a.valid_from, a.valid_to, a.time_precision, a.tx_from,
-             a.tx_to, a.supersedes_id, a.mutation_id, list(a.provenance_ref)],
+             a.tx_to, a.supersedes_id, a.mutation_id, list(a.provenance_ref),
+             a.ontology_version],
         )
 
     def persist_edge(self, e) -> None:
@@ -589,7 +592,8 @@ class CuratedZone:
     def assertions(self) -> list[dict]:
         cols = ["assertion_id", "claim_id", "subject_id", "predicate", "object_id",
                 "object_literal", "valid_from", "valid_to", "time_precision",
-                "tx_from", "tx_to", "supersedes_id", "mutation_id", "provenance_ref"]
+                "tx_from", "tx_to", "supersedes_id", "mutation_id", "provenance_ref",
+                "ontology_version"]
         rows = self._conn.execute(
             f'SELECT {", ".join(cols)} FROM assertions'
         ).fetchall()

@@ -42,3 +42,24 @@ def test_provenance_trail_includes_char_span():
     assert er["char_end"] == 97
     # document step 은 유지
     assert "document" in steps
+
+
+def test_provenance_trail_carries_ontology_version():
+    """provenance trail 의 claim step 이 authoritative claim 의 온톨로지 버전을
+    노출 (02 §2, MVP #3 — 검증 가능 문장이 그래프·원문·버전 감사 trail)."""
+    z = CuratedZone(":memory:")
+    z.initialize()
+    _seed_claims(z, [
+        {"cid": "clm-a", "doc": "d1", "subj": "org-a", "pred": "announces", "obj": "org-b"},
+    ])
+    z.persist_extraction_record(
+        element_id="clm-a", doc_id="d1", segment_id="d1#p0.s3",
+        char_start=41, char_end=97, content_hash="sha256:abc", model_id="det",
+    )
+    f = ApiFacade(z, _make_graph())
+    evid = f.get_claim_evidence("clm-a")["items"][0]["evidence_id"]
+    trail = f.get_evidence_provenance(evid)
+    steps = {s["step"]: s for s in trail["trail"]}
+    claim_step = steps["claim"]
+    # assertion 의 ontology_version 이 추출 단계 버전("1.0.0")으로 승격·노출.
+    assert claim_step["ontology_version"] == "1.0.0"

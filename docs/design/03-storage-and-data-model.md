@@ -1,6 +1,6 @@
 # 03 · 저장 계층·데이터 모델 (Grand Archive · Chronicle · Hall of Witnesses)
 
-> **상태:** Review · **Spec:** 0.1.0 · **Blueprint 매핑:** §6.4, §6.5, §7.1, §17
+> **상태:** Review · **Spec:** 0.1.1 · **Blueprint 매핑:** §6.4, §6.5, §7.1, §17
 > 상위 규약: [`README.md`](./README.md) · 관련: [`02-ontology`](./02-ontology.md), [`06-graph`](./06-graph-service.md)
 
 Lakehouse 저장 계층(raw/normalized/curated), 테이블 스키마, ID 체계 적용, **append-only mutation log**, **bitemporal 모델**, **provenance chain**을 확정한다. 본 계층이 시스템의 **Source of Truth**이며 그래프·검색 인덱스는 여기서 재구축된다 (불변식 §3-1).
@@ -187,6 +187,7 @@ blueprint §6.4를 스키마로 확정한다. 두 시간 축을 모든 `Assertio
 | `superseded_reason` | string | 변경 원인 |
 | `mutation_id` | string | 생성 이벤트(→§7 `graph_mutations.mutation_id`) |
 | `provenance_ref` | string[] | → §8 |
+| `ontology_version` | semver | 저장 element 필수 (02 §2). 추출 단계 `ClaimCandidate.ontology_version`이 materialize 시 승격되어 authoritative claim 의 version 을 보존 (MVP #3). 5축 `version_tuple`(§7.1, mutation 축)과 별개 — assertion 축의 온톨로지 버전 단축 표기. |
 
 - **Append-only SoT는 `assertions`가 아니라 `graph_mutations`이다** (§7, 불변식 §3-3). `assertions`는 mutation log에서 재구축 가능한 **system-versioned projection**이며, 유일하게 허용되는 in-place write는 supersession 시 **직전 버전의 `tx_to`를 close**하는 것뿐이다(그 외 컬럼 수정·row 물리 삭제 금지). 이 close 역시 `supersede` mutation 이벤트 적용의 결과로만 발생한다 (ADR-303, ADR-307).
 

@@ -1,6 +1,6 @@
 # 02 · 온톨로지 (Ontology)
 
-> **상태:** Review · **Spec:** 0.1.0 · **Ontology version:** `1.0.0` · **Blueprint 매핑:** §6
+> **상태:** Review · **Spec:** 0.1.1 · **Ontology version:** `1.0.0` · **Blueprint 매핑:** §6
 > 상위 규약: [`README.md`](./README.md) · 관련: [`03-storage`](./03-storage-and-data-model.md), [`06-graph`](./06-graph-service.md), [`05-resolution`](./05-resolution-and-extraction.md)
 
 War Table의 시맨틱 레이어를 정의하는 **핵심 SSOT**다. 노드 타입, 엣지 타입, 속성, 제약, 버저닝·거버넌스를 확정한다. 물리 저장 스키마는 [`03`](./03-storage-and-data-model.md), 그래프 라벨·인덱스는 [`06`](./06-graph-service.md)가 소유한다.
@@ -151,6 +151,7 @@ blueprint §6.1을 확정·확장한다. 공통 속성은 모든 노드가 가�
 | `superseded_reason` | string | nullable | 변경 원인 |
 | `mutation_id` | mut-id | ✓ | 생성 이벤트 (→ [`03`](./03-storage-and-data-model.md) §7) |
 | `provenance_ref` | ext-id[] | ✓ | 원문 span 추적 (불변식 §4-1) |
+| `ontology_version` | semver | ✓ | 생성 당시 온톨로지 버전 (02 §2 공통 속성, MVP #3). 추출 단계 `ClaimCandidate` 버전이 materialize 로 승격 → 완성된 프로비넌스·버전 불변식. |
 
 > **Claim → Assertion materialization.** 게이트(§4)를 통과한 `Claim`은 정규 삼항(`subject_id`/`predicate`/`object_id`\|`object_literal`)과 valid time을 복사해 `Assertion`으로 materialize된다. `Claim`은 출처가 제시한 명제 단위(화자·`certainty`·`modality` 보존)이고, `Assertion`은 그 명제가 그래프 관계로 승격된 bitemporal 저장 단위다 — 이는 조회·시간질의 성능을 위한 의도된 비정규화(denormalization)이며 정본 관계 삼항은 두 곳에서 동일해야 한다. 하나의 `Claim`은 tx 축을 따라 여러 `Assertion` 버전을 가질 수 있다. 정정·supersession 시 이전 버전 `tx_to`를 close(덮어쓰기 금지)하고 새 버전이 `supersedes_id`로 이전 버전을 가리킨다 (→ [`03`](./03-storage-and-data-model.md) §6, ADR-207).
 

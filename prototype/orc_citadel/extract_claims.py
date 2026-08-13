@@ -46,6 +46,9 @@ class ClaimCandidate:
     # §8.2 extraction_record id[] — authoritative graph 진입 전 ADR-305 게이트가 요구.
     # 추출 단계가 record를 영속하고 이 ref를 채운다. 기본값 빈 list.
     provenance_ref: list | None = None
+    # 02 §2 — 저장 element 필수: 추출 단계 버전을 보유 → materialize 가 승격 (03 §6.2).
+    ontology_version: str = ONTOLOGY_VERSION
+    extraction_model: str = EXTRACTION_MODEL
 
     def to_row(self) -> dict:
         """curated_zone claim_candidates 테이블(row)로 변환 (03 §4.2)."""
@@ -65,8 +68,8 @@ class ClaimCandidate:
             "surface_fragment": self.surface_fragment,
             "event_type_hint": self.event_type_hint,
             "status": self.status,
-            "ontology_version": ONTOLOGY_VERSION,
-            "extraction_model": EXTRACTION_MODEL,
+            "ontology_version": self.ontology_version,
+            "extraction_model": self.extraction_model,
         }
 
 
