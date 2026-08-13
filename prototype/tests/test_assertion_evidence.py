@@ -220,3 +220,57 @@ def test_value_zero_when_no_support():
     z = _populate_zone()
     p = AssertionEvidenceProjector(z)
     assert p.all() == []
+
+
+# --- independent_source_count: independent_addition 보정 (11 §1.4) --------
+
+def test_independent_addition_counts_extra_source():
+    """같은 root 클러스터 내 파생 문서가 독립 추가 정보를 담고 해당 claim을
+    지지 → §1.4 둘째 항: 독립 추가 1건 가산 (root 1 + independent 1 = 2)."""
+    z = _populate_zone()
+    _seed_claims(z, [
+        {"cid": "clm-a", "doc": "doc-1", "subj": "org-a", "pred": "announces", "obj": "org-b"},
+        {"cid": "clm-b", "doc": "doc-2", "subj": "org-a", "pred": "announces", "obj": "org-b"},
+    ])
+    # doc-2 는 doc-1 의 파생(member)이지만 독립 추가 정보를 담고, 같은 claim 지지.
+    z.persist_cluster("clu-1", root_doc_id="doc-1",
+                      member_doc_ids=["doc-1", "doc-2"],
+                      independent_addition_doc_ids=["doc-2"], dedup_method="minhash")
+    p = AssertionEvidenceProjector(z)
+    ev = p.all()[0]
+    assert ev.evidence_count == 2
+    # §1.4: distinct root(1) + 독립 추가 중 "adds new evidence"(1) = 2.
+    assert ev.independent_source_count == 2
+    assert ev.confidence["independent_source_count"] == 2
+
+
+def test_independent_addition_not_claiming_does_not_add():
+    """독립 추가 파생 문서가 해당 claim 을 지지하지 않으면 가산되지 않는다."""
+    z = _populate_zone()
+    # doc-3 이 독립 추가이지만 이 claim(clm-a)을 지지하지 않음.
+    _seed_claims(z, [
+        {"cid": "clm-a", "doc": "doc-1", "subj": "org-a", "pred": "announces", "obj": "org-b"},
+        {"cid": "clm-b", "doc": "doc-2", "subj": "org-a", "pred": "announces", "obj": "org-b"},
+    ])
+    # doc-3 은 root doc-1 의 파생·독립 추가이로 등록되나, 이 claim 을 주장하지 않음.
+    z.persist_cluster("clu-1", root_doc_id="doc-1",
+                      member_doc_ids=["doc-1", "doc-2", "doc-3"],
+                      independent_addition_doc_ids=["doc-3"], dedup_method="minhash")
+    p = AssertionEvidenceProjector(z)
+    ev = p.all()[0]
+    # root(doc-1) + 지지하는 독립 추가(doc-2 는 평범한 파생) = 1.
+    assert ev.independent_source_count == 1
+
+
+def test_independent_addition_and_distinct_member():
+    """독립 추가가 아닌 파생만 지지 → root 1 (가산 없음, 기존 계약 유지)."""
+    z = _populate_zone()
+    _seed_claims(z, [
+        {"cid": "clm-a", "doc": "doc-1", "subj": "org-a", "pred": "announces", "obj": "org-b"},
+        {"cid": "clm-b", "doc": "doc-2", "subj": "org-a", "pred": "announces", "obj": "org-b"},
+    ])
+    z.persist_cluster("clu-1", root_doc_id="doc-1",
+                      member_doc_ids=["doc-1", "doc-2"],
+                      independent_addition_doc_ids=[], dedup_method="exact")
+    p = AssertionEvidenceProjector(z)
+    assert p.all()[0].independent_source_count == 1

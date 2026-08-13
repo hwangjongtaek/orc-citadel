@@ -208,6 +208,7 @@ claim → 근거(지지/반박), 원문 span·provenance trail. **결과 문장�
 
 - `dimensions{}`는 신뢰도를 단일 점수로 환원하지 않고 차원별로 노출한다 (blueprint §11): 직접 당사자 여부·1차/2차·인용 여부·정정 이력·이해관계·데이터 공개·독립 취득. 정본 정의는 [`11`](./11-observability-and-governance.md).
 - `…/lineage`는 `dup_clusters`([`03`](./03-storage-and-data-model.md) §4.3)를 반환해 "복제 500건 = 독립 증거 2건" 보정의 근거를 제공한다.
+- `independent_source_count`의 per-claim 보정 공식은 [`11`](./11-observability-and-governance.md) §1.4가 정본이며, prototype 구현(`assertion_evidence`)은 그 두 항(distinct root + 독립 추가)을 그대로 계산한다.
 
 ### 2.5 Chronicle (Bitemporal Event Timeline)
 

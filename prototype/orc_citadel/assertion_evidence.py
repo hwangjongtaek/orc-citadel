@@ -53,6 +53,7 @@ class AssertionEvidenceProjector:
         self._conflicts = zone.conflict_candidates()
         self._assertions = zone.assertions()
         self._doc_root = self._build_doc_root()
+        self._independent_addition = self._build_independent_addition()
         # C2: 근거·모순 조회를 O(1) 인덱스로 — 전체 스캔 반복 제거.
         # _supporting_claims / n_conflict 가 모든 assertion에서 전체 claims·conflicts를
         # 매번 스캔해 ConclusionProjector.all() 이 O(subjects×claims) 로 비약했다.
@@ -78,6 +79,19 @@ class AssertionEvidenceProjector:
                 root[member] = r
         return root
 
+    def _build_independent_addition(self) -> set:
+        """독립 추가 파생 문서 집합 (§1.4 둘째 항 input).
+
+        `independent_addition_doc_ids[]` ⊆ `member_doc_ids[]` (04 §4.2), root ∉ 이므로,
+        이 집합은 오직 독립적 추가 정보를 담은 파생 문서만 담는다. 이 문서가 특정
+        claim 의 지지 근거로 등장할 때만 §1.4 공식 둘째 항으로 가산된다.
+        """
+        indep = set()
+        for cl in self._zone.clusters():
+            for doc in cl.get("independent_addition_doc_ids", []):
+                indep.add(doc)
+        return indep
+
     def _supporting_claims(self, subj: str, pred: str, obj: tuple) -> list[dict]:
         """같은 (subject, predicate, object) 주장을 입증하는 claim 후보 전체.
 
@@ -96,7 +110,12 @@ class AssertionEvidenceProjector:
         supporting = self._supporting_claims(subj, pred, obj)
         docs = sorted({c["doc_id"] for c in supporting})
         n_support = len(docs)
-        indep = len({self._root_of(d) for d in docs})
+        # §1.4 독립 증거 수 보정: distinct(root_source) + 독립 추가 중 새 증거를
+        # 더하는 문서. 지지 근거로 등장하는 독립 추가 파생 문서만 가산한다.
+        # (root ∉ independent_addition 이므로 중복 계상 없음 — 04 §4.2 disjoint.)
+        root_sources = {self._root_of(d) for d in docs}
+        adding = {d for d in docs if d in self._independent_addition}
+        indep = len(root_sources) + len(adding)
         # C2: 모순 조회 O(1) 인덱스 — 전체 conflicts 스캔 제거.
         n_conflict = self._conflict_count.get(claim_id, 0)
         contra_ids = sorted(self._conflict_others.get(claim_id, ()))

@@ -63,6 +63,7 @@ independent_evidence_count(claim)
 ```
 
 - 클러스터 하나(root + 파생)는 **독립 증거 1**로 축소한다. `independent_addition_doc_ids[]`(독립적 추가 정보 보유 문서)만 추가 카운트한다.
+- **구현 (prototype):** `assertion_evidence.AssertionEvidenceProjector.independent_source_count`가 이 공식을 그대로 계산한다. 두 항 — ① 지지 근거 문서의 `root_source` distinct(무클러스터는 자기 자신=root), ② 지지 근거로 등장하는 `independent_addition_doc_ids[]` 문서 수(해당 claim에 새 증거를 더하는 문서만). ②는 root ∉ independent_addition(04 §4.2 disjoint)이므로 ①과 중복 계상되지 않는다.
 - **집계 단위는 출처(source) 단위이며 문서(doc) 단위가 아니다.** 카운트 기준은 supporting document의 `root_source`(파생 제거 후 근원 출처)이다.
 - **정본 소유:** per-claim 독립 증거 집계 공식은 본 절(§1.4)이 정본이다. [04](./04-ingestion-and-parsing.md)는 cluster → `root_source` 기여 단위 축소만 수행하고 per-claim 집계는 본 절에 위임한다. 이 값은 [09](./09-api.md)에서 `independent_source_count`로 노출된다.
 - 이 보정값은 investigation 결과의 `evidence coverage` 대시보드(§2)와 Signal Spire의 "신규 독립 출처" 트리거(§5)에 직접 사용된다.
