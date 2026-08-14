@@ -182,6 +182,8 @@ Warchief's Council의 8개 Agent를 소절로 정의한다. **공통 불변식:*
 - **도구:** `graph:read`, `sql:read`(provenance chain, → [03](./03-storage-and-data-model.md) §provenance). **tier:** L3 LLM + deterministic span 대조.
 - **불변식(§3-5):** 모든 검증가능 문장이 span으로 역추적되어야 보고서가 통과한다. 실패 문장은 `blocked_statements`로 반환되고 보고서에서 제거되거나 "unsupported"로 명시 표기된다.
 
+> **구현 (Phase 3 — Synthesis·Audit 역추적 chain, 2026-08-12):** `synthesis.py::Audit` — §3.9 문장 → claim → **source span 역추적 chain** 완성. `Audit.trace(statements, zone)` — 검증가능(fact/asserted) 문장이 `claim_ref` → `extraction_record`(03 §8, ADR-305: element_id = claim_id)의 `{segment_id, char_start, char_end, doc_id}` source span까지 역추적되는지 대조. 출력 `{trace: [{statement_ref, claim_ref, source_span, verified}], blocked_statements[], verifiable, linked, verified_statements, linkage_ratio}` (§3.9). prediction/opinion 무출처는 허용(연결률 분모 제외, 10 §1.3). 역추적 불가(claim_ref 부재·extraction_record 부재) → verified=False·blocked. `Audit.verify_from_trace(trace)` — blocked 존재 시 `passed=False`(연결률 = 1.0 불변식 통과 판정). `Synthesizer`가 §3.9 trace 기반 audit 사용, `viewer._api_investigate`에 `audit_trace`(linkage_ratio) 노출. **read-only**(불변식 §3-3)·결정적. **스키마·계약 변경 없음 → Spec 그대로(0.1.9).** TDD — `test_audit_trace` 신규 7개(역추적 span·무출처 block·미역추적 block·연결률 1.0·통과판정·read-only·결정성) + `test_synthesis` 픽스처 ADR-305 계약 반영 + `test_viewer_graph` 신규 1개(audit_trace 노출) — 스위트 580→**588개 통과**(회귀 0). 다음: 조사 비용·evidence coverage 대시보드(11).
+
 ---
 
 ## 4. 조사 루프 (§9.4)

@@ -98,7 +98,7 @@ class Handler(BaseHTTPRequestHandler):
         from orc_citadel.investigation import InvestigationCoverage, Subclaim
         from orc_citadel.investigation_runner import InvestigationRunner
         from orc_citadel.planner import InvestigationPlanner
-        from orc_citadel.synthesis import Synthesizer
+        from orc_citadel.synthesis import Synthesizer, Audit
         from orc_citadel.graph_service import GraphService
 
         subj = unquote(qs.get("subject", ""))
@@ -128,6 +128,8 @@ class Handler(BaseHTTPRequestHandler):
         # Planner 산출 — 지식/공백 구분된 subclaim 트리 노출 (07 §3.2).
         planned_view = [{"id": sc.id, "text": sc.text, "known": sc.known,
                          "gap_reason": sc.gap_reason} for sc in planned.subclaims]
+        # Audit §3.9 — 문장 → claim → source span 역추적 trace 노출 (연결률 = 1.0).
+        audit_trace = self.facade.zone and Audit().trace(rep.statements, z)
         return {
             "subject_id": subj,
             "planned_subclaims": planned_view,
@@ -140,6 +142,7 @@ class Handler(BaseHTTPRequestHandler):
             "statements": rep.statements,
             "open_questions": rep.open_questions,
             "audit": rep.audit,
+            "audit_trace": audit_trace,
             "subgraph": graph_view["subgraph"],
             "relation_paths": graph_view["relation_paths"],
             "independence_summary": graph_view["independence_summary"],

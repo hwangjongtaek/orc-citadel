@@ -82,6 +82,19 @@ def test_investigate_response_exposes_planned_subclaims():
     assert any(p["known"] for p in planned)
 
 
+def test_investigate_response_exposes_audit_trace():
+    """_api_investigate 가 §3.9 역추적 trace(연결률 = 1.0)를 응답에 노출."""
+    facade = _build_facade()
+    subj = facade.zone.assertions()[0]["subject_id"]
+    self = types.SimpleNamespace(facade=facade)
+    resp = json.loads(Handler._api_investigate(self, {"subject": subj}))
+    assert "audit_trace" in resp
+    tr = resp["audit_trace"]
+    # pipeline 계약(§8.2 ADR-305) — 모든 검증가능 문장이 span까지 역추적.
+    assert tr["linkage_ratio"] == 1.0
+    assert tr["blocked_statements"] == []
+
+
 def test_investigate_response_exposes_retrieval():
     """_api_investigate 가 SEARCH 스테이지의 retrieved 후보를 응답에 노출 (07 §4)."""
     facade = _build_facade()

@@ -43,6 +43,10 @@ def _zone() -> CuratedZone:
         z.persist_assertion(materialize(cc, observed_at=datetime(2026, 1, 1,
                                                                  tzinfo=timezone.utc),
                                         mutation=f"mut-{cid}"))
+        # pipeline 계약(§8.2, ADR-305) — claim마다 extraction_record(span) 영속.
+        z.persist_extraction_record(element_id=cid, doc_id=doc,
+                                    segment_id=f"{doc}#s0", char_start=0,
+                                    char_end=4, content_hash="h")
     return z
 
 
