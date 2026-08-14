@@ -129,6 +129,8 @@ Warchief's Council의 8개 Agent를 소절로 정의한다. **공통 불변식:*
 - **tier:** L5 (고성능 reasoning, adaptive thinking).
 - **불변식:** subclaim마다 `known`/`gap` 라벨 필수. mutation 없음.
 
+> **구현 (Phase 3 — Investigation Planner, 2026-08-12):** `planner.py` — 질문→subclaim 트리 분해 + 기존 지식/공백 구분 (결정적 규칙). `InvestigationPlanner.plan(question, scope?)` → `Plan{subclaims: [PlannedSubclaim(id·text·required_evidence_types·**known·gap_reason**·subject_id)], tool_calls[]}` (07 §3.2 strict JSON). **known/gap** 판정: 질문에 등장한 subject(대문자 약어·또는 질문 자체가 기존 subject)가 zone assertion에 존재하면 `known=True`(기존 지식), 없으면 `gap_reason`(insufficient_evidence — 07 §3.1 비목표: 그래프에 없는 것을 사전 지식으로 추가하지 않고 공백으로 남김). tool_calls는 길이·순서 결정적 `graph:read`. `viewer._api_investigate`가 하드코딩 단일 subclaim 대신 Planner subclaim 트리를 사용하고 응답에 `planned_subclaims`(known/gap)를 노출 (07 §3.2·§4 PLAN). **read-only**(불변식 §3-3)·결정적. **스키마·계약 변경 없음 → Spec 그대로(0.1.9).** TDD — `test_planner` 신규 7개(구조·tool_calls·known/gap·증거유형·read-only·결정성) + `test_viewer_graph` 신규 1개(planned_subclaims 노출) — 스위트 555→**563개 통과**(회귀 0). 다음: 조사 budget·종료 조건 + LLM routing(07 §2.3·§4.3).
+
 ### 3.3 Graph Explorer
 
 - **역할:** War Table에서 subclaim 관련 subgraph를 조회하고 시간 조건·출처 독립성·관계 경로를 분석한다.

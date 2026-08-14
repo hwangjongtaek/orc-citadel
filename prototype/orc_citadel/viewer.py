@@ -95,8 +95,9 @@ class Handler(BaseHTTPRequestHandler):
     @_j
     def _api_investigate(self, qs):
         """조사 에이전트 end-to-end (S43–S47) — read-only, 결정적."""
-        from orc_citadel.investigation import Subclaim, InvestigationCoverage
+        from orc_citadel.investigation import InvestigationCoverage, Subclaim
         from orc_citadel.investigation_runner import InvestigationRunner
+        from orc_citadel.planner import InvestigationPlanner
         from orc_citadel.synthesis import Synthesizer
         from orc_citadel.graph_service import GraphService
 
@@ -115,13 +116,21 @@ class Handler(BaseHTTPRequestHandler):
                       "op": "create_edge",
                       "payload": {"type": "ABOUT", "from": a["subject_id"],
                                   "to": a["claim_id"], "props": {}}}])
-        subclaims = [Subclaim("s1", "announces?", subject_id=subj)]
+        # Planner — 질문 → subclaim 트리 분해 (07 §3.2), known/gap 라벨.
+        planner = InvestigationPlanner(z)
+        planned = planner.plan(subj)
+        subclaims = [Subclaim(sc.id, sc.text, subject_id=sc.subject_id)
+                     for sc in planned.subclaims]
         inv = InvestigationRunner(z, g).run(subclaims)
         rep = Synthesizer(z).synthesize(inv, subj)
         # War Table — 조사 subgraph(진행식 disclosure 시드, 06 §8.1) 노출.
         graph_view = facade.get_investigation_graph(subj, hops=1)
+        # Planner 산출 — 지식/공백 구분된 subclaim 트리 노출 (07 §3.2).
+        planned_view = [{"id": sc.id, "text": sc.text, "known": sc.known,
+                         "gap_reason": sc.gap_reason} for sc in planned.subclaims]
         return {
             "subject_id": subj,
+            "planned_subclaims": planned_view,
             "coverage": inv.coverage,
             "terminated_by": inv.terminated_by,
             "gaps": inv.gaps,

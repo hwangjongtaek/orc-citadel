@@ -68,6 +68,20 @@ def test_investigate_response_includes_wargraph_subgraph():
     assert resp["audit"]["passed"] is True
 
 
+def test_investigate_response_exposes_planned_subclaims():
+    """_api_investigate 가 Planner(07 §3.2)의 subclaim 트리를 응답에 노출."""
+    facade = _build_facade()
+    subj = facade.zone.assertions()[0]["subject_id"]
+    self = types.SimpleNamespace(facade=facade)
+    resp = json.loads(Handler._api_investigate(self, {"subject": subj}))
+    assert "planned_subclaims" in resp
+    planned = resp["planned_subclaims"]
+    assert isinstance(planned, list) and planned
+    # known/gap 라벨 필수 (07 §3.2 불변식) — 그래프 지식이면 known.
+    assert all("known" in p and "gap_reason" in p for p in planned)
+    assert any(p["known"] for p in planned)
+
+
 def test_investigate_response_exposes_retrieval():
     """_api_investigate 가 SEARCH 스테이지의 retrieved 후보를 응답에 노출 (07 §4)."""
     facade = _build_facade()
