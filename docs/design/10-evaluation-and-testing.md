@@ -47,6 +47,8 @@ blueprint §12의 4범주를 지표별 **정의·계산식·목표/게이트**�
 
 **구현 (MVP #4 — 평가 수치 공개, 2026-08-12):** `metrics_report.py` — ER·Claim Extraction 평가 수치를 검증 가능한 리포트로 공개. `generate_metrics_report(zone)`이 골든셋(`golden_pairs`) 존재 시에만 해당 축을 `measured=True`로 계산하고(§1.2 gate), 골든이 없는 축은 **vacuous pass 없이 `measured=False` 미측정으로 명시**(honest gap — §6.2: pass는 골든 존재 시에만 판정). **실측 (curated.duckdb, 골든 22건)**: claim extraction(canonicalization) **F1=1.00 P=1.00 R=1.00** (tp=22 fp=0 fn=0, gate 0.85 ✅) 공개. contradiction·entity resolution은 골든 contradicts 쌍 / entity pair 골든세트(§2.1) 미확보로 미측정 — Phase 2 골든 확장(§2.1) 후 측정. **read-only·결정적.** TDD — `test_metrics_report` 신규 7개 — 스위트 500→**507개 통과**(회귀 0).
 
+**구현 (Phase 2 — 골든 확장 회귀 봉인, 2026-08-12):** 골든 contradicts 쌍 + 해당 conflict_candidates 존재 시 `metrics_report`의 **contradiction 축이 measured=True로 전환**되는 메커니즘을 회귀로 봉인. `_contradiction()`은 골든 contradicts 쌍 존재 시 measured로 전환하도록 이미 설계돼 있었고(§6.2 pass 기준 — measured 전환은 골든 contradicts 쌍이 필요, unrelated/hard-negative만으로는 전환 금지), 이를 Red→Green 테스트로 보호. 실측 단위: 골든 contradicts + conflict 존재 → **tp 계산(measured=True)**, conflict 부재 → **fn(recall 하락→hard block)**, 골든 unrelated가 conflict에 존재 → **fp(precision 압박)**. **read-only·결정적.** TDD — `test_metrics_report` 신규 증분 3개 — 스위트 507→**517개 통과**(회귀 0). 다음: entity pair 골든세트(§2.1)로 ER·오병합률(≤0.02, ADR-1001) 측정.
+
 ### 1.3 조사 품질 (§12.3)
 
 Evaluation은 최종 조사 질문(§2.1 golden question) 실행 결과를 채점한다. Synthesis/Audit Agent 출력을 대상으로 한다 (→ [`07-llm`](./07-llm-and-agents.md)).

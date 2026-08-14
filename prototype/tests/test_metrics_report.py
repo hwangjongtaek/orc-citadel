@@ -15,6 +15,7 @@ import pytest
 from orc_citadel.metrics_report import generate_metrics_report
 from orc_citadel.curated_zone import CuratedZone
 from orc_citadel.canonicalize import CanonicalClaim
+from orc_citadel.contradiction import ConflictCandidate
 
 
 def _zone() -> CuratedZone:
@@ -60,6 +61,61 @@ def test_contradiction_honest_gap():
     assert s.metrics is None
     assert s.gate is None
     assert s.note  # 미측정 이유 명시.
+
+
+def test_contradiction_measured_when_golden_and_conflict():
+    """골든 contradicts 쌍 + 해당 conflict 존재 → contradiction 측정·공개 (measured 전환).
+
+    Phase 2 골든 확장(10 §2.1) 후의 전환 메커니즘 봉인: 골든 contradicts 쌍이
+    conflict_candidates에 존재하면 TP로 계산되어 measured=True가 된다 (이전까지
+    '미측정'이었던 것이 골든 확보 시 실제로 전환됨을 회귀로 보호).
+    """
+    z = _zone()
+    z.persist_golden_pair("clm-c1", "clm-c2", "contradicts", "dev", "g1",
+                          "human:x", "t", "r")
+    z.persist_conflict(ConflictCandidate("clm-c1", "clm-c2", "value_conflict", "r"))
+    rep = generate_metrics_report(z)
+    s = rep.slices["contradiction"]
+    assert s.measured is True
+    assert s.metrics["tp"] == 1
+    assert s.metrics["fp"] == 0
+    assert s.metrics["precision"] == pytest.approx(1.0)
+    assert s.metrics["recall"] == pytest.approx(1.0)
+    assert s.gate["pass"] is True  # P≥0.90 ∧ R≥0.75.
+
+
+def test_contradiction_conflict_missing_is_fn():
+    """골든 contradicts 쌍인데 conflict_candidates에 없으면 fn → recall 하락 (정직)."""
+    z = _zone()
+    z.persist_golden_pair("clm-c1", "clm-c2", "contradicts", "dev", "g1",
+                          "human:x", "t", "r")
+    # conflict 후보 없음 → 시스템이 골든 모순쌍을 놓침.
+    rep = generate_metrics_report(z)
+    s = rep.slices["contradiction"]
+    assert s.measured is True
+    assert s.metrics["tp"] == 0
+    assert s.metrics["fn"] == 1
+    assert s.metrics["recall"] == pytest.approx(0.0)
+    assert s.gate["pass"] is False  # R=0 < 0.75 → hard block.
+
+
+def test_contradiction_unrelated_no_fp():
+    """골든 'unrelated' 쌍이 conflict에 있으면 오판 → fp 감지 (precision 압박).
+
+    measured 전환에는 골든 contradicts 쌍이 필요(design 10 §6.2 pass 기준) — 그 상태에서
+    unrelated 골든이 conflict에 존재하면 precision이 압박받는다.
+    """
+    z = _zone()
+    z.persist_golden_pair("clm-c1", "clm-c2", "contradicts", "dev", "g1",
+                          "human:x", "t", "r")          # measured 전환용.
+    z.persist_golden_pair("clm-u1", "clm-u2", "unrelated", "dev", "g1",
+                          "human:x", "t", "r")
+    z.persist_conflict(ConflictCandidate("clm-u1", "clm-u2", "polarity", "r"))
+    rep = generate_metrics_report(z)
+    s = rep.slices["contradiction"]
+    assert s.measured is True
+    assert s.metrics["fp"] == 1  # unrelated ↔ conflict = 오판.
+    assert s.metrics["precision"] == pytest.approx(0.0)
 
 
 def test_entity_resolution_gap():

@@ -141,6 +141,7 @@
 가장 최신이 위로. 스펙·설계 변경을 기록한다 (구현 세부 커밋은 git 이력).
 
 ### 2026-08-12
+- **Phase 2 착수 — contradiction 골든 확장 회귀 봉인 (design 10 §1.2·§2.1).** Phase 2(BEntity·Claim 품질) 첫 증분. `metrics_report`의 **contradiction 축이 골든 contradicts 쌍 확보 시 measured=True로 전환**되는 메커니즘(MVP #4가 "Phase 2 골든 확장 후 측정"으로 명시한 경로)을 Red→Green으로 봉인 — `_contradiction()`은 골든 contradicts 쌍 존재 시 measured로 전환하도록 이미 설계돼 있었고(§6.2 pass 기준 — measured 전환은 골든 contradicts 쌍 필요, hard-negative만으로는 전환 금지), 이를 회귀로 보호. 실측 단위: 골든 contradicts + conflict 존재 → tp(measured) · conflict 부재 → fn(recall 하락→hard block) · 골든 unrelated가 conflict에 존재 → fp(precision 압박). **read-only·결정적.** **Spec 0.1.4→0.1.5.** TDD — `test_metrics_report` 신규 증분 3개 — 스위트 514→**517개 통과**(회귀 0). 다음: entity pair 골든세트(§2.1)로 ER·오병합률(≤0.02, ADR-1001) 측정.
 - **Phase 1 완결 블록업 (MVP 10/10 + DoD ①② + Q4 PASS/Q6 유보).** ROADMAP 추적기가 Phase 1 완결을 반영하지 않던 것을 교차 검증 후 정리: **MVP 10/10** (§4 전항 ✅) · **Phase 1 DoD ① 재처리 가능(104,544건)**·**② source-span 보고서 E2E** 충족 · **Phase 0→1 게이트 ② (Q4) 3게이트 전항 PASS**(실신호 그래프 p95≤1.16ms·노드<1e6·재구축/증분=1.06, Memgraph 트리거 없음, [06 §9]) · **Q6 (Iceberg) Phase 4(100만) 유보**(승격 트리거=수천만 row·스키마 진화, 현재 10만 스케일 관측 미대상, [01 §120–122]). §1 상태·§3 Phase 1 완결·Spec 0.1.4 마킹. 구현·실행 증거 검증 후에만 기록 — 과대 주장 없음. 이로써 Phase 1 종료 상태 확정, Phase 2(Entity·Claim 품질 — 골든 확장·오병합감사) 진입 준비.
 
 ### 2026-08-12
