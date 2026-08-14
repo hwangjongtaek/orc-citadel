@@ -94,6 +94,15 @@ def test_counter_evidence_present():
     assert any(c.get("subject_id") == "org-zzz" for c in res.counter_evidence)
 
 
+def test_budget_hard_stop_d():
+    """§4.3 D(budget 소진) → hard stop — coverage와 무관하게 budget terminate."""
+    from orc_citadel.investigation_budget import InvestigationBudget
+    # max_steps=0 → 단일 iteration에서 이미 소진 → hard stop.
+    b = InvestigationBudget(max_steps=0, max_tokens=0)
+    res = _run([Subclaim("s1", "a?", subject_id="org-a")], budget=b)
+    assert res.terminated_by == "budget"
+
+
 def test_token_usage_zero():
     """LLM 미실행 prototype → token_usage 0 (S42 placeholder)."""
     res = _run([Subclaim("s1", "a?", subject_id="org-a")])

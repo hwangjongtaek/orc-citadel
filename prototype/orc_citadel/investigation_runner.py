@@ -36,13 +36,19 @@ class InvestigationRunner:
     """조사 루프 (07 §4) — coverage·counter-evidence·retrieval로 read-only 종료."""
 
     def __init__(self, zone, graph, coverage_threshold: float = 0.80,
-                 max_iters: int = 3) -> None:
+                 max_iters: int = 3, budget=None) -> None:
         self._cov = InvestigationCoverage(zone)
         self._explorer = GraphExplorer(zone, graph)
         self._counter = CounterEvidenceAgent(zone)
         self._retriever = RetrievalAgent(zone)
         self._threshold = coverage_threshold
         self._max_iters = max_iters
+        # §4.3 예산 — 기본은 max_iters 기반 (하위 호환). 제공 시 hard stop 추적.
+        if budget is not None:
+            self._budget = budget
+        else:
+            from orc_citadel.investigation_budget import InvestigationBudget
+            self._budget = InvestigationBudget(max_steps=max_iters, max_tokens=0)
 
     @staticmethod
     def _query_terms(text: str) -> list[str]:
@@ -68,13 +74,24 @@ class InvestigationRunner:
                 if terms:
                     retrieved.extend(self._retriever.search(
                         {"terms": terms, "subject_id": s.subject_id}))
-        # 종료 판정 — 단순 결정적 루프 (그래프·존 불변이라 진행 없으면 종료).
+        # 종료 판정 — §4.3 조합 (A·B·C)/D + 하위 호환 기본 경로.
+        # read-only 루프라 반복에서 새 evidence 불가 → 단일 step 결정.
         iterations = 1
         terminated = None
-        if cov_result.coverage >= self._threshold:
-            terminated = "coverage"
-        elif iterations >= self._max_iters:
+        # 이 step을 예산에 반영 — 소진 시 hard stop (D).
+        self._budget.consume(1, 0)
+        from orc_citadel.investigation_budget import evaluate_stop
+        decision = evaluate_stop(
+            coverage=cov_result.coverage,
+            new_independent_evidence_rate=(
+                0.0 if cov_result.coverage else 1.0),
+            unresolved_contradictions=len(counter),
+            budget=self._budget,
+            steps_consumed=iterations)
+        if decision.hard_stop:
             terminated = "budget"
+        elif cov_result.coverage >= self._threshold:
+            terminated = "coverage"
         elif gaps:
             # 반복에서 새 evidence 불가능(read-only) — 추가 이득 없음.
             terminated = "no_new_evidence"
