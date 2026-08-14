@@ -222,6 +222,8 @@ Agent는 자유 텍스트가 아니라 다음 구조화 객체를 산출한다(s
 - **Reranker:** 후보 축소 후 소수(top_n)에만 cross-encoder reranker를 적용한다. **embedding·reranker의 모델·차원 핀은 본 문서(08)가 소유**하고(→ §8 ADR-809), 조사 예산에 따른 **모델 tier/호출 정책은 [`07`](./07-llm-and-agents.md)가 소유**한다(blueprint §9.2). 본 문서는 순서(fusion→rerank)와 모델 핀을 확정한다(ADR-803·808·809).
 - 각 단계 `top_k`/`top_n`/`top_m`는 investigation budget([`07`](./07-llm-and-agents.md))에 종속된 튜너블 파라미터다.
 
+> **구현 메모 (Phase 4 — 대량 embedding·LLM batch inference, 2026-08-12):** `batch_inference.py` — 08 hypothesis embedding 핀(§2.3)·ADR-802·809를 **인덱스 작성 측이 아니라 임베딩 호출 측**에서 봉인 (mock/실측 격리, Phase 4 DoD ①). **embedding 핀 = `BAAI/bge-m3`(1024-dim, `cosinesimil`)** — `EMBEDDING_MODEL`/`EMBEDDING_DIM`/`EMBEDDING_SPACE`, **08 소유**이며 07 은 참조만(07↔08 순환 소유 해소). `embeddable_kind` — **단지 segment/claim 만 임베딩**(ADR-802, 문서·evidence 비임베딩 — evidence 는 provenance 로 연결, §1.1②). `embedding_index_version` = model:dim 축약 — 모델·차원 변경 시 `index_version` 변화로 **전량 reindex 트리거**(§2.1, 불변식 §3-1 파생물). `embed_texts` — 대량 텍스트 일괄 임베딩, executor 주입 지점(실측 백엔드 격리), 각 항목에 `embedding_model`·`index_version` 부착(§2.1 정합). read-only(불변식 §3-3)·결정적. Spec 그대로(0.1.9). [10 §4.5](./10-evaluation-and-testing.md)의 batch inference 메모와 연결.
+
 ---
 
 ## 5. Context 구성 계약 (Context Assembly)

@@ -85,6 +85,8 @@ route(task):
 - **batch 우선:** L3 대량 추출은 Message Batches(비latency-민감, 50% 절감)로 처리한다. 대화형 조사 경로(L5)는 streaming.
 - **prompt caching:** 조사 세션 내 고정 prefix(ontology 요약, tool 정의, 시스템 프롬프트)는 cache_control로 캐시한다. 모델·tool 교체는 캐시를 무효화하므로 세션 중 tier 전환은 subagent로 분리한다.
 
+> **구현 메모 (Phase 4 — 대량 embedding·LLM batch inference, 2026-08-12):** `batch_inference.py` — L3 대량 추출의 **Message Batches 일괄 계약** (§2.2, 비-latency-민감·50% 절감)을 호출 측에서 봉인. `BATCH_TIER` = `claude-sonnet-5`(ADR-701 alias). `batch_infer` — 대량 items 일괄 inference, executor 주입 지점(실측 LLM 백엔드 격리) — **미주입 mock 은 항목을 `status:"pending"` 으로 표시**해 실측 부재를 드러냄(honest-gap §6.2, 진공 통과 금지) + `batch:True` 로 Message Batches 경로 명시. `batch_inference_cost(n, cost_per_call)` — 순차 `n×단가` 대비 `×MESSAGE_BATCHES_DISCOUNT(0.5)` 절감 → `saving_ratio`(10 §1.4 DoD ① 비용 측정). `inference_throughput`·`compute_inference_slo` — throughput(10 §1.4 재사용) + `INFERENCE_SLO_MS=60s` **slo-gate**(CI 비차단 nightly, 미측정 honest-gap). embedding 핀(08 §2.3 ADR-809)은 [08](./08-search-and-graphrag.md) 참조만. read-only·결정적. **Spec 그대로(0.1.9).** [10 §4.5](./10-evaluation-and-testing.md) 메모와 연결.
+
 ### 2.3 승급 임계·추정법 (ADR-706)
 
 승급 게이트의 `τ_tier`(하위 tier 산출물 confidence 임계)와 정보가치·비용 추정 방식을 초기 기본값으로 고정한다. **모든 값은 placeholder이며 골든셋([10](./10-evaluation-and-testing.md)) 실측으로 조정한다.**
