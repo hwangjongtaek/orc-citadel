@@ -71,6 +71,8 @@ Evaluation은 최종 조사 질문(§2.1 golden question) 실행 결과를 채�
 
 > **LLM-as-judge 보정(calibration).** `인용 지지율`처럼 LLM judge가 채점하는 blocking 지표는, 게이트로 쓰기 전 **human agreement baseline**(judge↔human 라벨 일치도: Cohen's κ 또는 accuracy)을 골든 `dev` 파티션(§2.4)에서 측정한다. 합의도 미달 시 judge 점수를 게이트로 승격하지 않고 **사람 채점으로 강등**한다. 보정치(κ·accuracy)는 회귀 리포트에 함께 남긴다.
 
+> **구현 (Phase 3 — 조사 품질 평가 하네스, 2026-08-12):** `investigation_quality.py` — golden question(§2.1 조사 질문) 대비 조사 품질 **전 지표**를 채점하는 read-only 하네스. `GoldenQuestion`(planned_subclaims·gold_counter·gold_independent_count) + `InvestigationQualityHarness` — coverage(covered/planned, gate ≥ 0.80)·인용 연결률(linked/verifiable, gate = 1.0 — reported prediction 무출처 허용, evidence-first §3-5)·인용 지지율(judge verdict 주입, gate ≥ 0.95)·독립증거 수 정확성(1 − |r−g|/max(g,1), gold=None 미확보→measured=False, gold=0 과대평가 방지, target ≥ 0.90)·**반증 발견률(found/total_gold_counter, target ≥ 0.70 — DoD ② 직접 지표)**·modality 정확도(gate ≥ 0.85)·confidence 부호 일치율(지지 추가→상승·반증 추가→하락 부호, target ≥ 0.85, 방향 우선·크기 부차). **honest-gap** 도입(§6.2): 골든이 없는 축은 모든 계산이 순수 함수·결정적이며, LLM judge 점수는 호출자가 주입(하네스는 대조만 — §1.3 judge 보정 게이트 승격 경로 유지). **스키마·계약 변경 없음 → Spec 그대로(`0.1.9`).** TDD — `test_investigation_quality` 신규 20개(coverage 운·honest-gap·연결률·지지율·독립증거 gold=0·반증 recall·modality·부호 일치·score_question 통합·read-only·결정성) — 스위트 535→**555개 통과**(회귀 0). 다음: Planner(07 §3.2)로 골든 question 실측·DoD ② AB 검증.
+
 ### 1.4 시스템 성능 (§12.4)
 
 성능 지표는 CI 회귀가 아니라 **부하 테스트(load test, §4.5)·운영 SLO**로 검증한다. `slo-gate:`는 목표 SLO 대비 회귀 감지 기준이며 **CI/승격을 차단하지 않고 nightly 경보로만 라우팅**한다 (§6.3, → [`11-observability`](./11-observability-and-governance.md) §2.3).
