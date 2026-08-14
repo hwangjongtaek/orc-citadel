@@ -95,6 +95,21 @@ def test_investigate_response_exposes_audit_trace():
     assert tr["blocked_statements"] == []
 
 
+def test_investigate_response_exposes_d8_dashboard():
+    """_api_investigate 가 D8 Investigation 대시보드(coverage·독립·비용·latency)를 노출."""
+    facade = _build_facade()
+    subj = facade.zone.assertions()[0]["subject_id"]
+    self = types.SimpleNamespace(facade=facade)
+    resp = json.loads(Handler._api_investigate(self, {"subject": subj}))
+    assert "dashboard" in resp
+    d = resp["dashboard"]
+    # D8 — investigation_id 분해 + evidence coverage + 독립 증거 수 (11 §2.2).
+    assert "investigation_id" in d
+    assert d["evidence_coverage"]["measured"] is True
+    assert "independent_evidence" in d
+    assert "cost" in d and "latency_ms" in d
+
+
 def test_investigate_response_exposes_retrieval():
     """_api_investigate 가 SEARCH 스테이지의 retrieved 후보를 응답에 노출 (07 §4)."""
     facade = _build_facade()

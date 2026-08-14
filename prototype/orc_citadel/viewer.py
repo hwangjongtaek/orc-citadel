@@ -130,6 +130,17 @@ class Handler(BaseHTTPRequestHandler):
                          "gap_reason": sc.gap_reason} for sc in planned.subclaims]
         # Audit §3.9 — 문장 → claim → source span 역추적 trace 노출 (연결률 = 1.0).
         audit_trace = self.facade.zone and Audit().trace(rep.statements, z)
+        # Investigation 대시보드 (11 §2.2 D8) — coverage·독립 증거·비용·latency.
+        from orc_citadel.investigation_dashboard import investigation_dashboard, Coverage
+        indep = inv.coverage and graph_view["independence_summary"].get(
+            "independent_source_count", 0)
+        dashboard = investigation_dashboard(
+            investigation_id=f"inv-{subj[:16]}",
+            coverage=Coverage(covered=int(round(inv.coverage * len(planned.subclaims))),
+                              planned=len(planned.subclaims),
+                              gaps=inv.gaps),
+            independent_evidence=indep,
+            elapsed_ms=0)
         return {
             "subject_id": subj,
             "planned_subclaims": planned_view,
@@ -143,6 +154,7 @@ class Handler(BaseHTTPRequestHandler):
             "open_questions": rep.open_questions,
             "audit": rep.audit,
             "audit_trace": audit_trace,
+            "dashboard": dashboard,
             "subgraph": graph_view["subgraph"],
             "relation_paths": graph_view["relation_paths"],
             "independence_summary": graph_view["independence_summary"],

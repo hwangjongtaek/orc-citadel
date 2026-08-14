@@ -108,6 +108,8 @@ blueprint §14의 대시보드 목록을 지표 계약으로 확정한다.
 | D8 | Investigation | investigation별 evidence coverage, 독립 증거 수(§1.4), 비용·latency | agent runtime(→ [07](./07-llm-and-agents.md)) | Council Chamber |
 
 - 모든 대시보드 metric은 `correlation_id`·`version_tuple`로 분해(drill-down) 가능해야 한다(D6 회귀 분석의 전제).
+
+> **구현 (Phase 3 — Investigation 대시보드, 2026-08-12):** `investigation_dashboard.py` — D8(Council Chamber) 지표 계산. `investigation_dashboard(investigation_id, Coverage(covered·planned·gaps), independent_evidence, budget, elapsed_ms)` → investigation별 **evidence coverage**(covered/planned + gap 목록 — planned 0이면 honest-gap §6.2 measured=False)·**독립 증거 수**(11 §1.4 dup 보정)·**cost**(InvestigationBudget token/step)·**latency_ms**(10 §1.4 cost_per_inv·latency_p95 계약). read-only·결정적·investigation_id 분해(drill-down). `viewer._api_investigate`에 `dashboard` D8 노출. **스키마·계약 변경 없음 → Spec 그대로(0.1.9).** TDD — `test_investigation_dashboard` 신규 5개(coverage·독립·budget token/latency·honest-gap·read-only) + `test_viewer_graph` 신규 1개(D8 노출) — 스위트 588→**594개 통과**(회귀 0). 다음: Phase 3 DoD ①② 통합 검증 + 완결 블록업.
 - 초기 구성은 PostgreSQL + Grafana, 확장 시 ClickHouse + Grafana (→ [01](./01-architecture.md) §5, 승격 트리거: 분석 쿼리 지연).
 
 ### 2.3 SLO 정의
