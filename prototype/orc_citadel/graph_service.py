@@ -133,6 +133,51 @@ class GraphService:
             n.props.pop("merged", None)
             n.props["merged"] = False
 
+    # --- merge 감사·rollback (DoD ②, 06 §5.3) ------------------------------
+
+    def merge_audit(self, entity_id: str) -> dict:
+        """특정 entity 의 병합 이력 감사 조회 (read-only, 06 §5.3).
+
+        member→canonical `SAME_AS` 병합 이력 + 현재 rewrite 상태를 노출 — 누가(actor)·
+        언제(resolution_ref)·어디로(canonical) 병합했는지 감사 가능하도록. 불변식 §3-3
+        조회만 — 그래프 상태를 변경하지 않는다.
+        """
+        n = self._nodes.get(entity_id)
+        if n is None:
+            return {"entity_id": entity_id, "canonical_id": None, "merges": []}
+        merges = []
+        for e in self._edges:
+            if e.etype == "SAME_AS" and e.fro == entity_id:
+                merges.append({
+                    "to": e.to,
+                    "resolution_ref": e.props.get("resolution_ref", ""),
+                    "decided_by": e.props.get("decided_by", "pipeline"),
+                })
+        return {
+            "entity_id": entity_id,
+            "canonical_id": n.props.get("canonical_id"),
+            "merged": n.props.get("merged", False),
+            "merges": merges,
+        }
+
+    def audit_rollback(self, entity_id: str, resolution_ref: str) -> bool:
+        """오병합 판정 시 해당 resolution 의 병합을 unmerge 로 revert (06 §5.3).
+
+        감사로 찾은 `resolution_ref` 를 가진 SAME_AS 병합에 대해 canonical 로 unmerge
+        역연산을 실행(가역) — 그 뒤 노드는 원래 canonical rewrite 를 잃는다.
+        실패(병합 미존재·미매칭 ref) 시 no-op 이고 False 반환 (정확한 복구, ADR-507
+        precision-first — 오병합만 revert).
+        """
+        if entity_id not in self._nodes:
+            return False
+        for e in self._edges:
+            if (e.etype == "SAME_AS" and e.fro == entity_id
+                    and e.props.get("resolution_ref") == resolution_ref):
+                self._apply_unmerge(
+                    {"member": entity_id, "canonical": e.to}, resolution_ref)
+                return True
+        return False
+
     def _apply_supersede(self, payload: dict) -> None:
         """supersede — 신버전 SUPERSEDES 구버전 + 구버전 tx_to close (06 §6).
 

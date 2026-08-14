@@ -206,6 +206,8 @@ SET a.canonical_id = null;    // canonical_id 원복 → 조회 계층 rewrite(�
 
 - precision-first 원칙상 불확실한 병합은 `POSSIBLY_SAME_AS` 후보로만 유지하고 authoritative merge를 미룬다([`02-ontology`](./02-ontology.md) §3, [`05-resolution`](./05-resolution-and-extraction.md)).
 
+**구현 (Phase 2 — DoD ② merge 감사·rollback, 2026-08-12):** `GraphService`에 병합 감사·가역 복구 API 추가 — `merge_audit(entity_id)`(read-only: 해당 entity 의 `SAME_AS` 병합 이력 — canonical·resolution_ref·decided_by·merged 를 감사 조회, 불변식 §3-3)와 `audit_rollback(entity_id, resolution_ref)`(감사로 찾은 병합을 해당 resolution 의 `unmerge` 로 revert — 06 §5.3 reversible·ADR-605, 실패/미매칭 ref 시 no-op False). DoD ② "entity merge 감사·rollback 가능" 충족. 그래프의 유일 쓰기 경로(replay)는 유지 — rollback 은 `_apply_unmerge` 역연산 재사용(가역·멱등 §3-6). TDD — `test_graph_audit` 신규 6개(감사 노출·미병합·rollback 복구·멱등·미매칭 no-op·read-only) — 스위트 520→**526개 통과**(회귀 0).
+
 ## 6. Supersession
 
 - **bitemporal 버전 단위는 `Assertion`이다**([`03-storage`](./03-storage-and-data-model.md) §6.2). Claim은 reified statement, Assertion은 그 Claim의 valid/tx 버전을 담는 노드다. supersession·`tx_to` close·AS-OF는 모두 Assertion에 적용한다(§2.3 인덱스·§8.2 질의 일관).
