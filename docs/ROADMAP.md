@@ -4,7 +4,7 @@
 > 규칙: 설계·구현 변경은 (1) 해당 design 문서 수정 (2) `design/README.md` Spec version 반영 (3) 본 문서 §5 Changelog 기록의 3단계를 거친다.
 
 - **최종 갱신:** 2026-08-11
-- **현재 단계:** Phase 1 (10만 문서 MVP) **완결** — *MVP 10/10 충족, Phase 1 DoD ①② 충족, Q4 PASS · Q6 Phase 4 유보. 설계 문서 Review → Stable 확정 대기*
+- **현재 단계:** Phase 2 (Entity·Claim 품질) **완결** — *Phase 1 완결(MVP 10/10·DoD ①②·Q4 PASS·Q6 유보) + Phase 2 완결(6 작업·DoD ①②, 스위트 535). 설계 문서 Review → Stable 확정 대기*
 - **Spec version:** 0.1.4 · **Ontology version:** 1.0.0
 
 ## 1. 상태 요약 (한눈에)
@@ -80,18 +80,20 @@
 > - **Phase 0→1 게이트 ② (Q4) ✅ 판정** — 실신호 본문 그래프(194노드·49엣지)·합성 10만 조회에서 **3개 게이트 전항 PASS** (p95 ≤ 1.16ms ≪ 500ms · 노드 ≪ 1e6 · 재구축/증분=1.06 ≪ 10×) → Memgraph 교체 트리거 없음 ([06 §9](./design/06-graph-service.md)). 1e6/p95-500ms 는 Phase 4 부하에서 재판정(게이트 계약 유지).
 > - **Q6 (Iceberg) 판정: Phase 4(100만) 유보** — 승격 트리거가 "테이블 >수천만 row·스키마 진화"(01 §122)라 현재 10만 스케일은 **관측 미대상** → 승격 결정 유보 ([01 §120-122](./design/01-architecture.md), changelog 146).
 
-### Phase 2 — Entity·Claim 품질 (6~8주)
+### Phase 2 — Entity·Claim 품질 (6~8주) — *완결 (2026-08-12)*
 
-| 작업 | 담당 스펙 |
-| --- | --- |
-| 후보 blocking + Entity Resolution | [05](./design/05-resolution-and-extraction.md) |
-| Claim Canonicalization | [05](./design/05-resolution-and-extraction.md) |
-| 출처 계보 모델 | [04](./design/04-ingestion-and-parsing.md), [11](./design/11-observability-and-governance.md) |
-| contradiction candidate 생성 | [05](./design/05-resolution-and-extraction.md) |
-| quarantine·review workflow | [05](./design/05-resolution-and-extraction.md), [06](./design/06-graph-service.md) |
-| 골든 데이터셋 구축 | [10](./design/10-evaluation-and-testing.md) |
+| 작업 | 담당 스펙 | 상태 |
+| --- | --- | --- |
+| 후보 blocking + Entity Resolution | [05](./design/05-resolution-and-extraction.md) | ✅ 결정적 ER(ADR-507) + entity pair 골든 평가·오병합률(≤0.02) |
+| Claim Canonicalization | [05](./design/05-resolution-and-extraction.md) | ✅ F1=1.00 실측 (MVP #4) |
+| 출처 계보 모델 | [04](./design/04-ingestion-and-parsing.md), [11](./design/11-observability-and-governance.md) | ✅ dedup_clusters + lineage 골든 평가(dup P/R, gate ≥0.98) |
+| contradiction candidate 생성 | [05](./design/05-resolution-and-extraction.md) | ✅ ConflictCandidate + 골든 측정 전환 회귀 |
+| quarantine·review workflow | [05](./design/05-resolution-and-extraction.md), [06](./design/06-graph-service.md) | ✅ review→골든 파생 (derive_golden, ADR-506) |
+| 골든 데이터셋 구축 | [10](./design/10-evaluation-and-testing.md) | ✅ claim·entity pair·lineage 골든 확장 (measured 전환) |
 
-**DoD:** ① 핵심 품질 지표 자동 계산 ② entity merge 감사·rollback 가능.
+**DoD:** ① 핵심 품질 지표 자동 계산 — ✅ `metrics_report` 전 축 자동(골든 존재 시 measured, 부재 시 vacuous pass 없이 honest-gap §6.2) · ② entity merge 감사·rollback 가능 — ✅ `merge_audit`·`audit_rollback`.
+
+> **Phase 2 완결 블록업 (2026-08-12):** 6 작업 + DoD ①② 전항 구현·회귀 봉인 완료 — 스위트 535 Green. 실데이터(curated.duckdb) 측정: claim F1=1.00·ER P=1.00 오병합률=0.0000 measured PASS, **contradiction·lineage는 실데이터에 해당 골든이 자연 발생하지 않아 정직하게 미측정(honest gap §6.2)** — 실데이터 재수집 시 measured 전환 가능(단위 테스트로 경로 봉인). 다음: Phase 3 (Research Agent — Planner·Counter-Evidence·Synthesis, 조사 budget).
 
 ### Phase 3 — Research Agent (9~10주)
 
@@ -141,6 +143,7 @@
 가장 최신이 위로. 스펙·설계 변경을 기록한다 (구현 세부 커밋은 git 이력).
 
 ### 2026-08-12
+- **Phase 2 완결 블록업 (6 작업 + DoD ①②, 스위트 535 Green).** Phase 2(Entity·Claim 품질) 전 작업 구현·회귀 봉인 완료. 작업별 상태: 후보 blocking+ER(결정적 ER ADR-507 + entity pair 골든 평가·오병합률≤0.02) · Claim Canonicalization(F1=1.00 실측, MVP #4) · 출처 계보(dedup_clusters + lineage 골든 dup P/R) · contradiction candidate(ConflictCandidate + 골든 측정 전환) · quarantine·review(derive_golden 파생, ADR-506) · 골든 데이터셋(claim·entity pair·lineage 골든 확장). **DoD ① "핵심 품질 지표 자동 계산"** — `metrics_report` 전 축 자동(골든 존재 시 measured, 부재 시 vacuous pass 없이 honest-gap §6.2) · **DoD ② "entity merge 감사·rollback"** — `merge_audit`·`audit_rollback`(06 §5.3). 실데이터 측정: claim F1=1.00·ER P=1.00 오병합률=0.0000 PASS, contradiction·lineage 는 실데이터 골든 미자연발생 → 정직 미측정(재수집 시 measured 전환 가능, 경로 단위 테스트 봉인). §1 현재 단계·§3 Phase 2 완결·Spec 0.1.9 마킹. Phase 2 종료 상태 확정, Phase 3(Research Agent) 진입 준비.
 - **Phase 2 — 계보 골든 확장 measured 전환 (design 10 §1.1·§2.1).** 계보 골든셋(dup/independent)로 `metrics_report` **lineage 축 measured 전환** — dup P/R 실측. `golden_lineage_pairs` 테이블 + `persist_golden_lineage_pair`·`golden_lineage_pairs`(결정적 golden_id ON CONFLICT no-op, §3-7/어드-1007). `EvalHarness.lineage_metrics` — 골든 두 doc이 **같은 dup_clusters 클러스터 멤버인지** 대조(design 04 §4 — `_build_cluster_membership`가 zone 계보 rows→`{doc_id: cluster_id}` 맵). dup 동클러스터=tp·오분리=fn, **independent 오축소=fp(복제 K건을 독립 K으로 세는 과대평가 방지)**. **gate Dup precision ≥ 0.98 · target R ≥ 0.90**(§1.1). `_lineage` measured·honest-gap(부재 시 §6.2). **스키마 변경 → Spec 0.1.8→0.1.9.** TDD — `test_metrics_report` 신규 4개(lineage measured·오축소 fp·오분리 fn·honest gap) — 스위트 531→**535개 통과**(회귀 0). 실데이터 dup_clusters 0건 → lineage 실제 데이터선 honest-gap 유지.
 - **Phase 2 — review→골든 파생 경로 (design 05 §8.2·ADR-506, 불변식 §3-7).** `review.py`에 `derive_golden(rq, zone, gold_version, labeled_by, split)` — human review 결정을 zone 의 골든 claim pair(`persist_golden_pair`)·entity pair(`persist_golden_entity_pair`)로 파생. corrected/approved 만 파생(pending/in_review 는 골든 원천 아님 — 05 §8.2), 인간 교정본(`corrected_value`)의 `verdict`를 골든 라벨·`claim_b`/`entity_a`/`entity_b`로 쌍 추출(불변식 §3-7 원출력+수정+이유 보존). human review 가 metrics_report/DoD ① 의 골든셋으로 이어지는 경로 완결 — quarantine·review workflow → 골든셋 파생. 결정적 멱등(ON CONFLICT no-op, 03 §5)·ADR-1007 split. **Spec 0.1.7→0.1.8.** TDD — `test_review_golden` 신규 5개(claim 파생·entity 파생·미결정 skip·멱등·결정적) — 스위트 526→**531개 통과**(회귀 0).
 - **Phase 2 — DoD ② merge 감사·rollback (design 06 §5.3, ADR-605).** Phase 2 DoD ② "entity merge 감사·rollback 가능" 충족. `GraphService.merge_audit(entity_id)` — read-only 병합 이력 감사 조회(canonical·resolution_ref·decided_by·merged, 불변식 §3-3) · `audit_rollback(entity_id, resolution_ref)` — 감사로 찾은 병합을 해당 resolution 의 `unmerge` 역연산으로 revert(06 §5.3 reversible·ADR-605, 실패/미매칭 no-op False · 가역·멱등 §3-6). merge/unmerge 가 이미 graph_service 에 있던 것을 명시적 감사·복구 API 로 봉인. **Spec 0.1.6→0.1.7.** TDD — `test_graph_audit` 신규 6개(감사 노출·미병합·rollback 복구·멱등·미매칭 no-op·read-only) — 스위트 520→**526개 통과**(회귀 0).
