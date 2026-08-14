@@ -156,6 +156,23 @@ docker compose:
 - object store는 S3, 테이블은 Iceberg 카탈로그(REST catalog).
 - 승격은 blueprint §16 Phase 4 이후, 측정 근거와 함께 ADR로 결정한다.
 
+#### 6.3 분산 batch 구현 메모 (Phase 4 DoD ①)
+
+`distributed_batch.py` 로 분산 batch 계약 봉인 (Ray 미설치 환경 — mock/실측 격리):
+
+- `shard(metas, k)` — 재결정·read-only 파티셔닝 (k-파라미터, 실제 Ray Data 백엔드
+  진입점). k>len 은 클램프(빈 파티션 방지), round-robin 으로 밸런스(차 ≤ 1).
+- `ParallelismBench` — 병렬 벽시계·speedup 측정 (executor mock 주입 — 실측 대비
+  mock). **벤치 벽시계 모델**: 노드별 = `len(shard)×per_node_ms`, 병렬=`max`,
+  순차(k=1)=`sum` → speedup=순차/병렬.
+- `merge_results` — 노드별 파이프라인 결과 합산 (숫자 합산·list 접합).
+- `throughput_docs_per_sec`·`compute_slo_gate` — MVP #9(10 §1.4) 계약 재사용,
+  **DoD ① 처리 시간·비용 측정** 계약. SLO 임계 `PER_NODE_SLO_MS=60s` (slo-gate·
+  CI 비차단, 10 §1.4).
+
+실제 Ray Data(cluster)·Spark 로의 승격 시 §6.1 배포 토폴로지대로 worker에서 이
+진입점을 실측 백엔드로 교체하고 speedup 을 프로파일로 재측정한다 (ADR 트리거).
+
 ## 7. 환경 분리
 
 | 환경 | 목적 | 데이터 |
