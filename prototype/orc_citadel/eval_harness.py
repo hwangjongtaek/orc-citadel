@@ -13,11 +13,15 @@
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 
 CANONICAL_GATE = 0.85
 CONTRADICTION_GATE_P = 0.90
 CONTRADICTION_TARGET_R = 0.75
+# ER/오병합률 게이트 (design 10 §1.2·ADR-1001, precision-first).
+ENTITY_RESOLUTION_GATE_P = 0.97
+ENTITY_RESOLUTION_GATE_WRONG_MERGE = 0.02
 
 
 @dataclass(frozen=True)
@@ -27,6 +31,47 @@ class GoldenPair:
     label: str              # equivalent | contradicts | unrelated
     split: str = "dev"      # dev | test (ADR-1007)
     rationale: str = ""
+
+
+@dataclass(frozen=True)
+class GoldenEntityPair:
+    entity_key_a: str
+    entity_key_b: str
+    label: str              # same | not_same | uncertain
+    split: str = "dev"      # dev | test (ADR-1007)
+    rationale: str = ""
+
+
+def entity_key_for(mention_type: str, canonical_name: str,
+                   identifiers: dict | None = None) -> str:
+    """골든 entity key — ADR-507 결정적 규칙과 동일한 식별 기준.
+
+    결정적 외부식별자가 있으면 `id:<sorted identifiers>`, 없으면
+    `surface:<type>:<canonical_name>`. 골든세트와 zone 해소 결과 양쪽이 같은
+    형식을 써야 same/not_same 판정이 정합된다 (불변식 §3-7).
+    """
+    if identifiers:
+        return "id:" + json.dumps(sorted(identifiers.items()),
+                                   ensure_ascii=False, sort_keys=True)
+    return f"surface:{mention_type}:{canonical_name}"
+
+
+def build_entity_merge(entities_rows: list[dict]) -> dict:
+    """zone의 해소된 entity row들 → {entity_key: entity_id} 맵 (read-only).
+
+    결정적 식별자를 가진 entity는 `id:<sorted ids>` 키, 식별자 없는 canonical은
+    각 surface_forms를 `surface:<type>:<surface>` 키로 확장한다. 멀티 surface(동치류)
+    해소가 같은 entity_id로 매핑되는 지점이 골든 same 쌍의 정답 트리거다.
+    """
+    mapping: dict[str, str] = {}
+    for e in entities_rows:
+        ids = e.get("identifiers") or {}
+        mention_type = e.get("mention_type") or ""
+        if ids:
+            mapping[entity_key_for(mention_type, "", ids)] = e["entity_id"]
+        for s in e.get("surface_forms") or []:
+            mapping[entity_key_for(mention_type, s)] = e["entity_id"]
+    return mapping
 
 
 @dataclass(frozen=True)
@@ -55,11 +100,12 @@ class EvalHarness:
     """골든셋(claim pair) 대비 파이프라인 산출 대조 — read-only 평가."""
 
     def __init__(self, zone=None, canonical_claims=None, member_of=None,
-                 conflicts=None, golden=None) -> None:
+                 conflicts=None, golden=None, entities=None,
+                 golden_entities=None) -> None:
         """상태는 zone에서 읽거나 직접 주입 (결정적·독립 테스트용).
 
-        주입 우선: canonical_claims/member_of/conflicts/golden 이 명시되면 사용.
-        zone 주입 시 zone의 캐노니컬·모순·골든(read-only 조회) 사용.
+        주입 우선: canonical_claims/member_of/conflicts/golden/entities/golden_entities 가
+        명시되면 사용. zone 주입 시 zone의 캐노니컬·모순·골든·entity(read-only 조회) 사용.
         """
         if canonical_claims is not None:
             self._canonical_claims = list(canonical_claims)
@@ -82,6 +128,26 @@ class EvalHarness:
             ) for g in zone.golden_pairs()]
         else:
             self._golden = []
+
+        # 골든 entity pair (Phase 2 §2.1) — 주입 우선, zone이면 자동 로드.
+        if golden_entities is not None:
+            self._golden_entities = list(golden_entities)
+        elif zone is not None:
+            self._golden_entities = [GoldenEntityPair(
+                entity_key_a=g["entity_key_a"], entity_key_b=g["entity_key_b"],
+                label=g["label"], split=g["split"],
+                rationale=g.get("rationale") or "",
+            ) for g in zone.golden_entity_pairs()]
+        else:
+            self._golden_entities = []
+
+        # zone의 해소된 entity rows → entity_key → entity_id 맵.
+        if entities is not None:
+            self._entity_merge = build_entity_merge(entities)
+        elif zone is not None:
+            self._entity_merge = build_entity_merge(zone.entities())
+        else:
+            self._entity_merge = {}
 
         # claim → canonical_id 맵.
         self._claim_canonical = {r["claim_id"]: r["canonical_claim_id"]
@@ -135,6 +201,38 @@ class EvalHarness:
                     tp += 1
                 else:
                     fn += 1
+        return Metric(tp=tp, fp=fp, fn=fn)
+
+    # --- entity resolution -------------------------------------------------
+
+    def entity_resolution_metrics(self, split: str | None = None) -> Metric:
+        """ER P/R·오병합률 — 골든 entity pair 대비 해소 대조 (design 10 §1.2, ADR-1001).
+
+        시스템 판정 = 골든 두 entity_key가 같은 canonical entity로 병합됐는지
+        (ADR-507: 결정적 외부식별자 exact match만 병합 — `_entity_merge` 맵 재현).
+        - same  쌍이 병합되면 tp, 병합 실패면 fn (오분리 under-merge).
+        - not_same 쌍이 같은 entity_id로 병합되면 fp — **오병합** (그래프 전역 오염,
+          precision-first: 게이트 P ≥ 0.97, 오병합률 ≤ 0.02).
+        - uncertain 은 병합 가정 판정을 안 함 (POSSIBLY_SAME_AS 유지, ADR-507) → 게이트 제외.
+        """
+        tp = fp = fn = 0
+        for g in self._golden_entities:
+            if g.label not in ("same", "not_same"):
+                continue  # uncertain — 병합 가정 판정 불가(ADR-507), 게이트 제외.
+            if split is not None and g.split != split:
+                continue
+            merged = (self._entity_merge.get(g.entity_key_a)
+                      == self._entity_merge.get(g.entity_key_b)) \
+                and g.entity_key_a in self._entity_merge \
+                and g.entity_key_b in self._entity_merge
+            if g.label == "same":
+                if merged:
+                    tp += 1
+                else:
+                    fn += 1  # 오분리 (under-merge, recall 하락).
+            else:  # not_same
+                if merged:
+                    fp += 1  # 오병합 (그래프 전역 오염).
         return Metric(tp=tp, fp=fp, fn=fn)
 
     # --- report -----------------------------------------------------------

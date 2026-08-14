@@ -127,6 +127,76 @@ def test_entity_resolution_gap():
     assert s.note
 
 
+def _er_zone():
+    """ER 골든 same 1쌍 + 실제 해소(공유 식별자 병합) — ER 측정 가능한 상태."""
+    from orc_citadel.resolve import Entity
+    z = CuratedZone(":memory:")
+    z.initialize()
+    # 골든 same 쌍: 같은 결정적 식별자(ticker NVDA)와 그 표면형이 같은 entity로 병합.
+    # key_a=식별자 id(json.dumps 형식), key_b=surface — 둘 다 build_entity_merge가 생성하는 키.
+    z.persist_golden_entity_pair('id:[["ticker", "NVDA"]]', "surface:org:NVDA",
+                                 "same", "dev", "g1", "human:x", "t", "r")
+    # 실제 해소: canonical entity가 두 surface를 가진 동치류.
+    ent = Entity(entity_id="org-beef", mention_type="org",
+                 canonical_name="NVIDIA", identifiers={"ticker": "NVDA"},
+                 surface_forms=("NVIDIA", "NVDA"))
+    z.persist_entity(ent)
+    return z
+
+
+def test_entity_resolution_measured_when_golden_and_merge():
+    """골든 same 쌍 + 해당 entity 병합(공유 식별자) → ER 측정·공개 (measured 전환)."""
+    z = _er_zone()
+    rep = generate_metrics_report(z)
+    s = rep.slices["entity_resolution"]
+    assert s.measured is True
+    assert s.metrics["tp"] == 1
+    assert s.metrics["fp"] == 0
+    assert s.metrics["fn"] == 0
+    assert s.metrics["precision"] == pytest.approx(1.0)
+    assert s.metrics["wrong_merge_rate"] == pytest.approx(0.0)
+    assert s.gate["pass"] is True  # P≥0.97 ∧ 오병합률≤0.02.
+
+
+def test_entity_resolution_wrong_merge_fails_gate():
+    """골든 not_same 쌍이 같은 entity로 오병합 → fp · 오병합률 상승 → 게이트 hard block.
+
+    오병합은 그래프 전역 오염 (ADR-1001 precision-first, 무관용) — 게이트 FAIL.
+    """
+    from orc_citadel.resolve import Entity
+    z = CuratedZone(":memory:")
+    z.initialize()
+    # 골든: not_same — 서로 다른 회사인데 시스템이 단일 canonical entity로 병합(오병합).
+    z.persist_golden_entity_pair("surface:org:CoA", "surface:org:CoB",
+                                 "not_same", "dev", "g1", "human:x", "t", "r")
+    # 시스템이 두 다른 표면형을 단일 canonical entity로 매핑 (오병합 — 식별자 없는 동치류).
+    ent = Entity(entity_id="org-bad", mention_type="org",
+                 canonical_name="CoA", identifiers={},
+                 surface_forms=("CoA", "CoB"))
+    z.persist_entity(ent)
+    rep = generate_metrics_report(z)
+    s = rep.slices["entity_resolution"]
+    assert s.measured is True
+    assert s.metrics["fp"] == 1
+    assert s.metrics["wrong_merge_rate"] > 0.02  # fp/(tp+fp) = 1/1 = 1.0.
+    assert s.gate["pass"] is False  # precision-first hard block.
+
+
+def test_entity_resolution_missing_merge_is_fn():
+    """골든 same 쌍인데 병합 안 됨 → fn (오분리, recall 하락) — 정직."""
+    z = CuratedZone(":memory:")
+    z.initialize()
+    z.persist_golden_entity_pair("id:[[\"ticker\", \"NVDA\"]]", "org:0", "same",
+                                 "dev", "g1", "human:x", "t", "r")
+    # 해소 없음 (entities 비어있음) → 골든 같은 쌍이 병합 안 됨 → fn.
+    rep = generate_metrics_report(z)
+    s = rep.slices["entity_resolution"]
+    assert s.measured is True
+    assert s.metrics["tp"] == 0
+    assert s.metrics["fn"] == 1
+    assert s.metrics["recall"] == pytest.approx(0.0)
+
+
 def test_unrelated_nonmerge_no_fp():
     """unrelated 골든이 병합되면 오병합(fp) 감지 → 정직한 측정."""
     z = _zone()

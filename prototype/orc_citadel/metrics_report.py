@@ -14,7 +14,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from orc_citadel.eval_harness import EvalHarness, CANONICAL_GATE
+from orc_citadel.eval_harness import (
+    EvalHarness, CANONICAL_GATE,
+    ENTITY_RESOLUTION_GATE_P, ENTITY_RESOLUTION_GATE_WRONG_MERGE,
+)
 
 CONTRADICTION_GATE_P = 0.90
 CONTRADICTION_TARGET_R = 0.75
@@ -44,9 +47,15 @@ class MetricsReport:
         for key, s in self.slices.items():
             if s.measured:
                 m = s.metrics
-                lines.append(f"  {key}: F1={m['f1']:.2f} P={m['precision']:.2f} "
-                             f"R={m['recall']:.2f} (tp={m['tp']} fp={m['fp']} fn={m['fn']}) "
-                             f"[gate {'PASS' if s.gate['pass'] else 'FAIL'}]")
+                if "wrong_merge_rate" in m:
+                    lines.append(f"  {key}: 오병합률={m['wrong_merge_rate']:.4f} "
+                                 f"P={m['precision']:.2f} R={m['recall']:.2f} "
+                                 f"(tp={m['tp']} fp={m['fp']} fn={m['fn']}) "
+                                 f"[gate {'PASS' if s.gate['pass'] else 'FAIL'}]")
+                else:
+                    lines.append(f"  {key}: F1={m['f1']:.2f} P={m['precision']:.2f} "
+                                 f"R={m['recall']:.2f} (tp={m['tp']} fp={m['fp']} fn={m['fn']}) "
+                                 f"[gate {'PASS' if s.gate['pass'] else 'FAIL'}]")
             else:
                 lines.append(f"  {key}: 미측정 (measured=False) — {s.note}")
         lines.append(f"  요약: {self.summary}")
@@ -90,11 +99,32 @@ def _contradiction(zone) -> MetricsSlice:
 
 
 def _entity_resolution(zone) -> MetricsSlice:
-    # entity pair 골든세트(설계 10 §2.1, 1,000건)·오병합 평가용 골든 없음 → 미측정.
-    return MetricsSlice(
-        key="entity_resolution", measured=False, metrics=None, gate=None,
-        note="entity pair 골든세트 미구축 — ER P/R·오병합률은 Phase 2 골든 확장(10 §2.1) 후 측정.",
-    )
+    """entity pair 골든세트(10 §2.1) 존재 시 ER P/R·오병합률 측정, 아니면 미측정.
+
+    골든 same/not_same 쌍이 있으면 EvalHarness.entity_resolution_metrics (ADR-1007
+    precision-first: P ≥ 0.97, 오병합률 ≤ 0.02). uncertain 쌍은 병합 가정 판정을
+    안 하므로(POSSIBLY_SAME_AS 유지, ADR-507) 게이트에서 제외 — vacuous pass 금지
+    (§6.2): same/not_same 골든 부재 시 measured=False.
+    """
+    h = EvalHarness(zone=zone)
+    golden = [g for g in h._golden_entities if g.label in ("same", "not_same")]
+    if not golden:
+        return MetricsSlice(
+            key="entity_resolution", measured=False, metrics=None, gate=None,
+            note="entity pair 골든세트(same/not_same) 미확보 — ER P/R·오병합률은 "
+                 "Phase 2 골든 확장(10 §2.1) 후 측정 (uncertain만으로는 vacuous pass 금지).",
+        )
+    m = h.entity_resolution_metrics()
+    metrics = {"tp": m.tp, "fp": m.fp, "fn": m.fn,
+               "precision": m.precision, "recall": m.recall, "f1": m.f1}
+    wrong_merge = m.fp / (m.tp + m.fp) if (m.tp + m.fp) else 0.0
+    metrics["wrong_merge_rate"] = wrong_merge
+    gate = {"threshold_p": ENTITY_RESOLUTION_GATE_P,
+            "threshold_wrong_merge": ENTITY_RESOLUTION_GATE_WRONG_MERGE,
+            "pass": m.precision >= ENTITY_RESOLUTION_GATE_P
+                    and wrong_merge <= ENTITY_RESOLUTION_GATE_WRONG_MERGE}
+    return MetricsSlice(key="entity_resolution", measured=True,
+                        metrics=metrics, gate=gate)
 
 
 def generate_metrics_report(zone) -> MetricsReport:
@@ -104,7 +134,16 @@ def generate_metrics_report(zone) -> MetricsReport:
         "entity_resolution": _entity_resolution(zone),
     }
     ce = slices["claim_extraction"]
-    if ce.measured:
+    er = slices["entity_resolution"]
+    if ce.measured and er.measured:
+        m = ce.metrics
+        er_m = er.metrics
+        summary = (f"Claim extraction(canonicalization) F1={m['f1']:.2f} "
+                   f"(P={m['precision']:.2f}, R={m['recall']:.2f}, tp={m['tp']}) · "
+                   f"ER P={er_m['precision']:.2f} 오병합률={er_m['wrong_merge_rate']:.4f} "
+                   f"(tp={er_m['tp']} fp={er_m['fp']} fn={er_m['fn']}) 공개; "
+                   f"contradiction은 골든 미확보로 미측정(honest gap).")
+    elif ce.measured:
         m = ce.metrics
         summary = (f"Claim extraction(canonicalization) F1={m['f1']:.2f} "
                    f"(P={m['precision']:.2f}, R={m['recall']:.2f}, tp={m['tp']}) 공개; "

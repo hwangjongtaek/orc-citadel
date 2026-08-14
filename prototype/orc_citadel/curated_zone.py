@@ -214,6 +214,25 @@ class CuratedZone:
             )
             """
         )
+        # Phase 2: entity pair 골든세트 (설계 10 §2.1 — Entity pair 판정, ADR-1001).
+        # 골든 same/not_same 쌍 → ER 캐스케이드(ADR-507) 대조로 P/R·오병합률(≤0.02) 측정.
+        # entity_key는 결정적 외부식별자(식별자 있으면 id, 없으면 (type, surface)).
+        # split(ADR-1007), gold_version, labeled_by/at — human review as data (§3-7).
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS golden_entity_pairs (
+                golden_id     VARCHAR PRIMARY KEY,
+                entity_key_a  VARCHAR NOT NULL,
+                entity_key_b  VARCHAR NOT NULL,
+                label         VARCHAR NOT NULL,   -- same | not_same | uncertain
+                split         VARCHAR NOT NULL,
+                gold_version  VARCHAR NOT NULL,
+                labeled_by    VARCHAR,
+                labeled_at    VARCHAR,
+                rationale     VARCHAR
+            )
+            """
+        )
         # S38: 승격 기준선 영속 (설계 10 §3.1, ADR-1003) — last-promoted baseline.
         # version 기반 결정적 PK, active(현재 last-promoted)/superseded(승격 이력).
         self._conn.execute(
@@ -740,6 +759,39 @@ class CuratedZone:
                 "original_prediction"]
         rows = self._conn.execute(
             f'SELECT {", ".join(cols)} FROM golden_pairs').fetchall()
+        return [dict(zip(cols, r)) for r in rows]
+
+    def persist_golden_entity_pair(
+        self, entity_key_a: str, entity_key_b: str, label: str, split: str,
+        gold_version: str, labeled_by: str | None = None,
+        labeled_at: str | None = None, rationale: str | None = None,
+    ) -> None:
+        """골든 entity pair 1건 upsert (결정적 golden_id → ON CONFLICT no-op, 10 §2.3).
+
+        entity_key: 결정적 외부식별자(식별자 있으면 id, 없으면 (type, surface)).
+        label ∈ {same, not_same, uncertain} — ER/오병합률 게이트(ADR-1001 precision-first:
+        P ≥ 0.97, 오병합률 ≤ 0.02)의 ground truth. split은 ADR-1007(dev/test).
+        """
+        hashlib = __import__("hashlib")
+        key = "|".join([entity_key_a, entity_key_b, label, split, gold_version])
+        golden_id = "gold-" + hashlib.sha256(key.encode()).hexdigest()[:24]
+        self._conn.execute(
+            """
+            INSERT INTO golden_entity_pairs
+                (golden_id, entity_key_a, entity_key_b, label, split,
+                 gold_version, labeled_by, labeled_at, rationale)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (golden_id) DO NOTHING
+            """,
+            [golden_id, entity_key_a, entity_key_b, label, split, gold_version,
+             labeled_by, labeled_at, rationale],
+        )
+
+    def golden_entity_pairs(self) -> list[dict]:
+        cols = ["golden_id", "entity_key_a", "entity_key_b", "label", "split",
+                "gold_version", "labeled_by", "labeled_at", "rationale"]
+        rows = self._conn.execute(
+            f'SELECT {", ".join(cols)} FROM golden_entity_pairs').fetchall()
         return [dict(zip(cols, r)) for r in rows]
 
     def persist_promotion_baseline(self, version: str, metrics: dict,
