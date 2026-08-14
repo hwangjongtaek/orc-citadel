@@ -4,7 +4,7 @@
 > 규칙: 설계·구현 변경은 (1) 해당 design 문서 수정 (2) `design/README.md` Spec version 반영 (3) 본 문서 §5 Changelog 기록의 3단계를 거친다.
 
 - **최종 갱신:** 2026-08-11
-- **현재 단계:** Phase 2 (Entity·Claim 품질) **완결** — *Phase 1 완결(MVP 10/10·DoD ①②·Q4 PASS·Q6 유보) + Phase 2 완결(6 작업·DoD ①②, 스위트 535). 설계 문서 Review → Stable 확정 대기*
+- **현재 단계:** Phase 3 (Research Agent) **완결** — *Phase 1 완결(MVP 10/10·DoD ①②·Q4 PASS·Q6 유보) + Phase 2 완결(6 작업·DoD ①②, 스위트 535) + Phase 3 완결(5 작업·DoD ①②, 스위트 598). 설계 문서 Review → Stable 확정 대기*
 - **Spec version:** 0.1.4 · **Ontology version:** 1.0.0
 
 ## 1. 상태 요약 (한눈에)
@@ -95,17 +95,21 @@
 
 > **Phase 2 완결 블록업 (2026-08-12):** 6 작업 + DoD ①② 전항 구현·회귀 봉인 완료 — 스위트 535 Green. 실데이터(curated.duckdb) 측정: claim F1=1.00·ER P=1.00 오병합률=0.0000 measured PASS, **contradiction·lineage는 실데이터에 해당 골든이 자연 발생하지 않아 정직하게 미측정(honest gap §6.2)** — 실데이터 재수집 시 measured 전환 가능(단위 테스트로 경로 봉인). 다음: Phase 3 (Research Agent — Planner·Counter-Evidence·Synthesis, 조사 budget).
 
-### Phase 3 — Research Agent (9~10주)
+### Phase 3 — Research Agent (완결, 2026-08-12)
 
-| 작업 | 담당 스펙 |
-| --- | --- |
-| Planner·Graph Explorer·Retrieval Agent | [07](./design/07-llm-and-agents.md), [08](./design/08-search-and-graphrag.md) |
-| Counter-Evidence Agent | [07](./design/07-llm-and-agents.md) |
-| Synthesis·Audit Agent | [07](./design/07-llm-and-agents.md) |
-| 조사 budget·종료 조건 | [07](./design/07-llm-and-agents.md) |
-| 비용·evidence coverage 대시보드 | [11](./design/11-observability-and-governance.md) |
+| 작업 | 담당 스펙 | 상태 |
+| --- | --- | --- |
+| 조사 품질 평가 하네스 (§12.3) | [10](./design/10-evaluation-and-testing.md) | ✅ golden question 전 지표 채점 (coverage·연결률·지지율·독립증거·반증·modality·부호) |
+| Investigation Planner | [07](./design/07-llm-and-agents.md) | ✅ 질문→subclaim 트리 + known/gap 라벨 (§3.2) |
+| 조사 budget·종료 + LLM routing | [07](./design/07-llm-and-agents.md) | ✅ STOP=(A∧B∧C)∨D + 승급 게이트 (§2.3·§4.3, ADR-706) |
+| Synthesis·Audit 역추적 chain | [07](./design/07-llm-and-agents.md) | ✅ 문장→claim→source span 역추적, 연결률=1.0 (§3.8/§3.9) |
+| 비용·evidence coverage 대시보드 | [11](./design/11-observability-and-governance.md) | ✅ D8 coverage·독립증거·비용·latency (§2.2) |
 
-**DoD:** ① Agent가 그래프 공백 탐색·신규 evidence 추가 ② 반증 탐색 제거 버전 대비 평가 점수 향상.
+**DoD:** ① Agent가 그래프 공백 탐색·신규 evidence 추가 — ✅ `test_investigation_dod` (조사가 그래프 evidence를 탐색, coverage ≥ 0.80 + Audit 역추적) · ② 반증 탐색 제거 버전 대비 평가 점수 향상 — ✅ AB 검증: baseline(반증 제거, recall 0.0) 대비 counter-evidence 버전 **반증 발견률 1.0 (≥0.70 PASS)로 향상**, 연결률=1.0 유지, 골든 부재 축 honest-gap.
+
+> **Phase 3 완결 블록업 (2026-08-12):** 5 작업 + DoD ①② 구현·회귀 봉인 완료 — 스위트 **598 Green** (Phase 2 종료 535 → +63 · 회귀 0). Phase 3(Research Agent)이 규칙 스텁을 **평가 가능한 조사 체계**로 실체화: 조사 품질 하네스(§12.3·DoD ② 증명 도구) · Planner(subclaim 트리·known/gap) · budget/종료·routing(§4.3·ADR-706) · Audit 역추적 chain(연결률=1.0, evidence-first) · D8 대시보드. DoD ① "그래프 공백 탐색·evidence 추가" + DoD ② "반증 제거 대비 점수 향상(AB)" 통합 검증으로 봉인. read-only·결정적 원칙 유지, Spec 0.1.9. 다음: Phase 4 (100만 문서 확장 — 분산 batch·증분 graph·embedding/LLM batch·ClickHouse).
+
+### Phase 4 — 100만 문서 확장 (11~12주)
 
 ### Phase 4 — 100만 문서 확장 (11~12주)
 
@@ -143,6 +147,7 @@
 가장 최신이 위로. 스펙·설계 변경을 기록한다 (구현 세부 커밋은 git 이력).
 
 ### 2026-08-12
+- **Phase 3 완결 블록업 (5 작업 + DoD ①②, 스위트 598 Green).** Phase 3(Research Agent) 전 작업 구현·회귀 봉인 완료. 작업별 상태: 조사 품질 평가 하네스(`investigation_quality`, §12.3 — 전 지표 채점·DoD ② 증명 도구) · Investigation Planner(`planner`, §3.2 질문→subclaim 트리·known/gap) · 조사 budget·종료 + LLM routing(`investigation_budget`, §4.3 STOP=(A∧B∧C)∨D·§2.3/ADR-706 승급 게이트) · Synthesis·Audit 역추적 chain(`synthesis::Audit.trace`, §3.8/§3.9 문장→claim→extraction_record source span, 연결률=1.0) · 비용·evidence coverage 대시보드(`investigation_dashboard`, design 11 §2.2 D8). **DoD ① "그래프 공백 탐색·신규 evidence 추가"** — `test_investigation_dod`(조사가 그래프 evidence 탐색, coverage ≥ 0.80 + Audit 역추적) · **DoD ② "반증 탐색 제거 대비 평가 점수 향상"** — AB 검증: baseline(반증 제거, 반증 recall 0.0) 대비 counter-evidence 버전 **반증 발견률 1.0(≥0.70 PASS)로 향상**·연결률 1.0 유지·골든 부재 축 honest-gap(§6.2). `viewer._api_investigate`가 Planner 트리·audit_trace·D8 dashboard 일괄 노출(조사 E2E 응답 확장). **Spec 그대로(0.1.9)** — Phase 3 전 작업이 read-only·결정적 원칙을 유지하며 스키마·계약 변경 없음. §1 현재 단계·§3 Phase 3 완결 마킹. Phase 3 종료 상태 확정, Phase 4(100만 문서 확장) 진입 준비.
 - **Phase 3 — Investigation 대시보드 (design 11 §2.2 D8).** `investigation_dashboard.py` — D8(Council Chamber) 지표 계산. `investigation_dashboard(investigation_id, Coverage, independent_evidence, budget, elapsed_ms)` → investigation별 **evidence coverage**(covered/planned + gap — planned 0 honest-gap §6.2)·**독립 증거 수**(11 §1.4 dup 보정)·**cost**(token/step)·**latency_ms**(10 §1.4). read-only·결정적·investigation_id 분해. `viewer`에 `dashboard` D8 노출. **Spec 그대로(0.1.9).** TDD — `test_investigation_dashboard` 5개 + `test_viewer_graph` 1개 — 스위트 588→**594개 통과**(회귀 0). 다음: Phase 3 DoD ①② 통합 검증 + 완결 블록업.
 - **Phase 3 — Synthesis·Audit 증거 역추적 chain (design 07 §3.8·§3.9).** `synthesis.py::Audit.trace` — 검증가능(fact/asserted) 문장이 `claim_ref` → `extraction_record`(03 §8, ADR-305 element_id=claim_id)의 **source span(segment_id·char_start·char_end·doc_id)까지 역추적**되는지 대조 (§3.9). 출력 `{trace, blocked_statements, verifiable, linked, verified_statements, linkage_ratio}` — prediction/opinion 무출처 허용(연결률 분모 제외, 10 §1.3), 역추적 불가 → verified=False·blocked(무출처·미역추적 차단). `verify_from_trace` — blocked 존재 시 passed=False(**연결률 = 1.0** 불변식 §3-5 통과 판정). `Synthesizer`가 §3.9 trace 기반 audit 사용, `viewer`에 `audit_trace`(linkage_ratio) 노출. **read-only·결정적.** **Spec 그대로(0.1.9).** TDD — `test_audit_trace` 7개 + `test_synthesis` ADR-305 계약 반영 + `test_viewer_graph` 1개 — 스위트 580→**588개 통과**(회귀 0). 다음: 조사 비용·evidence coverage 대시보드(11).
 - **Phase 3 — 조사 budget·종료 조건 + LLM routing (design 07 §2.2·§2.3·§4.3, ADR-706).** `investigation_budget.py` — §4.3 조합 종료 + §2.3 routing 구현 가능화 (placeholder 초기 기본값). `InvestigationBudget(max_steps·max_tokens)` step/token 예산 → 소진 시 **hard stop(D)** (max_steps=0 즉시, max_tokens=0 비활성). `evaluate_stop` — **STOP=(A∧B∧C)∨D**: A coverage ≥ 0.9 · B 신규 독립 증거율 < ε 0.05 · C 미해결 모순 = 0 · D budget 항상 hard stop (δ 0.02 수렴은 보조). `route_llm` — §2.2 task별 L0..L5 + **승급 게이트**(결과 confidence < τ 0.75/0.70/0.65 ∧ 예산 잔량 > cost(next) 시 1단계 승급, ADR-706) · `expected_info_gain`(=Δcoverage×var(conf))·`call_cost`(=(in+out)×단가). `InvestigationRunner`가 예산+`evaluate_stop` 배선(terminated_by 기존 어휘 유지). **read-only·결정적.** **Spec 그대로(0.1.9).** TDD — `test_investigation_budget` 16개 + `test_investigation_runner` 1개 — 스위트 563→**580개 통과**(회귀 0). 다음: Synthesis·Audit 증거 역추적 chain(07 §3.8/§3.9, 연결률 = 1.0).
