@@ -240,6 +240,8 @@ blueprint §15의 5범주를 **대상·도구·게이트** 표로 확정한다. 
 | 동시 investigation | 부하 harness | 동시성 하 latency/비용 SLO |
 | Full rebuild vs partial recomputation | benchmark | 증분이 full 대비 유의미 절감 (Phase4 완료조건) |
 
+> **구현 (Phase 4 — full rebuild vs partial recomputation benchmark, 2026-08-12):** `recompute_bench.py` — Phase 4 완료조건 "증분(partial recomputation)이 full rebuild 대비 유의미 절감" 계량. `full_vs_incremental(store, base, delta)` — store 측정 훅(`full_rebuild_ms`·`incremental_rebuild_ms`)으로 `{full_ms, incremental_ms, ratio}` 산출 (ratio = full/incremental, 06 §9 3항). `neo4j_rebuild_bench(store, base, delta)` — 가동 Neo4j 실측 adapter(`measure_rebuild` 재사용, 동일 shape). `evaluate_recompute_bench(bench)` — 완료조건 게이트 **ratio > REBUILD_RATIO_GATE(10×)** → `saving_meaningful` + **slo-gate** 분류 (10 §1.4 — 성능은 부하·운영 SLO 검증, CI 차단 아닌 nightly 경보). read-only·결정적이고 store 아아오는 mock/실측 격리. **스키마·계약 변경 없음 → Spec 그대로(0.1.9).** TDD — `test_recompute_bench` 신규 7개(비율·절감 게이트·미절감 fail·slo-gate 비차단·증분 0 inf·read-only·결정성) — 스위트 598→**605개 통과**(회귀 0). 다음: 분산 batch(01 §6)로 DoD ① 처리 시간·비용 측정.
+
 ---
 
 ## 5. TDD 적용 (AGENTS.md)
