@@ -233,6 +233,24 @@ class CuratedZone:
             )
             """
         )
+        # Phase 2: 계보 골든셋 (설계 10 §2.1 — 계보 클러스터 dup/independent).
+        # 골든 dup/independent 쌍 → dup_clusters 멤버십 대조로 dup P/R 측정.
+        # split(ADR-1007), gold_version, labeled_by/at — human review as data (§3-7).
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS golden_lineage_pairs (
+                golden_id     VARCHAR PRIMARY KEY,
+                doc_a         VARCHAR NOT NULL,
+                doc_b         VARCHAR NOT NULL,
+                label         VARCHAR NOT NULL,   -- dup | independent
+                split         VARCHAR NOT NULL,
+                gold_version  VARCHAR NOT NULL,
+                labeled_by    VARCHAR,
+                labeled_at    VARCHAR,
+                rationale     VARCHAR
+            )
+            """
+        )
         # S38: 승격 기준선 영속 (설계 10 §3.1, ADR-1003) — last-promoted baseline.
         # version 기반 결정적 PK, active(현재 last-promoted)/superseded(승격 이력).
         self._conn.execute(
@@ -792,6 +810,39 @@ class CuratedZone:
                 "gold_version", "labeled_by", "labeled_at", "rationale"]
         rows = self._conn.execute(
             f'SELECT {", ".join(cols)} FROM golden_entity_pairs').fetchall()
+        return [dict(zip(cols, r)) for r in rows]
+
+    def persist_golden_lineage_pair(
+        self, doc_a: str, doc_b: str, label: str, split: str,
+        gold_version: str, labeled_by: str | None = None,
+        labeled_at: str | None = None, rationale: str | None = None,
+    ) -> None:
+        """골든 계보 쌍 1건 upsert (결정적 golden_id → ON CONFLICT no-op, 10 §2.3).
+
+        label ∈ {dup, independent} — 출처 계보(design 04 §4)의 ground truth:
+        두 doc 이 같은 dup_clusters 클러스터로 축소돼야 하는지(dup) 아닌지(independent).
+        split은 ADR-1007(dev/test), gold_version·labeled_by/at — §3-7.
+        """
+        hashlib = __import__("hashlib")
+        key = "|".join([doc_a, doc_b, label, split, gold_version])
+        golden_id = "gold-" + hashlib.sha256(key.encode()).hexdigest()[:24]
+        self._conn.execute(
+            """
+            INSERT INTO golden_lineage_pairs
+                (golden_id, doc_a, doc_b, label, split,
+                 gold_version, labeled_by, labeled_at, rationale)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (golden_id) DO NOTHING
+            """,
+            [golden_id, doc_a, doc_b, label, split, gold_version,
+             labeled_by, labeled_at, rationale],
+        )
+
+    def golden_lineage_pairs(self) -> list[dict]:
+        cols = ["golden_id", "doc_a", "doc_b", "label", "split",
+                "gold_version", "labeled_by", "labeled_at", "rationale"]
+        rows = self._conn.execute(
+            f'SELECT {", ".join(cols)} FROM golden_lineage_pairs').fetchall()
         return [dict(zip(cols, r)) for r in rows]
 
     def persist_promotion_baseline(self, version: str, metrics: dict,

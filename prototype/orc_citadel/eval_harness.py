@@ -42,6 +42,15 @@ class GoldenEntityPair:
     rationale: str = ""
 
 
+@dataclass(frozen=True)
+class GoldenLineagePair:
+    doc_a: str
+    doc_b: str
+    label: str              # dup | independent
+    split: str = "dev"      # dev | test (ADR-1007)
+    rationale: str = ""
+
+
 def entity_key_for(mention_type: str, canonical_name: str,
                    identifiers: dict | None = None) -> str:
     """골든 entity key — ADR-507 결정적 규칙과 동일한 식별 기준.
@@ -101,11 +110,12 @@ class EvalHarness:
 
     def __init__(self, zone=None, canonical_claims=None, member_of=None,
                  conflicts=None, golden=None, entities=None,
-                 golden_entities=None) -> None:
+                 golden_entities=None, golden_lineage=None, clusters=None) -> None:
         """상태는 zone에서 읽거나 직접 주입 (결정적·독립 테스트용).
 
-        주입 우선: canonical_claims/member_of/conflicts/golden/entities/golden_entities 가
-        명시되면 사용. zone 주입 시 zone의 캐노니컬·모순·골든·entity(read-only 조회) 사용.
+        주입 우선: canonical_claims/member_of/conflicts/golden/entities/golden_entities/
+        golden_lineage/clusters 가 명시되면 사용. zone 주입 시 zone의
+        캐노니컬·모순·골든·entity·계보(read-only 조회) 사용.
         """
         if canonical_claims is not None:
             self._canonical_claims = list(canonical_claims)
@@ -149,9 +159,38 @@ class EvalHarness:
         else:
             self._entity_merge = {}
 
+        # 골든 계보 쌍 (Phase 2 §2.1 — dup/independent) — 주입 우선, zone이면 자동 로드.
+        if golden_lineage is not None:
+            self._golden_lineage = list(golden_lineage)
+        elif zone is not None:
+            self._golden_lineage = [GoldenLineagePair(
+                doc_a=g["doc_a"], doc_b=g["doc_b"], label=g["label"],
+                split=g["split"], rationale=g.get("rationale") or "",
+            ) for g in zone.golden_lineage_pairs()]
+        else:
+            self._golden_lineage = []
+
+        # zone의 계보 클러스터 (dup_clusters) → {doc_id: cluster_set} 멤버십 맵.
+        if clusters is not None:
+            self._cluster_membership = self._build_cluster_membership(clusters)
+        elif zone is not None:
+            self._cluster_membership = self._build_cluster_membership(zone.clusters())
+        else:
+            self._cluster_membership = {}
+
         # claim → canonical_id 맵.
         self._claim_canonical = {r["claim_id"]: r["canonical_claim_id"]
                                  for r in self._member_of}
+
+    @staticmethod
+    def _build_cluster_membership(clusters: list[dict]) -> dict[str, str]:
+        """계보 클러스터 rows → {doc_id: cluster_id} 멤버십 맵 (read-only)."""
+        m: dict[str, str] = {}
+        for c in clusters:
+            cid = c.get("cluster_id")
+            for did in (c.get("member_doc_ids") or []):
+                m[did] = cid
+        return m
 
     # --- helpers ---------------------------------------------------------
 
@@ -233,6 +272,34 @@ class EvalHarness:
             else:  # not_same
                 if merged:
                     fp += 1  # 오병합 (그래프 전역 오염).
+        return Metric(tp=tp, fp=fp, fn=fn)
+
+    # --- lineage (출처 계보) ----------------------------------------------
+
+    def lineage_metrics(self, split: str | None = None) -> Metric:
+        """출처 계보(dup) P/R — 골든 계보 쌍 대비 클러스터 축소 대조 (design 10 §1.2·§2.1).
+
+        시스템 판정 = 골든 두 doc 이 같은 `dup_clusters` 클러스터 멤버인지 (design 04 §4,
+        root/derived/independent — `_cluster_membership` 맵 재현).
+        - dup 쌍이 같은 클러스터로 축소되면 tp, 분리(오분리)면 fn (복제 과대집계).
+        - independent 쌍이 같은 클러스터로 오축소되면 fp — 복제 K건을 독립 K으로 세는
+          과대평가 방지 (design 04 §4).
+        """
+        tp = fp = fn = 0
+        for g in self._golden_lineage:
+            if split is not None and g.split != split:
+                continue
+            same = (g.doc_a in self._cluster_membership
+                    and self._cluster_membership.get(g.doc_a)
+                    == self._cluster_membership.get(g.doc_b))
+            if g.label == "dup":
+                if same:
+                    tp += 1
+                else:
+                    fn += 1
+            else:  # independent
+                if same:
+                    fp += 1
         return Metric(tp=tp, fp=fp, fn=fn)
 
     # --- report -----------------------------------------------------------

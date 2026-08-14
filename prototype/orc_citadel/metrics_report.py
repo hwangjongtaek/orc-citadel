@@ -21,6 +21,9 @@ from orc_citadel.eval_harness import (
 
 CONTRADICTION_GATE_P = 0.90
 CONTRADICTION_TARGET_R = 0.75
+# 출처 계보(dup) 게이트 (design 10 §1.1 — Dup precision ≥ 0.98, target recall ≥ 0.90).
+LINEAGE_GATE_P = 0.98
+LINEAGE_TARGET_R = 0.90
 
 
 @dataclass(frozen=True)
@@ -127,14 +130,42 @@ def _entity_resolution(zone) -> MetricsSlice:
                         metrics=metrics, gate=gate)
 
 
+def _lineage(zone) -> MetricsSlice:
+    """계보 골든셋(10 §2.1, dup/independent) 존재 시 dup P/R 측정, 아니면 미측정.
+
+    골든 dup/independent 쌍이 있으면 EvalHarness.lineage_metrics — 같은 dup_clusters
+    클러스터로 축소됐는지 대조 (design 10 §1.1: Dup precision ≥ 0.98, target R ≥ 0.90).
+    independent 오축소=fp(복제 K건을 독립 K으로 세는 과대평가 방지, design 04 §4).
+    골든 부재 시 vacuous pass 없이 measured=False (honest gap §6.2).
+    """
+    h = EvalHarness(zone=zone)
+    golden = [g for g in h._golden_lineage if g.label in ("dup", "independent")]
+    if not golden:
+        return MetricsSlice(
+            key="lineage", measured=False, metrics=None, gate=None,
+            note="골든 계보 쌍(dup/independent) 미확보 — dup P/R은 Phase 2 골든 "
+                 "확장(10 §2.1) 후 측정.",
+        )
+    m = h.lineage_metrics()
+    metrics = {"tp": m.tp, "fp": m.fp, "fn": m.fn,
+               "precision": m.precision, "recall": m.recall, "f1": m.f1}
+    gate = {"threshold_p": LINEAGE_GATE_P, "target_r": LINEAGE_TARGET_R,
+            "pass": m.precision >= LINEAGE_GATE_P
+                    and m.recall >= LINEAGE_TARGET_R}
+    return MetricsSlice(key="lineage", measured=True,
+                        metrics=metrics, gate=gate)
+
+
 def generate_metrics_report(zone) -> MetricsReport:
     slices = {
         "claim_extraction": _claim_extraction(zone),
         "contradiction": _contradiction(zone),
         "entity_resolution": _entity_resolution(zone),
+        "lineage": _lineage(zone),
     }
     ce = slices["claim_extraction"]
     er = slices["entity_resolution"]
+    lg = slices["lineage"]
     if ce.measured and er.measured:
         m = ce.metrics
         er_m = er.metrics
@@ -143,6 +174,11 @@ def generate_metrics_report(zone) -> MetricsReport:
                    f"ER P={er_m['precision']:.2f} 오병합률={er_m['wrong_merge_rate']:.4f} "
                    f"(tp={er_m['tp']} fp={er_m['fp']} fn={er_m['fn']}) 공개; "
                    f"contradiction은 골든 미확보로 미측정(honest gap).")
+        if lg.measured:
+            lg_m = lg.metrics
+            summary += (f" · Lineage(dup) P={lg_m['precision']:.2f} "
+                        f"R={lg_m['recall']:.2f} (tp={lg_m['tp']} fp={lg_m['fp']}"
+                        f" fn={lg_m['fn']}) 공개.")
     elif ce.measured:
         m = ce.metrics
         summary = (f"Claim extraction(canonicalization) F1={m['f1']:.2f} "

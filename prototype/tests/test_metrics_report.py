@@ -197,6 +197,76 @@ def test_entity_resolution_missing_merge_is_fn():
     assert s.metrics["recall"] == pytest.approx(0.0)
 
 
+def test_lineage_honest_gap():
+    """골든 계보 쌍 없으면 lineage 미측정 (vacuous pass 금지 §6.2)."""
+    rep = generate_metrics_report(_zone())
+    s = rep.slices["lineage"]
+    assert s.measured is False
+    assert s.metrics is None
+    assert s.note
+
+
+def _lineage_zone():
+    """골든 dup 1쌍 + 같은 클러스터 멤버 — lineage 측정 가능한 상태."""
+    z = CuratedZone(":memory:")
+    z.initialize()
+    z.persist_golden_lineage_pair("doc-a", "doc-b", "dup", "dev", "g1",
+                                  "human:x", "t", "r")
+    z._conn.execute(
+        "INSERT INTO dup_clusters (cluster_id, root_doc_id, member_doc_ids, "
+        "independent_addition_doc_ids, dedup_method) VALUES (?, ?, ?, ?, ?)",
+        ["cl-1", "doc-a", ["doc-a", "doc-b"], [], "content_hash"],
+    )
+    return z
+
+
+def test_lineage_measured_when_golden_and_cluster():
+    """골든 dup 쌍 + 같은 클러스터 멤버 → lineage 측정 (measured 전환)."""
+    z = _lineage_zone()
+    rep = generate_metrics_report(z)
+    s = rep.slices["lineage"]
+    assert s.measured is True
+    assert s.metrics["tp"] == 1
+    assert s.metrics["fp"] == 0
+    assert s.metrics["precision"] == pytest.approx(1.0)
+    assert s.gate["pass"] is True  # P≥0.98 ∧ R≥0.90.
+
+
+def test_lineage_wrong_cluster_is_fp():
+    """골든 independent 쌍이 같은 클러스터로 오축소 → fp (과대평가 방지, design 04 §4)."""
+    z = CuratedZone(":memory:")
+    z.initialize()
+    z.persist_golden_lineage_pair("doc-c", "doc-d", "independent", "dev", "g1",
+                                  "human:x", "t", "r")
+    # 시스템이 두 독립 문서를 한 클러스터로 오축소.
+    z._conn.execute(
+        "INSERT INTO dup_clusters (cluster_id, root_doc_id, member_doc_ids, "
+        "independent_addition_doc_ids, dedup_method) VALUES (?, ?, ?, ?, ?)",
+        ["cl-1", "doc-c", ["doc-c", "doc-d"], [], "minhash"],
+    )
+    rep = generate_metrics_report(z)
+    s = rep.slices["lineage"]
+    assert s.measured is True
+    assert s.metrics["fp"] == 1
+    assert s.metrics["precision"] == pytest.approx(0.0)
+    assert s.gate["pass"] is False  # P=0 < 0.98 → hard block.
+
+
+def test_lineage_missing_cluster_is_fn():
+    """골든 dup 쌍인데 다른 클러스터로 분리 → fn (복제 과대집계, recall 하락)."""
+    z = CuratedZone(":memory:")
+    z.initialize()
+    z.persist_golden_lineage_pair("doc-e", "doc-f", "dup", "dev", "g1",
+                                  "human:x", "t", "r")
+    # 클러스터 없음 → dup 쌍이 오분리 (fn).
+    rep = generate_metrics_report(z)
+    s = rep.slices["lineage"]
+    assert s.measured is True
+    assert s.metrics["tp"] == 0
+    assert s.metrics["fn"] == 1
+    assert s.gate["pass"] is False  # R=0 < 0.90.
+
+
 def test_unrelated_nonmerge_no_fp():
     """unrelated 골든이 병합되면 오병합(fp) 감지 → 정직한 측정."""
     z = _zone()
