@@ -132,6 +132,22 @@ blueprint §7.2를 스펙으로 고정한다. **초기 구성이 기본값**이�
 
 **언어·런타임:** Python 3.12 (파이프라인·API·Agent), 저장 포맷 Parquet, 테이블 Iceberg(확장). AGENTS.md의 TDD/Tidy First를 개발 규율로 적용한다.
 
+#### 5.1 ClickHouse 분석 승격 구현 메모 (Phase 4)
+
+`analytics_promotion.py` 로 분석·관측 계층(§5 — 초기 DuckDB/PostgreSQL, 확장
+ClickHouse)의 **승격 트리거 = 분석 쿼리 지연**을 봉인 (ClickHouse 미설치 — mock/실측
+격리):
+
+- `measure_analytics_latency` — 분석 쿼리 경로별 지연 분포 → p95 (executor 주입,
+  미주입은 해시 시드 결정 에뮬레이션 — repeatability).
+- `evaluate_analytics_promotion` — `ANALYTICS_SLO_MS=200ms` p95 **승격 트리거**:
+  초과 시 `escalate_clickhouse=True` (Q4/Q6 게이트와 동일 성격, slo-gate·CI 비차단
+  nightly 승격 평가). 미측정 → `not-measured` (honest-gap §6.2).
+- `aggregate_metrics` — OLAP 집계 (ClickHouse 가 대체 승격하는 분석 부하의 실제
+  형태), `correlation_id` 등으로 drill-down (11 §2.2).
+
+실제 ClickHouse 승격 시 이 진입점의 지연 실측을 트리거 근거로 쓰고 ADR 로 확정한다.
+
 ## 6. 배포 토폴로지
 
 ### 6.1 초기 (Docker Compose, 단일 호스트)
