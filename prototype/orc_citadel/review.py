@@ -99,3 +99,56 @@ class ReviewQueue:
     def history(self, element_ref: str) -> dict:
         """골든셋 레코드 반환 (05 §8.2)."""
         return self._records[element_ref].to_golden()
+
+
+# 골든 파생에 인정되는 인간 결정 (05 §8.2) — pending/in_review 는 골든 원천 아님.
+_GOLDEN_VERDICTS = {"approved", "corrected"}
+# claim pair 골든 라벨 (10 §2.1) — human 교정본의 verdict 가 된다.
+_CLAIM_LABELS = {"equivalent", "contradicts", "unrelated"}
+# entity pair 골든 라벨 (10 §2.1, ADR-1001) — same/not_same.
+_ENTITY_LABELS = {"same", "not_same"}
+
+
+def _human_decision(rec) -> dict:
+    d = rec.human_decision or {}
+    return d
+
+
+def derive_golden(rq: ReviewQueue, zone, gold_version: str = "g1",
+                  labeled_by: str | None = None, split: str = "dev") -> int:
+    """human review 결정 → zone 의 골든 claim/entity pair 로 파생 (05 §8.2, ADR-506).
+
+    인간의 검토 결정(원 모델출력 + 수정결과 + 이유)이 회귀 평가 골든셋의 원천이 된다
+    (불변식 §3-7). corrected/approved 결정만 파생하고, 인간 교정본(`corrected_value`, 또는
+    approved 의 원 출력)의 verdict 를 골든 라벨로, 쌍 상대를 `claim_b`(claim pair) 또는
+    `entity_a`/`entity_b`(entity pair) 로 추출한다.
+
+    - claim 골든: corrected_value.verdict ∈ {equivalent, contradicts, unrelated} + claim_b.
+    - entity 골든: corrected_value.verdict ∈ {same, not_same} + entity_a/entity_b.
+    - 인정되지 않은 결정(pending/in_review)과 verdict 는 파생하지 않는다.
+    - 결정적 멱등: zone.persist_golden_* 의 결정적 golden_id(ON CONFLICT no-op, 03 §5).
+    - split/gold_version 은 호출자가 결정 (ADR-1007 dev/test, ADR-1005 gold_version).
+    파생된 골든 개수를 반환.
+    """
+    n = 0
+    for rec in rq._records.values():
+        if rec.status not in _GOLDEN_VERDICTS:
+            continue  # 아직 인간 결정 없음.
+        cv = _human_decision(rec).get("corrected_value") or {}
+        if cv.get("verdict") not in _CLAIM_LABELS and \
+           cv.get("verdict") not in _ENTITY_LABELS:
+            continue
+        reason = cv.get("reason") or rec.reason or ""
+        label = cv["verdict"]
+        reviewer = labeled_by or rec.reviewer or ""
+        if label in _CLAIM_LABELS and cv.get("claim_b"):
+            zone.persist_golden_pair(
+                rec.element_ref, cv["claim_b"], label, split,
+                gold_version, reviewer, None, reason)
+            n += 1
+        elif label in _ENTITY_LABELS and cv.get("entity_a") and cv.get("entity_b"):
+            zone.persist_golden_entity_pair(
+                cv["entity_a"], cv["entity_b"], label, split,
+                gold_version, reviewer, None, reason)
+            n += 1
+    return n

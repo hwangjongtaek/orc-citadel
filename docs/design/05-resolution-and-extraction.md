@@ -428,6 +428,8 @@ pending ──assign──► in_review ──┬─ approve ──► promoted 
 - 이 레코드가 **골든 데이터셋**의 원천이 된다 ([`10`](./10-evaluation-and-testing.md)). Entity Resolution·Claim Extraction·Canonicalization·Contradiction 각 stage별 라벨로 회귀 평가에 쓰인다 (blueprint §12·§15·§17).
 - 원 모델 출력을 보존하므로 모델·프롬프트 교체 시 동일 케이스 재평가가 가능하다 ([`README`](./README.md) §2.3, [`02`](./02-ontology.md) §6.3).
 
+**구현 (Phase 2 — review→골든 파생 경로, 2026-08-12):** `review.py`에 `derive_golden(rq, zone, gold_version, labeled_by, split)` 추가 — human review 결정(ADR-506)을 zone 의 골든 claim pair(`persist_golden_pair`)·entity pair(`persist_golden_entity_pair`)로 파생. corrected/approved 결정만 파생하고(pending/in_review 는 골든 원천 아님), 인간 교정본(`corrected_value`)의 `verdict`를 골든 라벨로, `claim_b`(claim 골든: equivalent/contradicts/unrelated) 또는 `entity_a`/`entity_b`(entity 골든: same/not_same)로 쌍을 추출 — 불변식 §3-7(원출력+수정+이유 보존). human review 가 metrics_report/DoD ① 의 골든셋으로 이어지는 경로 완결. 결정적 멱등(persist_golden_* 의 ON CONFLICT no-op, 03 §5) · ADR-1007 split. TDD — `test_review_golden` 신규 5개(claim 파생·entity 파생·미결정 skip·멱등·결정적) — 스위트 526→**531개 통과**(회귀 0).
+
 ---
 
 ## 9. 의사결정 로그 (ADR-5xx)
