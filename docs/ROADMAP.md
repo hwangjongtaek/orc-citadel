@@ -127,13 +127,14 @@
 | 7 | Research Agent 공백·반대 증거 탐색 | [07](./design/07-llm-and-agents.md) | ⬜ |
 | 8 | 보고서 검증 가능 문장 그래프·원문 감사 | [07](./design/07-llm-and-agents.md), [03](./design/03-storage-and-data-model.md) | ✅ |
 | 9 | 문서당 비용·전체 처리 시간 측정 | [10](./design/10-evaluation-and-testing.md), [11](./design/11-observability-and-governance.md) | ✅ |
-| 10 | 모델·프롬프트·ontology 버전 회귀 테스트 | [10](./design/10-evaluation-and-testing.md) | ⬜ |
+| 10 | 모델·프롬프트·ontology 버전 회귀 테스트 | [10](./design/10-evaluation-and-testing.md) | ✅ |
 
 ## 5. Changelog
 
 가장 최신이 위로. 스펙·설계 변경을 기록한다 (구현 세부 커밋은 git 이력).
 
 ### 2026-08-11
+- **모델·프롬프트·ontology 버전 봉인 + 회귀 (design 10 §3, 02 §6.3, ADR-1003, MVP #10).** MVP 최종 성공 기준 #10 충족. 파이프라인 산출물에 부착되는 version 5축이 `pipeline_runner` 곳곳에 하드코딩(리터럴 `"ontology_version": "1.0.0"` 등)돼 있어 **한 곳에서 봉인·통제가 안 되던** 것을, `versioning.VERSION_TUPLE`(5축 봉인 상수) + `extraction_version_tuple()`(새 dict 반환 — 호출부 변조 차단) + `version_guard(vt)`(미등록 축·봉인 불일치 감지, 02 §6.3 재추출 트리거)로 단일화. `pipeline_runner` 하드코딩 4지점을 봉인 상수로 치환(파편 0). version 축 변경 시 bump→회귀(10 §3) 게이트에 진입. **Spec 0.1.1→0.1.2.** TDD — `test_versioning` 신규 5개(봉인 일치·복사 불변·가드 허용/드리프트·미등록 축) — 스위트 495→**500개 통과**(회귀 0).
 - **Authoritative claim source span·버전 보존 (design 02 §2, 03 §6.2, 09 §3, MVP #3).** MVP 최종 성공 기준 #3 충족. 추출 단계(`ClaimCandidate`)가 버전(`ontology_version`·`extraction_model`)을 보유하는데 **materialize 승격 시 버려지던** 것을 보정 — `Assertion`에 `ontology_version` 필드 추가, `materialize`가 claim 버전을 승격, `assertions` 테이블에 `ontology_version` 컬럼 추가(영속·조회·`assertions_as_of` 반영). `ClaimCandidate`에 `ontology_version`·`extraction_model`을 dataclass 필드로 승격(to_row 가 파생이 아닌 실제 값 사용). 추적 중개자인 `AssertionEvidence.ontology_version` + `get_evidence_provenance` trail 의 claim step 이 버전을 노출 — 검증 가능 문장이 **원문 span(char offset)+온톨로지 버전**까지 감사되는 DoD ② trail 완결. **스키마 변경 → Spec version 0.1.0→0.1.1.** TDD — `test_assertions` +1·`test_provenance_span` +1 — 스위트 494→**495개 통과**(MinIO 가동 시, 회귀 0).
 - **MVP 표-실제 정합 정리 (#1/#2/#6/#8).** MVP 최종 성공 기준 표가 실제 구현과 불일치(구현 완료 항목이 ⬜로 남음)하던 것을 교차 검증 후 반영: **#1**(raw 104,411(arXiv)+143=104,554건 수집, Q4 게이트 ② 실행) · **#2**(`bulk_pipeline` postgres SoT→replay→Neo4j 전체 재처리 실측) · **#6**(`replay_graph_at_tx`·`assertions_as_of`/catalog as_of — 시간여행) · **#8**(`get_evidence_provenance` char span 왕복, ADR-305) → ✅. 기존 ✅ #9·#5와 합쳐 **✅ 6개**. **⬜ 유지 4개는 실질 미완으로 판정**: #3(Assertion에 version tuple 미영속), #4(골든 로드 비면 — 수치 미측정), #7(Phase 3), #10(version 봉인 회귀 미정비). 표 반영은 구현·실행 증거 검증 후에만 — 과대 주장 없음.
 - **동일 근원 파생 출처 독립 중복 계산 방지 (design 11 §1.4, 04 §4.2, 09 §3).** MVP 최종 성공 기준 #5 충족. `assertion_evidence`의 `independent_source_count`가 §1.4 공식의 **둘째 항(지지 근거로 등장하는 `independent_addition_doc_ids[]` — 해당 claim에 새 증거를 더하는 문서) 가산**을 누락하고 root 축소만 하던 것을 보정(under-count 극복). 지지 근거 문서 distinct(root_source) + 독립 추가 문서 중 해당 claim을 지지하는 것만 가산(04 §4.2 disjoint, root ∉ independent_addition). TDD — `test_assertion_evidence` 신규 3개(독립 추가 가산·비지지 무가산·평범 파생 기존 계약 유지) — 스위트 512→**515개 통과**.

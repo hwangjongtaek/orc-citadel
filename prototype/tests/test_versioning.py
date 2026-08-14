@@ -98,3 +98,50 @@ def test_same_axis_true_single_change():
     v2 = dict(VT, model_id="claude-haiku-4-5")
     assert same_axis(VT, v2, "model_id") is True
     assert same_axis(VT, v2, "ontology_version") is False
+
+
+# --- version 봉인 (MVP #10) ----------------------------------------------
+
+from orc_citadel.versioning import (
+    VERSION_AXES, VERSION_TUPLE, extraction_version_tuple, version_guard,
+)
+
+
+def test_extraction_version_tuple_matches_sealed():
+    """파이프라인 버전 tuple 이 봉인 상수의 5축 전체와 일치 (03 §7.1)."""
+    vt = extraction_version_tuple()
+    assert set(vt) == set(VERSION_AXES)
+    assert vt == VERSION_TUPLE
+    assert set(vt) == {"ontology_version", "schema_version",
+                       "prompt_template_hash", "model_id",
+                       "extraction_code_version"}
+
+
+def test_extraction_version_tuple_is_fresh_copy():
+    """호출부가 상수를 변조해도 봉인이 유지 — 새 dict 반환(불변식)."""
+    vt = extraction_version_tuple()
+    vt["model_id"] = "tampered"
+    # 상수는 변조 불가, 재호출은 원래 봉인값.
+    assert VERSION_TUPLE["model_id"] != "tampered"
+    assert extraction_version_tuple()["model_id"] == VERSION_TUPLE["model_id"]
+
+
+def test_version_guard_accepts_sealed():
+    """봉인 상수와 일치하는 5축 → 유효 (재추출·오염 없이 사용 가능)."""
+    assert version_guard(extraction_version_tuple()) is True
+    assert version_guard(VERSION_TUPLE) is True
+
+
+def test_version_guard_rejects_drift():
+    """봉인 상수에서 벗어난 축(하드코딩 파편·무단 변경) → 감지 (02 §6.3)."""
+    assert version_guard({}) is False  # 빈 dict.
+    assert version_guard(dict(VERSION_TUPLE, ontology_version="2.0.0")) is False
+    assert version_guard(dict(VERSION_TUPLE, model_id="other")) is False
+    assert version_guard({k: VERSION_TUPLE[k] for k in
+                          ("ontology_version", "schema_version")}) is False
+
+
+def test_version_guard_rejects_unknown_axis():
+    """미등록 축 추가 → 부적절 (불완전 tuple 부착 금지)."""
+    vt = dict(extraction_version_tuple(), extra_axis="x")
+    assert version_guard(vt) is False

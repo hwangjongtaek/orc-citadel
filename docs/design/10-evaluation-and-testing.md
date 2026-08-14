@@ -1,6 +1,6 @@
 # 10 · 평가·테스트
 
-> **상태:** Review · **Spec:** 0.1.0 · **Blueprint 매핑:** §12, §15
+> **상태:** Review · **Spec:** 0.1.2 · **Blueprint 매핑:** §12, §15
 > 상위 규약: [`README`](./README.md) · 관련: [`05-resolution`](./05-resolution-and-extraction.md), [`07-llm`](./07-llm-and-agents.md), [`11-observability`](./11-observability-and-governance.md)
 
 Orc Citadel의 **평가 지표(evaluation metrics)**, **골든 데이터셋(golden dataset)**, **회귀 테스트(regression)**, **테스트 전략(test strategy)**, **CI 게이트**를 확정한다. blueprint §12(평가 체계)·§15(테스트 전략)을 구현 계약으로 승격한 문서이며, 모델·프롬프트·온톨로지 버전 변경의 **승격 게이트(promotion gate)** SSOT다 ([`README`](./README.md) §2.3, [`07-llm`](./07-llm-and-agents.md) §9.5).
@@ -157,6 +157,7 @@ model/prompt/ontology 변경
 - **골든 gate 미달 시 승격 차단**이 원칙이다. 특히 entity resolution `P`·오병합률·span/provenance 완전성은 hard block이다 (§1.1–1.2).
 - 프롬프트 교체는 `prompt_template_hash`, 모델 교체는 `model_id`, 온톨로지는 `ontology_version`, 스키마는 `schema_version`, 추출 코드는 `extraction_code_version` 변경으로 감지한다 (version 5축, [`README`](./README.md) §2.3).
 - 회귀 리포트는 **지표별 delta**와 **신규 실패 사례**를 포함하며 ADR/ROADMAP에 링크한다 (blueprint §20 산출물 "모델·프롬프트 변경 평가 리포트").
+- **구현 (MVP #10 — version 봉인):** 파이프라인 산출물에 부착되는 version 5축은 `versioning.VERSION_TUPLE` 한 곳에 **봉인(seal)** 한다 (ADR-1003). `versioning.extraction_version_tuple()`은 새 dict 를 반환해 호출부 변조를 막고, `version_guard(vt)`는 미등록 축·봉인 상수 불일치(하드코딩 파편·무단 변경)를 감지해 재추출·오염 없이 사용 가능한지 검증한다 (02 §6.3). 파이프라인(`pipeline_runner`)은 하드코딩 5축 문자열 대신 이 봉인을 참조 — version 변경 시 bumper() 의 변경 + 이 §3 골든셋 회귀가 트리거된다.
 
 ### 3.2 회귀 판정 규칙
 

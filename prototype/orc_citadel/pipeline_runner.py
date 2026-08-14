@@ -25,6 +25,7 @@ from orc_citadel.gate import Gate
 from orc_citadel.graph_service import GraphService
 from orc_citadel.parse import extract_html, parse_document
 from orc_citadel.resolve import EntityResolver
+from orc_citadel.versioning import VERSION_TUPLE  # MVP #10 — 봉인된 5축 version 상수.
 
 FALLBACK_OBSERVED_AT = datetime(2026, 8, 3, 12, 0, tzinfo=timezone.utc)
 
@@ -127,8 +128,7 @@ def _run_chain(metas, zone, gate, resolver, judge, result: PipelineResult,
                         idempotency_key=f"create_node:{c.claim_candidate_id}",
                         payload={"id": c.claim_candidate_id, "props": {}},
                         actor="pipeline",
-                        version_tuple={"ontology_version": "1.0.0", "schema_version": "0.1.0",
-                                       "model_id": "det", "extraction_code_version": "p1"},
+                        version_tuple=VERSION_TUPLE,
                     )
                 observed = doc.publication_time or FALLBACK_OBSERVED_AT
                 a = materialize(c, observed_at=observed, mutation=mut)
@@ -147,10 +147,7 @@ def _run_chain(metas, zone, gate, resolver, judge, result: PipelineResult,
                             idempotency_key=f"create_entity:{eid}",
                             payload={"id": eid, "props": {}},
                             actor="pipeline",
-                            version_tuple={"ontology_version": "1.0.0",
-                                           "schema_version": "0.1.0",
-                                           "model_id": "det",
-                                           "extraction_code_version": "p1"},
+                            version_tuple=VERSION_TUPLE,
                         )
                     mutation_log.apply(
                         doc_id=c.doc_id,
@@ -160,8 +157,7 @@ def _run_chain(metas, zone, gate, resolver, judge, result: PipelineResult,
                         payload={"type": c.predicate, "from": c.subject_id,
                                  "to": c.object_id, "props": {}},
                         actor="pipeline",
-                        version_tuple={"ontology_version": "1.0.0", "schema_version": "0.1.0",
-                                       "model_id": "det", "extraction_code_version": "p1"},
+                        version_tuple=VERSION_TUPLE,
                     )
         result.claims += len(claims)
         all_claims.extend(claims)
@@ -226,9 +222,7 @@ def _persist_llm_canonical(zone, llm_records: list) -> None:
             claim_id_a=rec.claim_id_a, claim_id_b=rec.claim_id_b,
             relation=rec.relation, canonical_text=rec.canonical_text,
             confidence=rec.confidence, rationale=rec.rationale,
-            version_tuple={"ontology_version": "1.0.0", "schema_version": "0.1.0",
-                           "prompt_template_hash": "", "model_id": "",
-                           "extraction_code_version": "p1"},
+            version_tuple=VERSION_TUPLE,
             judged_by=rec.judged_by,
         )
 
