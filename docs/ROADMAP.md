@@ -4,8 +4,8 @@
 > 규칙: 설계·구현 변경은 (1) 해당 design 문서 수정 (2) `design/README.md` Spec version 반영 (3) 본 문서 §5 Changelog 기록의 3단계를 거친다.
 
 - **최종 갱신:** 2026-08-11
-- **현재 단계:** Phase 0 (설계·데이터 검증) — *설계 문서 Review 승격 완료, Stable 확정 대기*
-- **Spec version:** 0.1.0 · **Ontology version:** 1.0.0
+- **현재 단계:** Phase 1 (10만 문서 MVP) **완결** — *MVP 10/10 충족, Phase 1 DoD ①② 충족, Q4 PASS · Q6 Phase 4 유보. 설계 문서 Review → Stable 확정 대기*
+- **Spec version:** 0.1.4 · **Ontology version:** 1.0.0
 
 ## 1. 상태 요약 (한눈에)
 
@@ -14,7 +14,7 @@
 | 상세 설계 (Design SSOT) | 🟡 Review | 12개 문서 Review 승격. 리뷰 패스 완료(BLOCKER 3 + MAJOR 36 해소, 상호 일관성 재검증 전항목 PASS). Stable 확정 대기 |
 | 도메인·소스 선정 | ✅ 완료 | AI 반도체·데이터센터 공급망 확정, 초기 Scout 5종 선정(04 §1.4) |
 | 1만 문서 샘플 | ✅ 완료 | 2026-08-11 arXiv metadata 1만 + RSS/SEC — 총 raw 11,361건 |
-| Prototype 구현 | 🟡 진행 중 (S1–S47 + Q2/Q3/Q5) | 결정적+LLM 하이브리드 파이프라인 · bitemporal · 소비 계층(S28–31) · 평가/승격 트랙(S33–41) · **조사 에이전트 트랙(S43–47)** 구현 · Q2·Q3 해소 ([§5 Changelog](#5-changelog)) |
+| Prototype 구현 | ✅ 완료 (S1–S47 + Q2/Q3/Q5) | 결정적+LLM 하이브리드 파이프라인 · bitemporal · 소비 계층(S28–31) · 평가/승격 트랙(S33–41) · **조사 에이전트 트랙(S43–47)** 구현 · Q2·Q3 해소 · test 스위트 514 Green · MVP 10/10 · Phase 1 DoD ①② (10만 재처리 · source-span 보고서 E2E) · Q4 3게이트 전항 PASS ([§5 Changelog](#5-changelog)) |
 
 범례: ✅ 완료 · 🟡 진행 중 · ⬜ 예정 · ⛔ 블록됨
 
@@ -60,7 +60,7 @@
 > **Phase 0 → Phase 1 진입 게이트 (2026-08-03):** ① 1만 문서 샘플 확보(사용자 arXiv 실행) ② Q4/Q6 측정 게이트는 Phase 1 부하에서 첫 판정 ③ 골든·승격 기준선(22건, S41/B2) 재검증. DoD ①②는 prototype에서 이미 충족(S27/S37 E2E 검증).
 > **게이트 판정 (2026-08-11):** ① ✅ 총 raw 11,361건 확보 ③ ✅ 골든 22건 로드·평가 스위트 무회귀(canonicalization F1=1.0 유지, suite PASS)·promotion dry_run INITIALIZED/passed — 호스트·컨테이너 양쪽 동일 결과. ②는 예정대로 Phase 1 부하에서 첫 판정.
 
-### Phase 1 — 10만 문서 MVP (3~5주)
+### Phase 1 — 10만 문서 MVP (3~5주) · *완결 (2026-08-12)*
 
 | 작업 | 담당 스펙 |
 | --- | --- |
@@ -72,6 +72,13 @@
 | 5개 조사 질문 end-to-end | [07](./design/07-llm-and-agents.md), [09](./design/09-api.md) |
 
 **DoD:** ① 10만 문서 전체 재처리 가능 ② 최종 보고서 검증 가능 문장에 source span 연결.
+
+> **Phase 1 완결 (2026-08-12) — 교차 검증 후 기록:**
+> - **MVP 10/10 충족** ([§4](#4-mvp-최종-성공-기준) 전항 ✅). 10만 docs 처리(#1)·전체 재처리(#2)·평가 수치 공개(#4)·조사 에이전트 탐색(#7) 등.
+> - **DoD ① ✅** — 로컬 raw **104,544건** 수집 후 날짜 윈도우(S50)·선형화 병목 해소로 전체 재처리 완주 ([changelog](#5-changelog) 149·146).
+> - **DoD ② ✅** — `get_evidence_provenance`가 extraction_record char span을 trail에 연결, 5개 조사 질문 E2E 보고서가 검증 가능 문장(source-span) 산출 (`test_investigation_e2e.py`).
+> - **Phase 0→1 게이트 ② (Q4) ✅ 판정** — 실신호 본문 그래프(194노드·49엣지)·합성 10만 조회에서 **3개 게이트 전항 PASS** (p95 ≤ 1.16ms ≪ 500ms · 노드 ≪ 1e6 · 재구축/증분=1.06 ≪ 10×) → Memgraph 교체 트리거 없음 ([06 §9](./design/06-graph-service.md)). 1e6/p95-500ms 는 Phase 4 부하에서 재판정(게이트 계약 유지).
+> - **Q6 (Iceberg) 판정: Phase 4(100만) 유보** — 승격 트리거가 "테이블 >수천만 row·스키마 진화"(01 §122)라 현재 10만 스케일은 **관측 미대상** → 승격 결정 유보 ([01 §120-122](./design/01-architecture.md), changelog 146).
 
 ### Phase 2 — Entity·Claim 품질 (6~8주)
 
@@ -132,6 +139,9 @@
 ## 5. Changelog
 
 가장 최신이 위로. 스펙·설계 변경을 기록한다 (구현 세부 커밋은 git 이력).
+
+### 2026-08-12
+- **Phase 1 완결 블록업 (MVP 10/10 + DoD ①② + Q4 PASS/Q6 유보).** ROADMAP 추적기가 Phase 1 완결을 반영하지 않던 것을 교차 검증 후 정리: **MVP 10/10** (§4 전항 ✅) · **Phase 1 DoD ① 재처리 가능(104,544건)**·**② source-span 보고서 E2E** 충족 · **Phase 0→1 게이트 ② (Q4) 3게이트 전항 PASS**(실신호 그래프 p95≤1.16ms·노드<1e6·재구축/증분=1.06, Memgraph 트리거 없음, [06 §9]) · **Q6 (Iceberg) Phase 4(100만) 유보**(승격 트리거=수천만 row·스키마 진화, 현재 10만 스케일 관측 미대상, [01 §120–122]). §1 상태·§3 Phase 1 완결·Spec 0.1.4 마킹. 구현·실행 증거 검증 후에만 기록 — 과대 주장 없음. 이로써 Phase 1 종료 상태 확정, Phase 2(Entity·Claim 품질 — 골든 확장·오병합감사) 진입 준비.
 
 ### 2026-08-12
 - **Retrieval SEARCH 단계 — 조사 에이전트 공백 탐색 완결 (design 07 §3.4·§4, MVP #7).** MVP 최종 성공 기준 #7 충족. S43–47 read-only 조사 루프(공백·반대 증거 탐색)에** 누락됐던 SEARCH 단계**를 구축 — `retrieval.py` Retrieval Agent(07 §3.4). corpus=멘션 `context_window`(문장 텍스트), BM25 근사 선형 스코어로 그래프 공백을 채울 후보 span(`{doc_id, segment_id, span, score, retrieval_path}`) 반환 — 전체 문서 아닌 span만(§3.4 불변식), k 상한·결정적(08 BM25 경로). `InvestigationRunner`(S46)의 gap subclaim에 SEARCH 배선 → `viewer._api_investigate` 응답에 `retrieved` 노출 — read-only 루프로 공백 탐색·후보 증거 노출 완결. **read-only·결정적.** **Spec 0.1.3→0.1.4.** TDD — `test_retrieval` 신규 5개 + runner SEARCH 배선 1개 + viewer 노출 1개 — 스위트 507→**514개 통과**(회귀 0).
