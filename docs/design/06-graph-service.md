@@ -237,6 +237,12 @@ SET old.tx_to = $t;          // 이전 버전은 그래프에 남되 "현재 아
 - 신규 문서·정정이 영향을 준 **subgraph만** 재적용한다. 영향 범위 = 신규/변경 `mutation_id` 이후 이벤트 + 그들이 참조하는 엔터티/claim의 인접 subgraph(merge·supersede 파급 포함).
 - hairball 방지·비용 절감을 위해 정상 운영은 incremental, 정합성 보증이 필요할 때 full rebuild를 사용한다.
 
+> **구현 (Phase 4, 2026-08-12):** `graph_incremental.py` — incremental rebound 실경로 봉인.
+> - `extract_events(graph)` — `GraphService` 그래프를 `graph_mutations` 이벤트 스트림으로 역직렬화 (결정·read-only).
+> - `apply_incremental(base, delta_events)` — 기존 base 위에 delta subgraph 만 `GraphService.apply`(idempotent, §3.1)로 재적용. **정합성 계약:** 병합 그래프가 full replay 그래프와 동일해야 한다 (불변식 §3-1 파생 serving 결정적) — `apply_incremental(base, delta) == replay(base_events + delta)`.
+> - `incremental_rebuild_bench`/`evaluate_incremental_bench`/`compute_graph_slo` — full vs incremental 벽시계·ratio(06 §9 3항) + **DoD ② "신규 문서가 SLO 내 그래프 반영"** 게이트 (10 §1.4 slo-gate·CI 비차단, `GRAPH_SLO_MS=60s`, ratio > 10×).
+> read-only·결정적·mock/실측 격리. 스키마·계약 변경 없음 → Spec 그대로(0.1.9).
+
 ### 7.3 Ontology migration backfill
 
 - 온톨로지 major/minor 변경은 [`02-ontology`](./02-ontology.md) §6.2 절차(proposal→review→promotion→backfill)를 따른다.
