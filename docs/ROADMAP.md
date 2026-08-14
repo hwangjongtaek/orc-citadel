@@ -121,7 +121,7 @@
 | 1 | 10만+ 실제 공개 문서 처리 | [04](./design/04-ingestion-and-parsing.md) | ✅ |
 | 2 | 전체 데이터셋 처음부터 재처리 | [01](./design/01-architecture.md), [06](./design/06-graph-service.md) | ✅ |
 | 3 | 모든 authoritative claim에 source span·버전 | [02](./design/02-ontology.md), [03](./design/03-storage-and-data-model.md) | ✅ |
-| 4 | ER·Claim Extraction 평가 수치 공개 | [10](./design/10-evaluation-and-testing.md) | ⬜ |
+| 4 | ER·Claim Extraction 평가 수치 공개 | [10](./design/10-evaluation-and-testing.md) | ✅ |
 | 5 | 동일 근원 파생 출처 독립 중복 계산 방지 | [04](./design/04-ingestion-and-parsing.md), [11](./design/11-observability-and-governance.md) | ✅ |
 | 6 | valid/transaction time으로 변화 이력 재현 | [03](./design/03-storage-and-data-model.md) | ✅ |
 | 7 | Research Agent 공백·반대 증거 탐색 | [07](./design/07-llm-and-agents.md) | ⬜ |
@@ -132,6 +132,9 @@
 ## 5. Changelog
 
 가장 최신이 위로. 스펙·설계 변경을 기록한다 (구현 세부 커밋은 git 이력).
+
+### 2026-08-12
+- **ER·Claim Extraction 평가 수치 공개 (design 10 §1.2·§2.1, MVP #4).** MVP 최종 성공 기준 #4 충족. `metrics_report.generate_metrics_report(zone)` — 실데이터 골든셋 대비 KG 품질 지표를 검증 가능한 리포트로 공개. 골든 존재 시에만 해당 축을 `measured=True`로 계산(§1.2 gate), 골든이 없는 축은 **vacuous pass 없이 `measured=False` 미측정**(honest gap — §6.2: pass는 골든 존재 시에만 판정). **실측 (curated.duckdb, 골든 22건)**: claim extraction(canonicalization) **F1=1.00 P=1.00 R=1.00** (tp=22 fp=0 fn=0, gate 0.85 ✅) 공개. contradiction·entity resolution(ER)은 골든 contradicts / entity pair 골든세트(§2.1) 미확보로 미측정 — **Phase 2 골든 확장(§2.1) 후 측정** (과대 주장 없음). **read-only·결정적.** **Spec 0.1.2→0.1.3.** TDD — `test_metrics_report` 신규 7개(구조·claim extraction 공개·contradiction/ER honest-gap·unrelated 무오병합·read-only·결정성) — 스위트 500→**507개 통과**(회귀 0).
 
 ### 2026-08-11
 - **모델·프롬프트·ontology 버전 봉인 + 회귀 (design 10 §3, 02 §6.3, ADR-1003, MVP #10).** MVP 최종 성공 기준 #10 충족. 파이프라인 산출물에 부착되는 version 5축이 `pipeline_runner` 곳곳에 하드코딩(리터럴 `"ontology_version": "1.0.0"` 등)돼 있어 **한 곳에서 봉인·통제가 안 되던** 것을, `versioning.VERSION_TUPLE`(5축 봉인 상수) + `extraction_version_tuple()`(새 dict 반환 — 호출부 변조 차단) + `version_guard(vt)`(미등록 축·봉인 불일치 감지, 02 §6.3 재추출 트리거)로 단일화. `pipeline_runner` 하드코딩 4지점을 봉인 상수로 치환(파편 0). version 축 변경 시 bump→회귀(10 §3) 게이트에 진입. **Spec 0.1.1→0.1.2.** TDD — `test_versioning` 신규 5개(봉인 일치·복사 불변·가드 허용/드리프트·미등록 축) — 스위트 495→**500개 통과**(회귀 0).

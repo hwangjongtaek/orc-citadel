@@ -1,6 +1,6 @@
 # 10 · 평가·테스트
 
-> **상태:** Review · **Spec:** 0.1.2 · **Blueprint 매핑:** §12, §15
+> **상태:** Review · **Spec:** 0.1.3 · **Blueprint 매핑:** §12, §15
 > 상위 규약: [`README`](./README.md) · 관련: [`05-resolution`](./05-resolution-and-extraction.md), [`07-llm`](./07-llm-and-agents.md), [`11-observability`](./11-observability-and-governance.md)
 
 Orc Citadel의 **평가 지표(evaluation metrics)**, **골든 데이터셋(golden dataset)**, **회귀 테스트(regression)**, **테스트 전략(test strategy)**, **CI 게이트**를 확정한다. blueprint §12(평가 체계)·§15(테스트 전략)을 구현 계약으로 승격한 문서이며, 모델·프롬프트·온톨로지 버전 변경의 **승격 게이트(promotion gate)** SSOT다 ([`README`](./README.md) §2.3, [`07-llm`](./07-llm-and-agents.md) §9.5).
@@ -44,6 +44,8 @@ blueprint §12의 4범주를 지표별 **정의·계산식·목표/게이트**�
 | Provenance 완전성 비율 | provenance가 완전한 authoritative element 비율 | `elements_with_valid_provenance / authoritative_elements` | `gate: = 1.0` (불변식 §3-2) |
 
 > **Entity merge는 precision > recall.** 잘못된 병합은 연결된 모든 claim을 오염시키고 그래프 전역에 오류를 전파하므로 (blueprint §12.2, §18, 불변식 §3-4), resolution·오병합 게이트는 recall보다 precision을 강하게 잡는다. 불확실한 쌍은 병합하지 않고 `POSSIBLY_SAME_AS` 후보로 유지한다 (→ [`05`](./05-resolution-and-extraction.md)). 이는 recall 손실을 감수하는 **의도된 트레이드오프**다.
+
+**구현 (MVP #4 — 평가 수치 공개, 2026-08-12):** `metrics_report.py` — ER·Claim Extraction 평가 수치를 검증 가능한 리포트로 공개. `generate_metrics_report(zone)`이 골든셋(`golden_pairs`) 존재 시에만 해당 축을 `measured=True`로 계산하고(§1.2 gate), 골든이 없는 축은 **vacuous pass 없이 `measured=False` 미측정으로 명시**(honest gap — §6.2: pass는 골든 존재 시에만 판정). **실측 (curated.duckdb, 골든 22건)**: claim extraction(canonicalization) **F1=1.00 P=1.00 R=1.00** (tp=22 fp=0 fn=0, gate 0.85 ✅) 공개. contradiction·entity resolution은 골든 contradicts 쌍 / entity pair 골든세트(§2.1) 미확보로 미측정 — Phase 2 골든 확장(§2.1) 후 측정. **read-only·결정적.** TDD — `test_metrics_report` 신규 7개 — 스위트 500→**507개 통과**(회귀 0).
 
 ### 1.3 조사 품질 (§12.3)
 

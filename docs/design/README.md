@@ -4,9 +4,9 @@
 > 프로젝트 진행 중 스키마·계약·의사결정의 **Single Source of Truth(SSOT)** 역할을 한다.
 > 진행 내역은 [`docs/ROADMAP.md`](../ROADMAP.md)에서 관리한다.
 
-- **Spec version:** `0.1.2`
+- **Spec version:** `0.1.3`
 - **Ontology version 기준선:** `1.0.0` (→ [`02-ontology.md`](./02-ontology.md))
-- **최종 갱신:** 2026-08-11
+- **최종 갱신:** 2026-08-12
 
 ## 1. 문서 지도
 
