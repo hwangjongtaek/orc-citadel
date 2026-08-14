@@ -3,8 +3,8 @@
 > 이 문서는 프로젝트 **진행 내역을 추적**한다. 스펙 정의는 [`docs/design/`](./design/README.md)(SSOT)에 있고, 여기서는 "무엇을 언제 어디까지 했는가"만 관리한다.
 > 규칙: 설계·구현 변경은 (1) 해당 design 문서 수정 (2) `design/README.md` Spec version 반영 (3) 본 문서 §5 Changelog 기록의 3단계를 거친다.
 
-- **최종 갱신:** 2026-08-11
-- **현재 단계:** Phase 3 (Research Agent) **완결** — *Phase 1 완결(MVP 10/10·DoD ①②·Q4 PASS·Q6 유보) + Phase 2 완결(6 작업·DoD ①②, 스위트 535) + Phase 3 완결(5 작업·DoD ①②, 스위트 598). 설계 문서 Review → Stable 확정 대기*
+- **최종 갱신:** 2026-08-12
+- **현재 단계:** Phase 4 (100만 문서 확장) **완결** — *Phase 1 완결(MVP 10/10·DoD ①②·Q4 PASS·Q6 유보) + Phase 2 완결(6 작업·DoD ①②, 스위트 535) + Phase 3 완결(5 작업·DoD ①②, 스위트 598) + Phase 4 완결(5 작업·DoD ①②, 스위트 719). 설계 문서 Review → Stable 확정 대기*
 - **Spec version:** 0.1.4 · **Ontology version:** 1.0.0
 
 ## 1. 상태 요약 (한눈에)
@@ -123,6 +123,8 @@
 
 **DoD:** ① 100만 문서 처리 시간·비용 공개 ② 신규 문서 SLO 내 graph 반영.
 
+> **Phase 4 완결 블록업 (2026-08-12):** 5 작업 + DoD ①② 통합 검증 완료 — 스위트 **719 Green** (Phase 3 종료 598 → +121 · 회귀 0, Spec **0.1.9 유지** — Phase 4 전 작업 read-only·결정적·mock/실측 격리). `distributed_batch`(01 §6 분산 batch — shard·벽시계·SLO) · `graph_incremental`(06 §7.2 증분 rebuild — 정합성 = full replay, ratio > 10×) · `batch_inference`(07·08 embedding 핀 bge-m3/LLM batch 50% 절감) · `analytics_promotion`(11 ClickHouse 승격 트리거) · `phase4_report`(DoD ①② 통합 공개). **DoD ① "100만 처리 시간·비용 공개"** — `phase4_report`가 1M 투영(병렬·batch 절감)을 공개하되 **결정적 모델 투영이 실측이 아니므로 정직히 measured=False** 명시 (10 §6.2 honest-gap — 실제 부하·실측 백엔드는 분산/embedding/ClickHouse 승격 단계에서 재측정) · **DoD ② "신규 문서 SLO 내 graph 반영"** — `test_phase4_dod`가 실제 `GraphService`로 incremental 재적용 == full replay 정합성 + ratio > 10× + `compute_graph_slo`(p95 ≤ 60s) `ok` 판정으로 통합 검증 (SLO 위반·미측정은 정직 slo-gate/not-measured).
+
 ### Phase 5 — 1,000만 문서 Challenge
 
 다국어 ER · hot/cold graph 분리 · impact graph 부분 재계산 · source adaptive scheduling · ontology migration 자동화 · 지속적 Campaign·Signal Spire. (상세 계획은 Phase 4 종료 시 확정.)
@@ -147,6 +149,7 @@
 가장 최신이 위로. 스펙·설계 변경을 기록한다 (구현 세부 커밋은 git 이력).
 
 ### 2026-08-12
+- **Phase 4 완결 — DoD ①② 통합 검증 (design 01·06·10).** `test_phase4_dod.py` — #14–#18 이 봉인한 엔진을 **실제 구동**해 DoD ①② 종합 검증 (read-only·결정적·mock/실측 격리). **DoD ① — 100만 처리 시간·비용 공개:** `project_time_to_scale`·`project_cost_to_scale`(1M 투영, 병렬·**Message Batches 50% 절감**) → `phase4_dod_report` 공개, 결정적 모델 투영이 실측이 아니므로 **정직히 measured=False**(honest-gap §6.2), SLO 위반 `slo-gate` 비차단(§1.4·§6.3). **DoD ② — 신규 문서 SLO 내 graph 반영:** 실제 `GraphService` 로 `extract_events`·`apply_incremental` 구동 → **incremental 재적용 == full replay 정합성**(불변식 §3-1)·base 불변(read-only §3-3)·증분 **ratio > 10×** 완료조건·`compute_graph_slo`(p95 ≤ 60s) `ok` — DoD ② 종합. 결정성(동일 벤치). **Spec 그대로(0.1.9).** TDD — `test_phase4_dod` 12개 — 스위트 707→**719개 통과**(회귀 0). §1 현재 단계·§3 Phase 4 완결 마킹.
 - **Phase 4 — 100만 처리 시간·비용 공개 + SLO graph 반영 (design 01·10, DoD ①②).** `phase4_report.py` — #14–#17 이 봉인한 계약을 **DoD ①② 측에서 통합 공개** (중복 구현 없음, 10 §4.5·§1.4 → 01·06). **DoD ① — 100만 처리 시간·비용:** `project_time_to_scale(per_doc_ms, docs, target=1M, speedup)` 선형×병렬(#14) 투영 · `project_cost_to_scale(cost_per_doc, target=1M, use_batch)` 순차 vs `batch_inference_cost`(**Message Batches 50% 절감**, #17 재사용) — **결정적 모델 투영**이 실측이 아니므로 `measured=False` 명시(honest-gap §6.2). **DoD ② — SLO 내 graph 반영:** `graph_reflect_slo` 가 `compute_graph_slo`(#15 p95≤60s)·`compute_slo_gate`(#14)·증분 완료조건(ratio>10×) 통합 판정(분류 재노출) · `phase4_dod_report` `all_measured` 로 부분 미측정 정직 노출. read-only·결정적. **Spec 그대로(0.1.9).** TDD — `test_phase4_report` 18개 — 스위트 689→**707개 통과**(회귀 0). 다음: Phase 4 DoD ①② 통합 검증 + 완결 블록업.
 - **Phase 4 — ClickHouse 분석 승격 (design 01·11, 확장 게이트).** `analytics_promotion.py` — 01 §5 분석·관측 계층의 **승격 트리거(분석 쿼리 지연)** 봉인 (ClickHouse 미설치 — executor mock 주입, #14 mock/실측 격리와 동일). `measure_analytics_latency(queries, executor)` — 분석 쿼리 경로별 지연 분포 → p95(정렬 인덱스 결정법)·avg·max·n_queries. `evaluate_analytics_promotion(latency_stats)` — `ANALYTICS_SLO_MS=200ms` p95 초과 시 **`escalate_clickhouse=True`** (01 §5 승격 트리거, Q4/Q6 게이트와 동일 성격 — `classified="slo-gate"` CI 비차단 nightly 승격 평가). 미측정(None/p95 부재) → escalate=False·**not-measured** (honest-gap §6.2 — 미측정이 승격 불필요의 근거 아님). `aggregate_metrics(rows, key_fn)` — **OLAP 집계**(ClickHouse 가 대체 승격하는 분석 부하 실제 형태), `correlation_id`·`version_tuple` drill-down(11 §2.2). read-only(불변식 §3-3)·결정적. **Spec 그대로(0.1.9).** TDD — `test_analytics_promotion` 19개 — 스위트 670→**689개 통과**(회귀 0). 다음: 100만 처리 시간·비용 공개 + SLO graph 반영(01·10, DoD ①②).
 - **Phase 4 — 대량 embedding·LLM batch inference (design 07·08, DoD ①).** `batch_inference.py` — 07·08 inference 단계 확장 지점 봉인 (mock/실측 격리). **embedding (08 §2.3·ADR-802/809):** 핀 `BAAI/bge-m3`(1024-dim cosine, 08 소유) · `embeddable_kind` segment/claim 만(ADR-802 문서·evidence 비임베딩) · `embedding_index_version` model:dim 축약(08 §2.1 전량 reindex 트리거) · `embed_texts` 대량 일괄 임베딩(executor 주입, 결과에 `embedding_model`·`index_version` 부착). **LLM batch (07 §2.2):** `BATCH_TIER=claude-sonnet-5` · `batch_infer` Message Batches 일괄(미주입 mock 은 항목 `status:pending` 표시 — honest-gap §6.2 진공 통과 금지, `batch:True` 경로 명시) · `batch_inference_cost` 순차 대비 `MESSAGE_BATCHES_DISCOUNT(0.5)` — **50% 절감**(비-latency-민감). **DoD ① 처리 시간·비용:** `inference_throughput`(10 §1.4 재사용) + `compute_inference_slo`(`INFERENCE_SLO_MS=60s` **slo-gate**·CI 비차단, 미측정 honest-gap). read-only(불변식 §3-3)·결정적. **Spec 그대로(0.1.9).** TDD — `test_batch_inference` 26개 — 스위트 644→**670개 통과**(회귀 0). 다음: ClickHouse 분석 승격(design 11, 확장 게이트).
