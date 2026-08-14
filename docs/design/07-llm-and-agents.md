@@ -1,6 +1,6 @@
 # 07 · LLM·에이전트 (Warchief's Council · Seers)
 
-> **상태:** Review · **Spec:** 0.1.0 · **Blueprint 매핑:** §9
+> **상태:** Review · **Spec:** 0.1.4 · **Blueprint 매핑:** §9
 > 상위 규약: [README](./README.md) · 관련: [01-architecture](./01-architecture.md), [05-resolution](./05-resolution-and-extraction.md), [06-graph](./06-graph-service.md), [08-search](./08-search-and-graphrag.md)
 
 LLM·에이전트 계층(Seers, Warchief's Council)의 사용 영역, 모델 계층화·라우팅, Agent 명세, 조사 루프(investigation loop), evidence-first 생성 계약, prompt/모델 버전 관리, structured output 계약을 정의한다. 본 문서는 blueprint §9를 구현 계약으로 확정하며, README §3 설계 불변식(특히 §3-3 agent는 graph mutate 직접 금지, §3-5 evidence-first)과 [01-architecture](./01-architecture.md) Agent Runtime 경계(§3, S9, ADR-103)를 위반할 수 없다.
@@ -142,6 +142,8 @@ Warchief's Council의 8개 Agent를 소절로 정의한다. **공통 불변식:*
 - **입력:** `{gaps[], entity_filter?, time_filter?, relation_filter?, source_type_filter?}` → **출력:** `{candidates: [{doc_id, span, score, retrieval_path}]}`.
 - **도구:** `search`(hybrid, → [08](./08-search-and-graphrag.md)), `sql:read`.
 - **tier:** L3(질의 계획) + L2 도구(실행). **불변식:** 전체 문서가 아닌 필요한 span·주변 그래프만 반환 (blueprint §10).
+
+> **구현 (MVP #7 — SEARCH 단계, 2026-08-12):** `retrieval.py` — Retrieval Agent. 조사 루프의 SEARCH(§4, `gap → 후보 문서·span`)를 read-only로 구축. corpus는 멘션 `context_window`(문장 텍스트), 질의 용어 BM25 근사 선형 스코어로 후보 span 정렬·k 상한·결정적(08 GraphRAG 중 BM25 경로). 출력 `{doc_id, segment_id, span, score, retrieval_path}` (§3.4 불변식 — 전체 문서 아닌 span만 반환). `InvestigationRunner`의 gap subclaim에 배선(gap → retrieved 후보), `viewer._api_investigate` 응답에 `retrieved` 노출. **read-only·결정적.** TDD — `test_retrieval` 신규 5개 + `test_investigation_runner` SEARCH 배선 1개 + `test_viewer_graph` 노출 1개 — 스위트 507→**514개 통과**(회귀 0).
 
 ### 3.5 Evidence Extractor
 

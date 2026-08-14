@@ -50,7 +50,7 @@ def _inv_result(subject_id, gaps, coverage=1.0):
     from orc_citadel.investigation_runner import InvestigationResult
     return InvestigationResult(
         subject_id=subject_id, coverage=coverage,
-        subclaims=[], gaps=gaps, counter_evidence=[], iterations=1,
+        subclaims=[], gaps=gaps, counter_evidence=[], retrieved=[], iterations=1,
         terminated_by="coverage",
         token_usage={"input_tokens": 0, "output_tokens": 0, "calls": 0})
 

@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from orc_citadel.investigation import InvestigationCoverage, Subclaim
 from orc_citadel.graph_explorer import GraphExplorer
 from orc_citadel.counter_evidence import CounterEvidenceAgent
+from orc_citadel.retrieval import RetrievalAgent
 
 
 @dataclass(frozen=True)
@@ -25,26 +26,35 @@ class InvestigationResult:
     subclaims: list
     gaps: list
     counter_evidence: list
+    retrieved: list
     iterations: int
     terminated_by: str
     token_usage: dict
 
 
 class InvestigationRunner:
-    """조사 루프 (07 §4) — coverage·counter-evidence로 read-only 종료."""
+    """조사 루프 (07 §4) — coverage·counter-evidence·retrieval로 read-only 종료."""
 
     def __init__(self, zone, graph, coverage_threshold: float = 0.80,
                  max_iters: int = 3) -> None:
         self._cov = InvestigationCoverage(zone)
         self._explorer = GraphExplorer(zone, graph)
         self._counter = CounterEvidenceAgent(zone)
+        self._retriever = RetrievalAgent(zone)
         self._threshold = coverage_threshold
         self._max_iters = max_iters
+
+    @staticmethod
+    def _query_terms(text: str) -> list[str]:
+        """subclaim 텍스트 → 검색 질의 용어 (결정적)."""
+        import re
+        return [t for t in re.split(r"[^a-z0-9가-힣]+", (text or "").lower()) if t]
 
     def run(self, subclaims) -> InvestigationResult:
         cov_result = self._cov.coverage(list(subclaims))
         gaps = set(cov_result.gaps)
         counter = []
+        retrieved = []
         # gap subclaim의 counter-evidence 탐색 (read-only).
         for s in subclaims:
             if s.id in gaps and s.subject_id:
@@ -53,6 +63,11 @@ class InvestigationRunner:
                 counter.append({"subject_id": s.subject_id, "id": s.id,
                                 "hypotheses": ce["hypotheses"],
                                 "negative_queries": ce["negative_queries"]})
+                # SEARCH 스테이지 (07 §4): gap을 채울 후보 span 검색.
+                terms = self._query_terms(s.text)
+                if terms:
+                    retrieved.extend(self._retriever.search(
+                        {"terms": terms, "subject_id": s.subject_id}))
         # 종료 판정 — 단순 결정적 루프 (그래프·존 불변이라 진행 없으면 종료).
         iterations = 1
         terminated = None
@@ -69,7 +84,7 @@ class InvestigationRunner:
         return InvestigationResult(
             subject_id=", ".join(subjects),
             coverage=cov_result.coverage, subclaims=cov_result.subclaims,
-            gaps=cov_result.gaps, counter_evidence=counter,
+            gaps=cov_result.gaps, counter_evidence=counter, retrieved=retrieved,
             iterations=iterations, terminated_by=terminated,
             token_usage={"input_tokens": 0, "output_tokens": 0, "calls": 0},
         )

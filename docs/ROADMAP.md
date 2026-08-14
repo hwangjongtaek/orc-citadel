@@ -124,7 +124,7 @@
 | 4 | ER·Claim Extraction 평가 수치 공개 | [10](./design/10-evaluation-and-testing.md) | ✅ |
 | 5 | 동일 근원 파생 출처 독립 중복 계산 방지 | [04](./design/04-ingestion-and-parsing.md), [11](./design/11-observability-and-governance.md) | ✅ |
 | 6 | valid/transaction time으로 변화 이력 재현 | [03](./design/03-storage-and-data-model.md) | ✅ |
-| 7 | Research Agent 공백·반대 증거 탐색 | [07](./design/07-llm-and-agents.md) | ⬜ |
+| 7 | Research Agent 공백·반대 증거 탐색 | [07](./design/07-llm-and-agents.md) | ✅ |
 | 8 | 보고서 검증 가능 문장 그래프·원문 감사 | [07](./design/07-llm-and-agents.md), [03](./design/03-storage-and-data-model.md) | ✅ |
 | 9 | 문서당 비용·전체 처리 시간 측정 | [10](./design/10-evaluation-and-testing.md), [11](./design/11-observability-and-governance.md) | ✅ |
 | 10 | 모델·프롬프트·ontology 버전 회귀 테스트 | [10](./design/10-evaluation-and-testing.md) | ✅ |
@@ -134,6 +134,7 @@
 가장 최신이 위로. 스펙·설계 변경을 기록한다 (구현 세부 커밋은 git 이력).
 
 ### 2026-08-12
+- **Retrieval SEARCH 단계 — 조사 에이전트 공백 탐색 완결 (design 07 §3.4·§4, MVP #7).** MVP 최종 성공 기준 #7 충족. S43–47 read-only 조사 루프(공백·반대 증거 탐색)에** 누락됐던 SEARCH 단계**를 구축 — `retrieval.py` Retrieval Agent(07 §3.4). corpus=멘션 `context_window`(문장 텍스트), BM25 근사 선형 스코어로 그래프 공백을 채울 후보 span(`{doc_id, segment_id, span, score, retrieval_path}`) 반환 — 전체 문서 아닌 span만(§3.4 불변식), k 상한·결정적(08 BM25 경로). `InvestigationRunner`(S46)의 gap subclaim에 SEARCH 배선 → `viewer._api_investigate` 응답에 `retrieved` 노출 — read-only 루프로 공백 탐색·후보 증거 노출 완결. **read-only·결정적.** **Spec 0.1.3→0.1.4.** TDD — `test_retrieval` 신규 5개 + runner SEARCH 배선 1개 + viewer 노출 1개 — 스위트 507→**514개 통과**(회귀 0).
 - **ER·Claim Extraction 평가 수치 공개 (design 10 §1.2·§2.1, MVP #4).** MVP 최종 성공 기준 #4 충족. `metrics_report.generate_metrics_report(zone)` — 실데이터 골든셋 대비 KG 품질 지표를 검증 가능한 리포트로 공개. 골든 존재 시에만 해당 축을 `measured=True`로 계산(§1.2 gate), 골든이 없는 축은 **vacuous pass 없이 `measured=False` 미측정**(honest gap — §6.2: pass는 골든 존재 시에만 판정). **실측 (curated.duckdb, 골든 22건)**: claim extraction(canonicalization) **F1=1.00 P=1.00 R=1.00** (tp=22 fp=0 fn=0, gate 0.85 ✅) 공개. contradiction·entity resolution(ER)은 골든 contradicts / entity pair 골든세트(§2.1) 미확보로 미측정 — **Phase 2 골든 확장(§2.1) 후 측정** (과대 주장 없음). **read-only·결정적.** **Spec 0.1.2→0.1.3.** TDD — `test_metrics_report` 신규 7개(구조·claim extraction 공개·contradiction/ER honest-gap·unrelated 무오병합·read-only·결정성) — 스위트 500→**507개 통과**(회귀 0).
 
 ### 2026-08-11

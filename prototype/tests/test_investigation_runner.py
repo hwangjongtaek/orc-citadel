@@ -111,6 +111,26 @@ def test_read_only_no_mutation():
     assert len(g.edges()) == before_edges
 
 
+def test_search_stage_returns_candidates_for_gap():
+    """gap subclaim의 SEARCH 스테이지 — 그래프 공백을 채울 후보 span 반환 (07 §4)."""
+    from orc_citadel.extract import Mention
+
+    z = _zone()
+    # 검색 corpus에 매칭될 멘션 문장 추가 (context_window = 문장 텍스트).
+    z.persist_mention(Mention(mention_id="men-search", doc_id="doc-search",
+                              segment_id="doc-search#s0", surface_text="org-a",
+                              mention_type="ORG", char_start=0, char_end=4,
+                              context_window="org-a announces superconductors"))
+    g = _graph()
+    res = InvestigationRunner(z, g).run(
+        [Subclaim("s1", "superconductors?", subject_id="org-zzz")])
+    # SEARCH 스테이지가 gap에 대해 retrieved 후보를 노출.
+    assert res.retrieved
+    assert res.retrieved[0]["doc_id"] == "doc-search"
+    assert "span" in res.retrieved[0]
+    assert res.retrieved[0]["retrieval_path"].startswith("bm25")
+
+
 def test_determinism():
     """동일 입력 → 동일 결과."""
     a = _run([Subclaim("s1", "a?", subject_id="org-a")])

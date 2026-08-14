@@ -126,6 +126,7 @@ class Handler(BaseHTTPRequestHandler):
             "terminated_by": inv.terminated_by,
             "gaps": inv.gaps,
             "counter_evidence": len(inv.counter_evidence),
+            "retrieved": inv.retrieved,
             "conclusion": rep.conclusion,
             "statements": rep.statements,
             "open_questions": rep.open_questions,

@@ -127,8 +127,8 @@ def test_synthesis_no_evidence_subject():
     from orc_citadel.investigation_runner import InvestigationResult
     z = _empty_zone()
     inv = InvestigationResult(subject_id="org-x", coverage=0.0, subclaims=[],
-                              gaps=["s1"], counter_evidence=[], iterations=1,
-                              terminated_by="no_new_evidence",
+                              gaps=["s1"], counter_evidence=[], retrieved=[],
+                              iterations=1, terminated_by="no_new_evidence",
                               token_usage={"input_tokens":0,"output_tokens":0,"calls":0})
     rep = Synthesizer(z).synthesize(inv, "org-x")
     # 근거 없어 statements 비거나, 있는 경우에도 audit 위반 없음.

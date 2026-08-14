@@ -66,3 +66,15 @@ def test_investigate_response_includes_wargraph_subgraph():
     assert "relation_paths" in resp
     assert "independence_summary" in resp
     assert resp["audit"]["passed"] is True
+
+
+def test_investigate_response_exposes_retrieval():
+    """_api_investigate 가 SEARCH 스테이지의 retrieved 후보를 응답에 노출 (07 §4)."""
+    facade = _build_facade()
+    subj = facade.zone.assertions()[0]["subject_id"]
+    self = types.SimpleNamespace(facade=facade)
+    resp = json.loads(Handler._api_investigate(self, {"subject": subj}))
+    assert "retrieved" in resp
+    assert isinstance(resp["retrieved"], list)
+    # read-only — retrieved는 조회 산출물, 응답이 zone을 수정하지 않음.
+    assert len(facade.zone.assertions()) >= 1
