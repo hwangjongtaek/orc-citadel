@@ -4,7 +4,7 @@
 > 규칙: 설계·구현 변경은 (1) 해당 design 문서 수정 (2) `design/README.md` Spec version 반영 (3) 본 문서 §5 Changelog 기록의 3단계를 거친다.
 
 - **최종 갱신:** 2026-08-12
-- **현재 단계:** Phase 5 (1,000만 문서 Challenge) **진입** — *Phase 1~4 완결(MVP 10/10·DoD ①②·Q4 PASS·Q6 유보 · 스위트 719) + Phase 5 착수(신호 알림 design 11 §4 — 747, adaptive scheduling design 04·01 — **785**). 설계 문서 Review → Stable 확정 대기*
+- **현재 단계:** Phase 5 (1,000만 문서 Challenge) **진입** — *Phase 1~4 완결(MVP 10/10·DoD ①②·Q4 PASS·Q6 유보 · 스위트 719) + Phase 5 착수(신호 알림 design 11 §4 — 747 · adaptive scheduling design 04·01 — 785 · hot/cold 그래프 design 06·01 — **813**). 설계 문서 Review → Stable 확정 대기*
 - **Spec version:** 0.1.4 · **Ontology version:** 1.0.0
 
 ## 1. 상태 요약 (한눈에)
@@ -131,7 +131,7 @@
 | --- | --- | --- |
 | 지속적 Signal Spire 알림 | [11](./design/11-observability-and-governance.md) §4 | ✅ 봉인 (스위트 747) |
 | signal source adaptive scheduling | [04](./design/04-ingestion-and-parsing.md), [01](./design/01-architecture.md) | ✅ 봉인 (스위트 785) |
-| hot/cold graph 분리 | [06](./design/06-graph-service.md) | ⬜ |
+| hot/cold graph 분리 | [06](./design/06-graph-service.md) | ✅ 봉인 (스위트 813) |
 | impact graph 부분 재계산 | [06](./design/06-graph-service.md), [10](./design/10-evaluation-and-testing.md) | ⬜ |
 | 다국어 ER | [05](./design/05-resolution-and-extraction.md) | ⬜ |
 | ontology migration 자동화 | [02](./design/02-ontology.md) | ⬜ |
@@ -158,6 +158,7 @@
 가장 최신이 위로. 스펙·설계 변경을 기록한다 (구현 세부 커밋은 git 이력).
 
 ### 2026-08-12
+- **Phase 5 — hot/cold graph 분리 (design 06·01).** `graph_temperature.py` — 10M Challenge 그래프 확장의 **접근 온도 기반 계층 분리** 봉인 (06 ADR-603 — 논리→물리 분리, Q4 게이트 — 노드 ≥ `NODE_GATE=1e6` 시 분리/아카이브). `temperature` — 최근성(`now-last_access ≤ hot_window`) → hot/cold, **미접근(None)→None**(미측정, honest-gap §6.2). `partition_tiers`·`tier_map` — hot/cold/unknown 분할 + unknown **보수적 기본(cold) 할당**(측정과 구분). `hot_resident_count` — hot 예산. `cold_archive_decision` — Q4 노드 게이트 초과 시 cold 아카이브(`node_count - hot_resident` 상주 보존)·`cold_ratio`, `route_query` — hot 상주/cold 아카이브 라우팅 + 조회 SLO(`DEFAULT_SLO_MS=50ms` 초과 `slo-gate` 비차단, ✓10 §1.4), tier None → `not-measured`. `mark_accessed` — 승격 read-only(새 dict 반환), 실제 아카이브 이동·접근 기록은 호출자 몫(§3-3). 접근 stats·지연은 호출자 주입(mock/실측 격리). **Spec 그대로(0.1.9).** TDD — `test_graph_temperature` 28개(온도·분할·unknown 할당·hot 예산·아카이브 게이트·라우팅+SLO·승격 read-only·결정성) — 스위트 785→**813개 통과**(회귀 0). 다음: Phase 5 는 impact graph 부분 재계산(06·10).
 - **Phase 5 — signal source adaptive scheduling (design 04·01).** `signal_scheduler.py` — 10M Challenge 수집 병목, **신호 수율 기반 예산 배분** 봉인 (근거 = `signal_source_runner` 메모리: arXiv 대비 전용 반도체/공급망 언론 고신호). `signal_density=(claims+edges)/docs`·`trailing_signal_density`(문서 가중 누적) — **수율 지표**. `allocate_signal_budget` — **floor(min_docs=1) 피보장**(04 §5 freshness, 멸종 방지) + 잉여 수율 비례 배분, 예산 희소 시 floor 비례 축소(전체 보존), **미측정은 잉여 제외/전 미측정은 균등**(honest-gap §6.2). `freshness_lag` — §5 freshness(lag·overdue, 이력/기대 주기 부재는 None). `cadence_priority` — 04 §1.1 `schedule.priority`(density → high/normal/low, 임계 placeholder). `adaptive_schedule` — 히스토리 → trailing 수율 → 배분 + priority·lag 부착 결정적 오케스트레이션. **스케줄은 산출물일 뿐 실행은 호출자 몫(read-only §3-3).** **Spec 그대로(0.1.9).** TDD — `test_signal_scheduler` 38개(수율·배분 floor/비례/희소/미측정·freshness·주기·오케스트레이션·read-only·결정성) — 스위트 747→**785개 통과**(회귀 0). 다음: Phase 5 는 hot/cold graph 분리(06).
 - **Phase 5 착수 — Signal Spire 알림 (design 11 §4).** `signal_spire.py` — §4 트리거·fire-once·alert 스키마 봉인 (read-only·결정적). **5 종 트리거(§4.1):** `trigger_contradicting_evidence`(CONTRADICTS)·`trigger_claim_changed`(SUPERSEDES)·`trigger_plan_to_execution`(Event.status planned→confirmed)·`trigger_new_independent_source`(독립 수 증가, §1.4)·`trigger_confidence_threshold`(Δ≥0.10). **1 회 점화(§4.2, ADR-1104):** `SignalSpire` 가 점화 dedup_key 기억 → 동일 `inv:trigger:target` 재점화 `None`(과잉 알림 금지). **Alert 스키마(§4.3):** `make_alert` — investigation_id(technical-first, campaign_id 미사용)·severity·dedup_key 자동·delta·cause(provenance gate 근거만)·fire_count·acknowledged. `evaluate_and_fire` 일괄 래퍼. **알림은 산출물일 뿐 저장·발송은 호출자 몫(read-only §3-3).** **Spec 그대로(0.1.9).** TDD — `test_signal_spire` 28개(5 트리거·정밀성·fire-once·스키마·일괄·read-only·결정성) — 스위트 719→**747개 통과**(회귀 0). Phase 5(1,000만 Challenge) 진입 — 다음: signal source adaptive scheduling(04).
 - **Phase 4 완결 — DoD ①② 통합 검증 (design 01·06·10).** `test_phase4_dod.py` — #14–#18 이 봉인한 엔진을 **실제 구동**해 DoD ①② 종합 검증 (read-only·결정적·mock/실측 격리). **DoD ① — 100만 처리 시간·비용 공개:** `project_time_to_scale`·`project_cost_to_scale`(1M 투영, 병렬·**Message Batches 50% 절감**) → `phase4_dod_report` 공개, 결정적 모델 투영이 실측이 아니므로 **정직히 measured=False**(honest-gap §6.2), SLO 위반 `slo-gate` 비차단(§1.4·§6.3). **DoD ② — 신규 문서 SLO 내 graph 반영:** 실제 `GraphService` 로 `extract_events`·`apply_incremental` 구동 → **incremental 재적용 == full replay 정합성**(불변식 §3-1)·base 불변(read-only §3-3)·증분 **ratio > 10×** 완료조건·`compute_graph_slo`(p95 ≤ 60s) `ok` — DoD ② 종합. 결정성(동일 벤치). **Spec 그대로(0.1.9).** TDD — `test_phase4_dod` 12개 — 스위트 707→**719개 통과**(회귀 0). §1 현재 단계·§3 Phase 4 완결 마킹.

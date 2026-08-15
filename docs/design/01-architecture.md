@@ -164,6 +164,22 @@ ClickHouse)의 **승격 트리거 = 분석 쿼리 지연**을 봉인 (ClickHouse
 구체 계약·placeholder 는 04 §4 메모가 정본. 실제 수집 실행은 산출 배분을 호출자가
 소비(read-only §3-3).
 
+#### 5.3 hot/cold graph 분리 구현 메모 (Phase 5)
+
+`graph_temperature.py` 로 §5 Knowledge Graph(초기 Neo4j Community, 확장
+Neo4j/Memgraph·**물리 분리**) 의 **접근 온도 기반 계층 분리**를 봉인 (Q4 게이트 —
+노드 ≥ 1e6 시 교체/분리 트리거, 06 ADR-603):
+
+- `temperature`·`partition_tiers`·`tier_map` — 최근성 → hot/cold/unknown, unknown 은
+  보수적 기본(cold) 할당 (미접근≠cold, honest-gap §6.2).
+- `hot_resident_count` — hot 상주 예산.
+- `cold_archive_decision` — Q4 노드 게이트 초과 시 cold 아카이브(ADR-603 물리 분리).
+- `route_query` — hot 상주/cold 아카이브 라우팅 + 조회 SLO(slo-gate 비차단).
+- `mark_accessed` — 승격 read-only(새 dict 반환), 실제 접근 기록·아카이브 이동은
+  호출자 몫(§3-3).
+
+구체 계약·placeholder 는 06 §9 메모가 정본.
+
 ## 6. 배포 토폴로지
 
 ### 6.1 초기 (Docker Compose, 단일 호스트)
