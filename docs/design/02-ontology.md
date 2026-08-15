@@ -274,6 +274,16 @@ blueprint §18(ontology 폭발), §17 versioning을 절차로 확정한다.
 - 저장된 모든 element는 `ontology_version`을 가진다. 조회 시 현재 버전과의 호환성을 판단한다 (contract test, → [`10`](./10-evaluation-and-testing.md)).
 - 모델·프롬프트가 특정 ontology_version을 target한다. 불일치 시 재추출 대상.
 
+> **구현 메모 (Phase 5 — ontology migration 자동화 前단, 2026-08-12):** `ontology_migration.py` — §6.1·§6.2·§6.3 버저닝·거버넌스 절차의 **계획·판정 전단** 봉인. 실제 이벤트 발행은 이벤트 replay 재구축(`graph_replay.py`·`GraphService` Applier, 06 §7.3) 경로에 위임한다(read-only §3-3).
+> - **변경 분류:** `migration_level` — §6.1 semver none/patch/minor/major (결정적, 비정상 구성요소는 0 폴백).
+> - **호환성 판정:** `compat_current` — §6.3 `ontology_version` 대비 **major 만 비호환**(타입 제거·의미 변경 → 전량 재평가), minor/patch 는 하위호환.
+> - **계획 산출:** `plan_migration` — element 집합 대비 `MigrationPlan` (level·`revalidate_required`(major)·`backfill_ids`(非호환 element, 정렬)·`proposal_predicates`(미등록 predicate, unique·정렬)). **`prev==cur` → `unchanged` 명시**(honest-gap §6.2 — "변경 없음"≠유의미 계획, action 공백).
+> - **미등록 predicate (proposal 트리거):** `quarantine_trigger` — §4-2·§5 폐쇄성, 미등록 → `quarantine_and_propose` (자동 승격 금지). 신규 수집 게이트 판정은 `gate.py`(`CONTROLLED_PREDICATES`) 몫 — 여기선 migration 계획 관점의 proposal 신호만.
+> - **절차 서열:** `migration_actions` — §6.2 proposal→review→promotion→backfill 서열(필요 단계만).
+> - **backfill 변환:** `backfill_events` — 06 §7.3, 非호환 element 를 새 `ontology_version` 으로 재해석하는 `reinterpret` 이벤트 계획(read-only 산출물 → 발행은 Applier 경로).
+> - **빈/미지 버전은 보수적 非호환** — 자동 "호환" 오인 대신 재해석 대상(§6.2 honest-gap).
+> 결정적·read-only·mock/실측 격리. 스키마·계약 변경 없음 → **Spec 그대로(0.1.9).** TDD — `test_ontology_migration` 신규 30개(분류·호환성·계획·honest-gap·proposal 트리거·절차 서열·backfill 이벤트·보수적 비호환·read-only·결정성) — 스위트 872→**902개 통과**(회귀 0). 다음: Phase 5 전체 목록 완료 — [ROADMAP](./ROADMAP.md) §3 점검.
+
 ## 7. 객체 그래프 (요약)
 
 ```text
