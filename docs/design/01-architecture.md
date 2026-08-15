@@ -148,6 +148,22 @@ ClickHouse)의 **승격 트리거 = 분석 쿼리 지연**을 봉인 (ClickHouse
 
 실제 ClickHouse 승격 시 이 진입점의 지연 실측을 트리거 근거로 쓰고 ADR 로 확정한다.
 
+#### 5.2 Collector adaptive scheduling 구현 메모 (Phase 5)
+
+`signal_scheduler.py` 로 §3 Collector(Scouts)·04 §1 의 수집 예산(rate limit·freshness) 을
+**신호 수율 기반으로 적응 배분** (10M Challenge 수집 병목 — 소스별 신호 밀도 편차
+활용, `signal_source_runner` 메모리: arXiv 인용 대비 전용 반도체 언론 고신호):
+
+- `signal_density`·`trailing_signal_density` — 신호 수율 = (claims+edges)/docs (문서 가중 누적).
+- `allocate_signal_budget` — **floor(min_docs) 피보장**(§§4·5 freshness, 멸종 방지) + 잉여
+  수율 비례 배분. 미측정은 잉여 제외/전 미측정은 균등(honest-gap §6.2).
+- `freshness_lag` — §5 freshness 지연(lag·overdue), `cadence_priority` — 04 §1.1
+  `schedule.priority` (density → high/normal/low).
+- `adaptive_schedule` — 히스토리 → trailing 수율 → 배분 + priority·lag 부착 결정적 산출.
+
+구체 계약·placeholder 는 04 §4 메모가 정본. 실제 수집 실행은 산출 배분을 호출자가
+소비(read-only §3-3).
+
 ## 6. 배포 토폴로지
 
 ### 6.1 초기 (Docker Compose, 단일 호스트)
