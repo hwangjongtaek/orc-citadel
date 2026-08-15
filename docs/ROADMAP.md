@@ -4,7 +4,7 @@
 > 규칙: 설계·구현 변경은 (1) 해당 design 문서 수정 (2) `design/README.md` Spec version 반영 (3) 본 문서 §5 Changelog 기록의 3단계를 거친다.
 
 - **최종 갱신:** 2026-08-12
-- **현재 단계:** Phase 4 (100만 문서 확장) **완결** — *Phase 1 완결(MVP 10/10·DoD ①②·Q4 PASS·Q6 유보) + Phase 2 완결(6 작업·DoD ①②, 스위트 535) + Phase 3 완결(5 작업·DoD ①②, 스위트 598) + Phase 4 완결(5 작업·DoD ①②, 스위트 719). 설계 문서 Review → Stable 확정 대기*
+- **현재 단계:** Phase 5 (1,000만 문서 Challenge) **진입** — *Phase 1~4 완결(MVP 10/10·DoD ①②·Q4 PASS·Q6 유보 · 스위트 719) + Phase 5 착수(신호 알림, design 11 §4 — 스위트 747). 설계 문서 Review → Stable 확정 대기*
 - **Spec version:** 0.1.4 · **Ontology version:** 1.0.0
 
 ## 1. 상태 요약 (한눈에)
@@ -127,7 +127,16 @@
 
 ### Phase 5 — 1,000만 문서 Challenge
 
-다국어 ER · hot/cold graph 분리 · impact graph 부분 재계산 · source adaptive scheduling · ontology migration 자동화 · 지속적 Campaign·Signal Spire. (상세 계획은 Phase 4 종료 시 확정.)
+| 작업 | 담당 스펙 | 상태 |
+| --- | --- | --- |
+| 지속적 Signal Spire 알림 | [11](./design/11-observability-and-governance.md) §4 | ✅ 봉인 (스위트 747) |
+| signal source adaptive scheduling | [04](./design/04-ingestion-and-parsing.md), [01](./design/01-architecture.md) | ⬜ |
+| hot/cold graph 분리 | [06](./design/06-graph-service.md) | ⬜ |
+| impact graph 부분 재계산 | [06](./design/06-graph-service.md), [10](./design/10-evaluation-and-testing.md) | ⬜ |
+| 다국어 ER | [05](./design/05-resolution-and-extraction.md) | ⬜ |
+| ontology migration 자동화 | [02](./design/02-ontology.md) | ⬜ |
+
+(상세 계획은 Phase 4 종료 시 확정 — Signal Spire 첫 증분으로 진입.)
 
 ## 4. MVP 최종 성공 기준 (Blueprint §21 추적)
 
@@ -149,6 +158,7 @@
 가장 최신이 위로. 스펙·설계 변경을 기록한다 (구현 세부 커밋은 git 이력).
 
 ### 2026-08-12
+- **Phase 5 착수 — Signal Spire 알림 (design 11 §4).** `signal_spire.py` — §4 트리거·fire-once·alert 스키마 봉인 (read-only·결정적). **5 종 트리거(§4.1):** `trigger_contradicting_evidence`(CONTRADICTS)·`trigger_claim_changed`(SUPERSEDES)·`trigger_plan_to_execution`(Event.status planned→confirmed)·`trigger_new_independent_source`(독립 수 증가, §1.4)·`trigger_confidence_threshold`(Δ≥0.10). **1 회 점화(§4.2, ADR-1104):** `SignalSpire` 가 점화 dedup_key 기억 → 동일 `inv:trigger:target` 재점화 `None`(과잉 알림 금지). **Alert 스키마(§4.3):** `make_alert` — investigation_id(technical-first, campaign_id 미사용)·severity·dedup_key 자동·delta·cause(provenance gate 근거만)·fire_count·acknowledged. `evaluate_and_fire` 일괄 래퍼. **알림은 산출물일 뿐 저장·발송은 호출자 몫(read-only §3-3).** **Spec 그대로(0.1.9).** TDD — `test_signal_spire` 28개(5 트리거·정밀성·fire-once·스키마·일괄·read-only·결정성) — 스위트 719→**747개 통과**(회귀 0). Phase 5(1,000만 Challenge) 진입 — 다음: signal source adaptive scheduling(04).
 - **Phase 4 완결 — DoD ①② 통합 검증 (design 01·06·10).** `test_phase4_dod.py` — #14–#18 이 봉인한 엔진을 **실제 구동**해 DoD ①② 종합 검증 (read-only·결정적·mock/실측 격리). **DoD ① — 100만 처리 시간·비용 공개:** `project_time_to_scale`·`project_cost_to_scale`(1M 투영, 병렬·**Message Batches 50% 절감**) → `phase4_dod_report` 공개, 결정적 모델 투영이 실측이 아니므로 **정직히 measured=False**(honest-gap §6.2), SLO 위반 `slo-gate` 비차단(§1.4·§6.3). **DoD ② — 신규 문서 SLO 내 graph 반영:** 실제 `GraphService` 로 `extract_events`·`apply_incremental` 구동 → **incremental 재적용 == full replay 정합성**(불변식 §3-1)·base 불변(read-only §3-3)·증분 **ratio > 10×** 완료조건·`compute_graph_slo`(p95 ≤ 60s) `ok` — DoD ② 종합. 결정성(동일 벤치). **Spec 그대로(0.1.9).** TDD — `test_phase4_dod` 12개 — 스위트 707→**719개 통과**(회귀 0). §1 현재 단계·§3 Phase 4 완결 마킹.
 - **Phase 4 — 100만 처리 시간·비용 공개 + SLO graph 반영 (design 01·10, DoD ①②).** `phase4_report.py` — #14–#17 이 봉인한 계약을 **DoD ①② 측에서 통합 공개** (중복 구현 없음, 10 §4.5·§1.4 → 01·06). **DoD ① — 100만 처리 시간·비용:** `project_time_to_scale(per_doc_ms, docs, target=1M, speedup)` 선형×병렬(#14) 투영 · `project_cost_to_scale(cost_per_doc, target=1M, use_batch)` 순차 vs `batch_inference_cost`(**Message Batches 50% 절감**, #17 재사용) — **결정적 모델 투영**이 실측이 아니므로 `measured=False` 명시(honest-gap §6.2). **DoD ② — SLO 내 graph 반영:** `graph_reflect_slo` 가 `compute_graph_slo`(#15 p95≤60s)·`compute_slo_gate`(#14)·증분 완료조건(ratio>10×) 통합 판정(분류 재노출) · `phase4_dod_report` `all_measured` 로 부분 미측정 정직 노출. read-only·결정적. **Spec 그대로(0.1.9).** TDD — `test_phase4_report` 18개 — 스위트 689→**707개 통과**(회귀 0). 다음: Phase 4 DoD ①② 통합 검증 + 완결 블록업.
 - **Phase 4 — ClickHouse 분석 승격 (design 01·11, 확장 게이트).** `analytics_promotion.py` — 01 §5 분석·관측 계층의 **승격 트리거(분석 쿼리 지연)** 봉인 (ClickHouse 미설치 — executor mock 주입, #14 mock/실측 격리와 동일). `measure_analytics_latency(queries, executor)` — 분석 쿼리 경로별 지연 분포 → p95(정렬 인덱스 결정법)·avg·max·n_queries. `evaluate_analytics_promotion(latency_stats)` — `ANALYTICS_SLO_MS=200ms` p95 초과 시 **`escalate_clickhouse=True`** (01 §5 승격 트리거, Q4/Q6 게이트와 동일 성격 — `classified="slo-gate"` CI 비차단 nightly 승격 평가). 미측정(None/p95 부재) → escalate=False·**not-measured** (honest-gap §6.2 — 미측정이 승격 불필요의 근거 아님). `aggregate_metrics(rows, key_fn)` — **OLAP 집계**(ClickHouse 가 대체 승격하는 분석 부하 실제 형태), `correlation_id`·`version_tuple` drill-down(11 §2.2). read-only(불변식 §3-3)·결정적. **Spec 그대로(0.1.9).** TDD — `test_analytics_promotion` 19개 — 스위트 670→**689개 통과**(회귀 0). 다음: 100만 처리 시간·비용 공개 + SLO graph 반영(01·10, DoD ①②).

@@ -203,6 +203,8 @@ Signal Spire는 **결론과 confidence의 중요한 변화**만 알린다(운영
 - `cause`는 provenance 게이트를 통과한 근거만 담는다. **알림 역시 감사 가능**해야 하며, 사용자는 알림에서 mutation → evidence → 원문 span까지 추적할 수 있어야 한다(Trail).
 - `severity`는 결론 변화 크기 기준(`material`/`minor`)이며, 색·아이콘이 아니라 값과 delta로 표현한다(blueprint §1.4 접근성).
 
+> **구현 메모 (Phase 5 — Signal Spire 알림, 2026-08-12):** `signal_spire.py` — §4 트리거·fire-once·alert 스키마를 봉인 (Phase 4 결정적·read-only 원칙). **5 종 트리거 (§4.1):** `trigger_contradicting_evidence`(신규 CONTRADICTS)·`trigger_claim_changed`(SUPERSEDES)·`trigger_plan_to_execution`(Event.status planned→confirmed, 02 ontology)·`trigger_new_independent_source`(독립 증거 수 증가 — §1.4)·`trigger_confidence_threshold`(Δ ≥ `CONFIDENCE_DELTA_TRIGGER=0.10`, 10 실측 조정). **1 회 점화 fire-once (§4.2, ADR-1104):** `SignalSpire` 가 점화된 `dedup_key` 기억해 재알림 금지 — 동일 `(investigation_id, trigger_type, target)` 재점화는 `None`(과잉 알림 방지), 상태가 재차 변해 다른 dedup_key 로만 새 알림. **Alert 스키마 (§4.3):** `make_alert` — `investigation_id`(technical-first, campaign_id 미사용 — ADR-903)·`severity`(material/minor)·`dedup_key`(자동 `inv:trigger:target`)·`delta`·`cause`(provenance gate 통과 근거만)·`fire_count`·`acknowledged`. `evaluate_and_fire` — 평가→fire-once→alert 일괄 래퍼. 실제 mutation event 는 주입, 결정성은 순수 이벤트 평가로 봉인. read-only(불변식 §3-3) — **알림은 산출물일 뿐 저장·발송은 호출자 몫.** **스키마·계약 변경 없음 → Spec 그대로(0.1.9).** TDD — `test_signal_spire` 신규 28개(5 트리거 조건·정밀성·fire-once 재알림 금지·alert 스키마·evaluate 일괄·read-only·결정성) — 스위트 719→**747개 통과**(회귀 0). 다음: Phase 5 는 1,000만 Challenge — signal source adaptive scheduling(04 §?).
+
 ---
 
 ## 5. 안전·거버넌스 (Blueprint §13)
