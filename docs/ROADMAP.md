@@ -4,7 +4,7 @@
 > 규칙: 설계·구현 변경은 (1) 해당 design 문서 수정 (2) `design/README.md` Spec version 반영 (3) 본 문서 §5 Changelog 기록의 3단계를 거친다.
 
 - **최종 갱신:** 2026-08-12
-- **현재 단계:** Phase 5 (1,000만 문서 Challenge) **진입** — *Phase 1~4 완결(MVP 10/10·DoD ①②·Q4 PASS·Q6 유보 · 스위트 719) + Phase 5 착수(신호 알림 design 11 §4 — 747 · adaptive scheduling design 04·01 — 785 · hot/cold 그래프 design 06·01 — 813 · impact 부분 재계산 design 06·10 — **842**). 설계 문서 Review → Stable 확정 대기*
+- **현재 단계:** Phase 5 (1,000만 문서 Challenge) **진입** — *Phase 1~4 완결(MVP 10/10·DoD ①②·Q4 PASS·Q6 유보 · 스위트 719) + Phase 5 착수(신호 알림 11 §4 — 747 · adaptive scheduling 04·01 — 785 · hot/cold 그래프 06·01 — 813 · impact 부분 재계산 06·10 — 842 · 다국어 ER 05 — **872**). 설계 문서 Review → Stable 확정 대기*
 - **Spec version:** 0.1.4 · **Ontology version:** 1.0.0
 
 ## 1. 상태 요약 (한눈에)
@@ -133,7 +133,7 @@
 | signal source adaptive scheduling | [04](./design/04-ingestion-and-parsing.md), [01](./design/01-architecture.md) | ✅ 봉인 (스위트 785) |
 | hot/cold graph 분리 | [06](./design/06-graph-service.md) | ✅ 봉인 (스위트 813) |
 | impact graph 부분 재계산 | [06](./design/06-graph-service.md), [10](./design/10-evaluation-and-testing.md) | ✅ 봉인 (스위트 842) |
-| 다국어 ER | [05](./design/05-resolution-and-extraction.md) | ⬜ |
+| 다국어 ER | [05](./design/05-resolution-and-extraction.md) | ✅ 봉인 (스위트 872) |
 | ontology migration 자동화 | [02](./design/02-ontology.md) | ⬜ |
 
 (상세 계획은 Phase 4 종료 시 확정 — Signal Spire 첫 증분으로 진입.)
@@ -158,6 +158,7 @@
 가장 최신이 위로. 스펙·설계 변경을 기록한다 (구현 세부 커밋은 git 이력).
 
 ### 2026-08-12
+- **Phase 5 — 다국어 ER (design 05).** `multilingual_er.py` — 같은 개체(기관)가 여러 언어·스크립트로 등장(TSMC ∽ 台積電, §1.2 `aliases`)할 때의 **교차-스크립트 해소 전단부** 봉인 (ADR-507 precision-first). `detect_script` — codepoint 다수결 지배 스크립트(latn/cjk/other, 결정적) · `norm_name` — **NFKC + 조합 발음구분부호 제거 + 로마자 소문자/공백/구두점 축약·CJK 공백 제거** → §2.1 `norm_name` blocking 의 교차-스크립트 기반 · `multilingual_alias_index` — caller-curated bridge(TSMC↔台積電)를 norm→entity 인덱싱 · `multilingual_block_keys` — bridge 를 타고 교차-스크립트로 같은 개체를 같은 bucket 으로 유도 · `propose_multilingual_candidates` — 스크립트 다른 개체를 **`POSSIBLY_SAME_AS`(kind=multilingual-script)** 로 제안 · `multilingual_merge_status` — **교차-스크립트는 항상 POSSIBLY**(자동 병합 금지). **honest-gap(§6.2):** bridge 없는 표면형은 교차 후보를 **추론하지 않음**(transliteration 은 모호·비결정적). read-only·결정적. **Spec 그대로(0.1.9).** TDD — `test_multilingual_er` 30개(스크립트·정규화·bridge·blocking 유도·제안·항상 POSSIBLY·honest-gap·read-only·결정성) — 스위트 842→**872개 통과**(회귀 0). 다음: Phase 5 는 ontology migration 자동화(02).
 - **Phase 5 — impact graph 부분 재계산 (design 06·10).** `impact_graph.py` — 06 §7.2·§5.2 **영향 하류 subgraph 도출** 봉인. **프로파게이션 모델:** 전파 엣지(`ABOUT/SUPPORTS/CONTRADICTS/SUPERSEDES/SAME_AS`) 연결 클러스터 **상호 영향**(양방향 — §5.2 재지정 파급), hops·타입 한정. `impact_scope` — target→전파 BFS 영향 노드 집합(결정·read-only) · `impact_subgraph` — scope 노드 + **내부 엣지만**(부분 재계산 섬) · `partial_recompute_events` — full 중 scope 내 이벤트만(원순서 보존) · `partial_vs_full` — 이벤트 수 ratio, **partial=0 → ratio None + empty_scope**(honest-gap §6.2) · `evaluate_partial_recompute` — ratio > `PARTIAL_RATIO_GATE=5.0` → `saving_meaningful` + `slo-gate`(10 §1.4 CI 비차단 nightly). 기존 `recompute_bench`(벽시계)·`graph_incremental`(실재적용) 과 결합하는 **범위 도출층**. **Spec 그대로(0.1.9).** TDD — `test_impact_graph` 29개(범위 BFS·hops·타입 필터·subgraph 섬·부분집합·비율·empty-scope·게이트·read-only·결정성) — 스위트 813→**842개 통과**(회귀 0). 다음: Phase 5 는 다국어 ER(05).
 - **Phase 5 — hot/cold graph 분리 (design 06·01).** `graph_temperature.py` — 10M Challenge 그래프 확장의 **접근 온도 기반 계층 분리** 봉인 (06 ADR-603 — 논리→물리 분리, Q4 게이트 — 노드 ≥ `NODE_GATE=1e6` 시 분리/아카이브). `temperature` — 최근성(`now-last_access ≤ hot_window`) → hot/cold, **미접근(None)→None**(미측정, honest-gap §6.2). `partition_tiers`·`tier_map` — hot/cold/unknown 분할 + unknown **보수적 기본(cold) 할당**(측정과 구분). `hot_resident_count` — hot 예산. `cold_archive_decision` — Q4 노드 게이트 초과 시 cold 아카이브(`node_count - hot_resident` 상주 보존)·`cold_ratio`, `route_query` — hot 상주/cold 아카이브 라우팅 + 조회 SLO(`DEFAULT_SLO_MS=50ms` 초과 `slo-gate` 비차단, ✓10 §1.4), tier None → `not-measured`. `mark_accessed` — 승격 read-only(새 dict 반환), 실제 아카이브 이동·접근 기록은 호출자 몫(§3-3). 접근 stats·지연은 호출자 주입(mock/실측 격리). **Spec 그대로(0.1.9).** TDD — `test_graph_temperature` 28개(온도·분할·unknown 할당·hot 예산·아카이브 게이트·라우팅+SLO·승격 read-only·결정성) — 스위트 785→**813개 통과**(회귀 0). 다음: Phase 5 는 impact graph 부분 재계산(06·10).
 - **Phase 5 — signal source adaptive scheduling (design 04·01).** `signal_scheduler.py` — 10M Challenge 수집 병목, **신호 수율 기반 예산 배분** 봉인 (근거 = `signal_source_runner` 메모리: arXiv 대비 전용 반도체/공급망 언론 고신호). `signal_density=(claims+edges)/docs`·`trailing_signal_density`(문서 가중 누적) — **수율 지표**. `allocate_signal_budget` — **floor(min_docs=1) 피보장**(04 §5 freshness, 멸종 방지) + 잉여 수율 비례 배분, 예산 희소 시 floor 비례 축소(전체 보존), **미측정은 잉여 제외/전 미측정은 균등**(honest-gap §6.2). `freshness_lag` — §5 freshness(lag·overdue, 이력/기대 주기 부재는 None). `cadence_priority` — 04 §1.1 `schedule.priority`(density → high/normal/low, 임계 placeholder). `adaptive_schedule` — 히스토리 → trailing 수율 → 배분 + priority·lag 부착 결정적 오케스트레이션. **스케줄은 산출물일 뿐 실행은 호출자 몫(read-only §3-3).** **Spec 그대로(0.1.9).** TDD — `test_signal_scheduler` 38개(수율·배분 floor/비례/희소/미측정·freshness·주기·오케스트레이션·read-only·결정성) — 스위트 747→**785개 통과**(회귀 0). 다음: Phase 5 는 hot/cold graph 분리(06).
