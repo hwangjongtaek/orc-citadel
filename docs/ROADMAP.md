@@ -4,7 +4,7 @@
 > 규칙: 설계·구현 변경은 (1) 해당 design 문서 수정 (2) `design/README.md` Spec version 반영 (3) 본 문서 §5 Changelog 기록의 3단계를 거친다.
 
 - **최종 갱신:** 2026-08-12
-- **현재 단계:** Phase 5 (1,000만 문서 Challenge) **완료(목록 전항 ✅) + 설계 문서 Stable 확정** — *Phase 1~4 완결(MVP 10/10·DoD ①②·Q4 PASS·Q6 유보 · 스위트 719) + Phase 5 (신호 알림 11 §4 — 747 · adaptive scheduling 04·01 — 785 · hot/cold 그래프 06·01 — 813 · impact 부분 재계산 06·10 — 842 · 다국어 ER 05 — 872 · ontology migration 02 — 902) + 11개 설계 문서 **Stable(Spec 1.0.0, 2026-08-12)** — 스위트 902 Green*
+- **현재 단계:** Phase 5 완료 + 설계 문서 Stable 확정 + **MVP 재검증 완료** — *Phase 1~4 완결(MVP 10/10·DoD ①②·Q4 PASS·Q6 유보 · 스위트 719) + Phase 5(신호 알림 11 §4 — 747 · adaptive scheduling 04·01 — 785 · hot/cold 그래프 06·01 — 813 · impact 부분 재계산 06·10 — 842 · 다국어 ER 05 — 872 · ontology migration 02 — 902) + 11개 설계 문서 **Stable(Spec 1.0.0)** + §4 MVP 기준 **3중 매핑 재검증**(실측 7 + 부분실측 2 + 계약 1, §6.2 honest) — 스위트 902 Green*
 - **Spec version:** 0.1.4 · **Ontology version:** 1.0.0
 
 ## 1. 상태 요약 (한눈에)
@@ -144,22 +144,25 @@
 
 | # | 기준 | 검증 스펙 | 상태 |
 | --- | --- | --- | :---: |
-| 1 | 10만+ 실제 공개 문서 처리 | [04](./design/04-ingestion-and-parsing.md) | ✅ |
-| 2 | 전체 데이터셋 처음부터 재처리 | [01](./design/01-architecture.md), [06](./design/06-graph-service.md) | ✅ |
-| 3 | 모든 authoritative claim에 source span·버전 | [02](./design/02-ontology.md), [03](./design/03-storage-and-data-model.md) | ✅ |
-| 4 | ER·Claim Extraction 평가 수치 공개 | [10](./design/10-evaluation-and-testing.md) | ✅ |
-| 5 | 동일 근원 파생 출처 독립 중복 계산 방지 | [04](./design/04-ingestion-and-parsing.md), [11](./design/11-observability-and-governance.md) | ✅ |
-| 6 | valid/transaction time으로 변화 이력 재현 | [03](./design/03-storage-and-data-model.md) | ✅ |
-| 7 | Research Agent 공백·반대 증거 탐색 | [07](./design/07-llm-and-agents.md) | ✅ |
-| 8 | 보고서 검증 가능 문장 그래프·원문 감사 | [07](./design/07-llm-and-agents.md), [03](./design/03-storage-and-data-model.md) | ✅ |
-| 9 | 문서당 비용·전체 처리 시간 측정 | [10](./design/10-evaluation-and-testing.md), [11](./design/11-observability-and-governance.md) | ✅ |
-| 10 | 모델·프롬프트·ontology 버전 회귀 테스트 | [10](./design/10-evaluation-and-testing.md) | ✅ |
+| 1 | 10만+ 실제 공개 문서 처리 | [04](./design/04-ingestion-and-parsing.md) | ✅ 실측 — raw **104,544건** |
+| 2 | 전체 데이터셋 처음부터 재처리 | [01](./design/01-architecture.md), [06](./design/06-graph-service.md) | ✅ 실측 — 104,544건 재처리 완주 (S50·선형화) |
+| 3 | 모든 authoritative claim에 source span·버전 | [02](./design/02-ontology.md), [03](./design/03-storage-and-data-model.md) | ✅ 실측 — source-span E2E + version 봉인(MVP #3/#10) |
+| 4 | ER·Claim Extraction 평가 수치 공개 | [10](./design/10-evaluation-and-testing.md) | ✅ 부분실측 — claim F1=1.00·ER P=1.00 오병합률 0.0000 measured · **contradiction·lineage 실데이터 골든 미자연발생 → honest-gap 미측정(§6.2)** |
+| 5 | 동일 근원 파생 출처 독립 중복 계산 방지 | [04](./design/04-ingestion-and-parsing.md), [11](./design/11-observability-and-governance.md) | ✅ 계약 봉인 — dedup+lineage 골든 P/R · **실데이터 dup 0건 → lineage honest-gap** |
+| 6 | valid/transaction time으로 변화 이력 재현 | [03](./design/03-storage-and-data-model.md) | ✅ 실측 — `assertions_as_of`·`replay_graph_at_tx` (ADR-604) |
+| 7 | Research Agent 공백·반대 증거 탐색 | [07](./design/07-llm-and-agents.md) | ✅ 실측 — AB 검증 반증 발견률 1.0(≥0.70 PASS)·연결률 1.0 |
+| 8 | 보고서 검증 가능 문장 그래프·원문 감사 | [07](./design/07-llm-and-agents.md), [03](./design/03-storage-and-data-model.md) | ✅ 실측 — `Audit.trace` 연결률 1.0, source span 역추적 |
+| 9 | 문서당 비용·전체 처리 시간 측정 | [10](./design/10-evaluation-and-testing.md), [11](./design/11-observability-and-governance.md) | ✅ 부분 — 단일 프로세스 실측(13.9 docs/s·p50 22.6ms·LLM $0/문서) · **1M 스케일은 모델 투영 measured=False(§6.2)** |
+| 10 | 모델·프롬프트·ontology 버전 회귀 테스트 | [10](./design/10-evaluation-and-testing.md) | ✅ 실측 — `test_versioning` 5축 봉인·가드·회귀 |
+
+> **재검증 (2026-08-12, Stable Spec 1.0.0 기준):** 10개 기준 전항이 Stable 스펙(설계 절) ↔ 구현 모듈(`collect_large`/`graph_replay`/`assertion_evidence`/`metrics_report`/`dedup`/`curated_zone·catalog`/`investigation_*`/`synthesis`/`pipeline_bench`/`versioning`) ↔ suite(902 Green, 회귀 0) 3중으로 근거 매핑 확인. **측정 품질을 정직히 구분해 재확정:** 실측 7항(#1·2·3·6·7·8·10) + 부분실측 2항(#4·9 — 실측 축 measured, 미자연발생/스케일 투영 축은 honest-gap measured=False) + 계약 봉인 1항(#5 — 경로 검증, 실데이터 축 미측정). **전항 충족이지만 "전부 실측"은 아님** — #4·5·9는 일부 축이 확정 스펙 대비 계약/투영 경로로 정직히 표기됨 (과대 주장 금지 §6.2). 실데이터 재수집·1M 실측 시 measured 전환 가능(경로 단위 테스트 봉인).
 
 ## 5. Changelog
 
 가장 최신이 위로. 스펙·설계 변경을 기록한다 (구현 세부 커밋은 git 이력).
 
 ### 2026-08-12
+- **MVP 최종 성공 기준(§4) Stable 스펙 기준 3중 매핑 재검증.** 설계 문서가 Spec 1.0.0 으로 확정됨에 따라 §4 의 Blueprint §21 기준 10개 전항을 **설계 절 ↔ 구현 모듈 ↔ suite(902 Green) 3중 대조**로 재검증 — Stable 승격 전 "MVP 10/10 충족"이 전부 실측을 뜻하지 않음을 정직히 재확정 (과대 주장 금지 §6.2). **측정 상태 구분 재확정:** 실측 7항(#1 raw 104,544건·#2 재처리·#3 source span+버전·#6 time-travel·#7 AB 반증 1.0·#8 연결률 1.0·#10 버전 회귀) + **부분실측 2항**(#4 ER/Claim — claim F1=1.00·ER P=1.00 실측이나 **contradiction·lineage 실데이터 골든 미자연발생 → honest-gap 미측정** · #9 비용·시간 — 단일 프로세스 실측 13.9 docs/s, **1M 스케일은 모델 투영 measured=False**) + **계약 봉인 1항**(#5 중복 방지 — dedup+lineage 골든 P/R 경로 검증, 실데이터 dup 0건 축 honest-gap). 전항 충족이되 **#4·5·9 는 계약/투영 경로로 부분 정직 표기** 유지 — 실데이터 재수집·1M 실측 시 measured 전환 가능(단위 테스트 봉인). §1·§4 반영. 다음: Phase 6(Stable 운용) 진입 준비 또는 유지·관리 작업.
 - **설계 문서 Review → Stable 확정 (11개, Spec 1.0.0).** 리뷰 패스(BLOCKER 3 + MAJOR 36 해소·상호 일관성 재검증 전항목 PASS) 완료 문서를 **Stable 로 승격** (README 인덱스·01~11 전부, `상태: ✅ Stable · Spec: 1.0.0`). **Stable 확정 전 TBD 잔존 검증으로 미확정 항목을 해소 후 승격** (과대 주장 없음): **SLO-02/03/04(graph query p50/p95/p99)를 실측으로 확정** — 06 §9 실측(p95 0.66~1.16ms·10만 합성 1.08ms·5만 0.6ms) 대비 **대략 40~100배 여유**의 보수적 목표 `p50≤10ms·p95≤50ms·p99≤100ms` (11 §2.3). **SLO-01/05/06/07/08**(수집 성공률·schema 통과율·quarantine 체류·재처리)과 **07 §7 tool JSON schema 본문**은 "측정 없는 목표는 신뢰하지 않는다"(blueprint §20) 원칙에 따라 **명시적 deferred**로 유지 — 실측 후 확정 대상(11 §2.3 `(deferred)`·07 §7). **Spec 0.1.9 → 1.0.0** (Stable 확정). 스키마·계약 실질 변경은 없음 — SLO 목표 확정·deferred 명시만. ROADMAP §1·§2·§5 반영. 다음: MVP 최종 성공 기준(§4)의 Phase 0~5 매핑 재검증·Phase 6(Stable 운용) 진입 준비 또는 유지·관리 작업.
 - **Phase 5 완결 블록업 (6 작업, 스위트 902 Green).** Phase 5(1,000만 문서 Challenge) 전 작업 구현·회귀 봉인 완료. 작업별 상태: 지속 Signal Spire 알림(`signal_spire`, 11 §4 — 5 트리거·fire-once·alert 스키마) · signal source adaptive scheduling(`signal_scheduler`, 04·01 — floor 보장+수율 비례, freshness) · hot/cold graph 분리(`graph_temperature`, 06 — 접근 온도·Q4 노드 게이트·SLO 라우팅) · impact graph 부분 재계산(`impact_graph`, 06·10 — 전파 BFS 범위·절감 게이트) · 다국어 ER(`multilingual_er`, 05·ADR-507 — 스크립트 탐지·NFKC·bridge·항상 POSSIBLY) · ontology migration 자동화(`ontology_migration`, 02·§6 — 버전 분류·호환·proposal·backfill). **honest-gap §6.2:** 1,000만 문서 실제 처리·실측 부하는 수행되지 않았으며 — 전 작업이 검증 가능한 **엔지니어링 계약(`measured=False`)** 을 봉인, 10M 부하 판정 게이트(분산·재구축·아카이브·마이그레이션)는 실측 백엔드 재측정 대상. **Spec 그대로(0.1.9)** — Phase 5 전 작업 read-only·결정적·mock/실측 격리. §1 현재 단계·§3 Phase 5 완결 마킹. 다음: 설계 문서 Review → Stable 확정 대기.
 - **Phase 5 — ontology migration 자동화 前단 (design 02).** `ontology_migration.py` — 02 §6.1·§6.2·§6.3 버저닝·거버넌스 절차의 **계획·판정 전단** 봉인(실제 발행은 이벤트 replay 재구축·`GraphService` Applier(06 §7.3) 경로 위임, read-only §3-3). `migration_level` — §6.1 semver 분류(결정적, 비정상 구성요소 0 폴백) · `compat_current` — §6.3 `ontology_version` 호환 판정(**major 만 비호환** → 전량 재평가) · `plan_migration` — element 집합 대비 `MigrationPlan`(level·`revalidate_required`·`backfill_ids`(非호환, 정렬)·`proposal_predicates`(미등록, unique·정렬)), **`prev==cur` → `unchanged` 명시(honest-gap §6.2)** · `quarantine_trigger` — §4-2 predicate 폐쇄성, 미등록 → `quarantine_and_propose`(자동 승격 금지; 신규 수집 게이트는 `gate.py` 몫) · `migration_actions` — §6.2 proposal→review→promotion→backfill 서열 · `backfill_events` — 06 §7.3 非호환 element 재해석 `reinterpret` 이벤트 계획. **빈/미지 버전은 보수적 非호환**(자동 호환 오인 대신 재해석 대상). 결정적·read-only·mock/실측 격리. **Spec 그대로(0.1.9).** TDD — `test_ontology_migration` 30개(분류·호환성·계획·honest-gap·proposal 트리거·절차 서열·backfill·보수적 비호환·read-only·결정성) — 스위트 872→**902개 통과**(회귀 0). Phase 5 목록 **전항 완료**. 다음: design 02 Review → Stable 확정 대기.
