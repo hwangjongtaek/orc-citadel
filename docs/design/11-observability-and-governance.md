@@ -122,7 +122,7 @@ SLO-02/03/04는 **실측으로 확정**했다(2026-08-12, `neo4j_q4_harness` 가
 
 | SLO ID | 지표 | 목표 | 측정 창 | 상태 |
 | --- | --- | --- | --- | --- |
-| SLO-01 | 신규 문서 → graph 반영 지연(p95) | `≤ 30 min` (deferred) | 7d rolling | 실측 후 확정 |
+| SLO-01 | 신규 문서 → graph 반영 지연(p95) | `≤ 30 min` (deferred) | 7d rolling | 실측 하니스 봉인(2026-08-12) — 실데이터 축적 후 확정 |
 | SLO-02 | graph query latency p50 | `≤ 10 ms` ✅ 확정 | 1d rolling | **확정** (실측 p95 0.66~1.16ms) |
 | SLO-03 | graph query latency p95 | `≤ 50 ms` ✅ 확정 | 1d rolling | **확정** (실측 0.66~1.16ms) |
 | SLO-04 | graph query latency p99 | `≤ 100 ms` ✅ 확정 | 1d rolling | **확정** (실측 0.66~1.16ms) |
@@ -133,6 +133,8 @@ SLO-02/03/04는 **실측으로 확정**했다(2026-08-12, `neo4j_q4_harness` 가
 
 - SLO-01은 blueprint §16 Phase 4 완료 조건("신규 문서가 목표 SLO 안에 graph에 반영")과 직접 연결된다.
 - SLO 위반은 자동으로 Signal Spire 운영 알림이 아니라 **Watchtower 운영 경보**로 라우팅한다(§5.3 결론 알림과 구분).
+
+> **구현 메모 (Phase 6 — SLO-01 실측 하니스 봉인, 2026-08-12):** `reflection_slo_harness.py` — deferred SLO-01 의 **측정 계약·하니스**를 봉인 (목표치 자체는 실데이터 축적 후 확정). 측정 공식(10 §1.4) `graph_commit_ts − fetched_ts`(p95) — `fetched_ts` 는 원문 meta 의 `fetched_at`(collect_sample 에서 수집 시점 기록), `graph_commit_ts` 는 그래프 반영 시각. **단일 프로세스 일괄 처리의 정직한 한계(honest-gap §6.2):** 문서가 수집 직후 곧바로 반영되어 "배치 내 반영 지연"은 사실상 수집-처리 사이클 길이에 의존 → 측정을 **두 축으로 분리**해 과대 주장을 피함. `measure_batch_reflection` — 배치 내 실제 벽시계(주입 clock·commit_fn, epoch ms 축) · `measure_batch_interval_latency` — 배치 간격 시나리오(`ceil(t/inter)*inter − t`, 운영 스케줄러 반영 지연). p95 는 `neo4j_q4_harness.measure_query_latency` 와 동일한 **정렬 인덱스 결정법**(`int(0.95*(len-1))`) 재사용. 판정 `evaluate_slo01` — `SLO01_TARGET_MS=30 min`(11 §2.3) 대비: 미측정 None → `not-measured`+`within_slo=False`(부재가 OK 아님, §6.2), 초과 → `slo-gate`(10 §1.4 — CI 비차단 nightly 경보, `compute_graph_slo`(60s/DoD ②)와 별개 게이트). read-only(불변식 §3-3)·결정적·mock/실측 격리. **스키마·계약 변경 없음 → Spec 그대로(1.0.0).** TDD — `test_reflection_slo_harness` 신규 21개(fetched 파싱·부재 honest-gap·벽시계·commit_fn·배치 간격 시나리오·p95 결정법·slo-gate/not-measured 판정·read-only·결정성) — 스위트 902→**923개 통과**(회귀 0). 다음: 실데이터 축적 시 SLO-01 목표치 확정.
 
 ---
 
