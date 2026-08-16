@@ -4,7 +4,7 @@
 > 규칙: 설계·구현 변경은 (1) 해당 design 문서 수정 (2) `design/README.md` Spec version 반영 (3) 본 문서 §5 Changelog 기록의 3단계를 거친다.
 
 - **최종 갱신:** 2026-08-12
-- **현재 단계:** Phase 5 완료 + 설계 문서 Stable 확정 + **MVP 재검증 완료** — *Phase 1~4 완결(MVP 10/10·DoD ①②·Q4 PASS·Q6 유보 · 스위트 719) + Phase 5(신호 알림 11 §4 — 747 · adaptive scheduling 04·01 — 785 · hot/cold 그래프 06·01 — 813 · impact 부분 재계산 06·10 — 842 · 다국어 ER 05 — 872 · ontology migration 02 — 902) + 11개 설계 문서 **Stable(Spec 1.0.0)** + §4 MVP 기준 **3중 매핑 재검증**(실측 7 + 부분실측 2 + 계약 1, §6.2 honest) — 스위트 902 Green*
+- **현재 단계:** Phase 6(Stable 운용) 진입 준비 — *Phase 1~5 완결(스위트 902 Green · MVP 10/10 실측/측정 재확정 · 설계 11개 문서 Stable Spec 1.0.0) 후, 이전 Phase 가 남긴 **deferred SLO(01/05/06/07/08)·tool schema·measured=False** 항목을 실측·measured 전환하는 **측정 기반 운영 단계**에 진입 준비(blueprint 미정의 — ROADMAP 신규 정의, §3 Phase 6)*
 - **Spec version:** 0.1.4 · **Ontology version:** 1.0.0
 
 ## 1. 상태 요약 (한눈에)
@@ -140,6 +140,24 @@
 
 > **Phase 5 완결 블록업 (2026-08-12):** 6 작업 + 설계 Review→Stable 확정 준비 완료 — 스위트 **902 Green** (Phase 4 종료 719 → +183 · 회귀 0, Spec **0.1.9 유지** — Phase 5 전 작업 read-only·결정적·mock/실측 격리). `signal_spire`(11 §4 지속 신호 알림 — 5 트리거·fire-once·alert 스키마) · `signal_scheduler`(04·01 신호 수율 기반 수집 예산 배분 — floor 보장+수율 비례, freshness) · `graph_temperature`(06 hot/cold 계층 분리 — 접근 온도·Q4 노드 게이트 아카이브·조회 SLO 라우팅) · `impact_graph`(06·10 영향 하류 부분 재계산 — 전파 BFS 범위·절감 게이트) · `multilingual_er`(05·ADR-507 교차-스크립트 해소 전단부 — 스크립트 탐지·NFKC 정규화·bridge·항상 POSSIBLY) · `ontology_migration`(02 §6 버저닝·거버넌스 계획·판정 — 버전 분류·호환·proposal·backfill 변환). Phase 5 는 1,000만 문서 Challenge 의 **확장 엔지니어링 계약 봉인**(10M 스케일 운용 준비) — 실제 1,000만 문서 처리·실측 부하는 수행되지 않았으며 이 작업들은 **정직히 `measured=False` 계약**의 산출물이다 (10 §6.2 honest-gap — 분산·재구축·아카이브·마이그레이션 등 10M 부하 판정 게이트는 실측 백엔드에서 재측정 대상). §1 현재 단계·§3 Phase 5 완결 마킹. **다음: 설계 문서 Stable 확정 — 완료 (2026-08-12, 11개 문서 Spec 1.0.0).**
 
+### Phase 6 — Stable 운용 (측정 기반 운영 · 미정의, 신규 정의)
+
+> blueprint §16 은 Phase 5 까지만 정의한다. **Phase 6 은 이 프로젝트가 새로 정의하는 진행 단계** — Phase 1–5 가 prototype 계약 봉인(단위 테스트)이었다면, Phase 6 은 **Stable(Spec 1.0.0) 스펙 위에서 deferred 항목 실측 · measured 전환 · 지속 수집 운용** 을 수행한다. Phase 1–5 의 모든 완결 블록업이 "실측 백엔드에서 재측정 대상"으로 남긴 의무(honest-gap §6.2)를 이행하는 단계. **즉 Phase 6 는 단위 테스트 추가가 아니라 실측·운영 작업**이며, 게이트·SLO 판정은 CI 비차단 nightly 로 수행한다(10 §1.4).
+
+| 작업 | 담당 스펙 | 성격 | 상태 |
+| --- | --- | --- | :---: |
+| 수집 지속 운용 — 1만 샘플 → 10만 → (더) 수집 | [04](./design/04-ingestion-and-parsing.md), [11](./design/11-observability-and-governance.md) | 실측 | ⬜ 예정 |
+| SLO-01 실측 — 신규 문서 → graph 반영 지연 p95 | [11](./design/11-observability-and-governance.md) §2.3 | 실측 후 확정 | ⬜ 예정 |
+| SLO-05 실측 — source 수집 성공률 | [11](./design/11-observability-and-governance.md) §2.3 | 실측 후 확정 | ⬜ 예정 |
+| SLO-06 실측 — schema validation 통과율 | [11](./design/11-observability-and-governance.md) §2.3 | 실측 후 확정 | ⬜ 예정 |
+| SLO-07 실측 — quarantine 체류 시간(중앙값) | [11](./design/11-observability-and-governance.md) §2.3 | 실측 후 확정 | ⬜ 예정 |
+| SLO-08 실측 — 100만 문서 전체 재처리 시간 벤치마크 | [11](./design/11-observability-and-governance.md) §2.3 | 실측 후 확정 | ⬜ 예정 |
+| tool JSON schema 확정 — 실제 추출·판정 골든으로 | [07](./design/07-llm-and-agents.md) §7 | 실측(골든) 후 확정 | ⬜ 예정 |
+| #4·#9 measured 전환 — contradiction·lineage 골든 실데이터 재수집 / 1M 실측 러닝 | [10](./design/10-evaluation-and-testing.md), [11](./design/11-observability-and-governance.md) | 실측 전환 | ⬜ 예정 |
+| Watchtower 운영 경보 — SLO 위반 라우팅 | [11](./design/11-observability-and-governance.md) §5.3 | 운용 | ⬜ 예정 |
+
+**DoD:** ① (이전 Phase 가 남긴) 모든 `measured=False`·`(deferred)` 항목 중 실측 가능한 것의 **measured 전환 및 SLO 확정** ② 지속 수집이 자동 신호·SLO 에 반영되는 **운용 루프** 가동. *진행 중 재확정 — blueprint 미정의 단계이므로 작업 우선순위는 실측 여건 따라 조정.*
+
 ## 4. MVP 최종 성공 기준 (Blueprint §21 추적)
 
 | # | 기준 | 검증 스펙 | 상태 |
@@ -162,6 +180,7 @@
 가장 최신이 위로. 스펙·설계 변경을 기록한다 (구현 세부 커밋은 git 이력).
 
 ### 2026-08-12
+- **Phase 6(Stable 운용) 진입 준비 — 측정 기반 운영 단계 신규 정의.** blueprint §16 은 Phase 5 까지만 정의 — Phase 6 는 이 프로젝트가 새로 정의하는 진행 단계이다. Phase 1–5 가 prototype 계약 봉인(단위 테스트)이었다면 **Phase 6 는 Stable(Spec 1.0.0) 위에서 deferred 항목 실측·measured 전환·지속 수집 운용** 을 수행 (honest-gap §6.2 의 "실측 백엔드 재측정 대상" 의무 이행). **이전 Phase 와 동질성이 다름: 단위 테스트 추가가 아니라 실측·운영 작업** — 게이트·SLO 판정은 CI 비차단 nightly(10 §1.4). 작업 후보: 수집 지속 운용 · **deferred SLO-01/05/06/07/08 실측 확정**(11 §2.3, 각각 신규 문서→graph 반영 지연·수집 성공률·schema 통과율·quarantine 체류·재처리 벤치마크) · **tool JSON schema 확정**(07 §7, 실제 추출·판정 골든으로) · **#4·9 measured 전환**(contradiction·lineage 실데이터 재수집 / 1M 실측) · Watchtower 운영 경보. **DoD:** ① measured=False·(deferred) 항목 중 실측 가능한 것의 measured 전환·SLO 확정 ② 지속 수집이 신호·SLO 에 반영되는 운용 루프 가동. §1·§3(Phase 6) 반영. 다음: Phase 6 우선 작업 선정.
 - **MVP 최종 성공 기준(§4) Stable 스펙 기준 3중 매핑 재검증.** 설계 문서가 Spec 1.0.0 으로 확정됨에 따라 §4 의 Blueprint §21 기준 10개 전항을 **설계 절 ↔ 구현 모듈 ↔ suite(902 Green) 3중 대조**로 재검증 — Stable 승격 전 "MVP 10/10 충족"이 전부 실측을 뜻하지 않음을 정직히 재확정 (과대 주장 금지 §6.2). **측정 상태 구분 재확정:** 실측 7항(#1 raw 104,544건·#2 재처리·#3 source span+버전·#6 time-travel·#7 AB 반증 1.0·#8 연결률 1.0·#10 버전 회귀) + **부분실측 2항**(#4 ER/Claim — claim F1=1.00·ER P=1.00 실측이나 **contradiction·lineage 실데이터 골든 미자연발생 → honest-gap 미측정** · #9 비용·시간 — 단일 프로세스 실측 13.9 docs/s, **1M 스케일은 모델 투영 measured=False**) + **계약 봉인 1항**(#5 중복 방지 — dedup+lineage 골든 P/R 경로 검증, 실데이터 dup 0건 축 honest-gap). 전항 충족이되 **#4·5·9 는 계약/투영 경로로 부분 정직 표기** 유지 — 실데이터 재수집·1M 실측 시 measured 전환 가능(단위 테스트 봉인). §1·§4 반영. 다음: Phase 6(Stable 운용) 진입 준비 또는 유지·관리 작업.
 - **설계 문서 Review → Stable 확정 (11개, Spec 1.0.0).** 리뷰 패스(BLOCKER 3 + MAJOR 36 해소·상호 일관성 재검증 전항목 PASS) 완료 문서를 **Stable 로 승격** (README 인덱스·01~11 전부, `상태: ✅ Stable · Spec: 1.0.0`). **Stable 확정 전 TBD 잔존 검증으로 미확정 항목을 해소 후 승격** (과대 주장 없음): **SLO-02/03/04(graph query p50/p95/p99)를 실측으로 확정** — 06 §9 실측(p95 0.66~1.16ms·10만 합성 1.08ms·5만 0.6ms) 대비 **대략 40~100배 여유**의 보수적 목표 `p50≤10ms·p95≤50ms·p99≤100ms` (11 §2.3). **SLO-01/05/06/07/08**(수집 성공률·schema 통과율·quarantine 체류·재처리)과 **07 §7 tool JSON schema 본문**은 "측정 없는 목표는 신뢰하지 않는다"(blueprint §20) 원칙에 따라 **명시적 deferred**로 유지 — 실측 후 확정 대상(11 §2.3 `(deferred)`·07 §7). **Spec 0.1.9 → 1.0.0** (Stable 확정). 스키마·계약 실질 변경은 없음 — SLO 목표 확정·deferred 명시만. ROADMAP §1·§2·§5 반영. 다음: MVP 최종 성공 기준(§4)의 Phase 0~5 매핑 재검증·Phase 6(Stable 운용) 진입 준비 또는 유지·관리 작업.
 - **Phase 5 완결 블록업 (6 작업, 스위트 902 Green).** Phase 5(1,000만 문서 Challenge) 전 작업 구현·회귀 봉인 완료. 작업별 상태: 지속 Signal Spire 알림(`signal_spire`, 11 §4 — 5 트리거·fire-once·alert 스키마) · signal source adaptive scheduling(`signal_scheduler`, 04·01 — floor 보장+수율 비례, freshness) · hot/cold graph 분리(`graph_temperature`, 06 — 접근 온도·Q4 노드 게이트·SLO 라우팅) · impact graph 부분 재계산(`impact_graph`, 06·10 — 전파 BFS 범위·절감 게이트) · 다국어 ER(`multilingual_er`, 05·ADR-507 — 스크립트 탐지·NFKC·bridge·항상 POSSIBLY) · ontology migration 자동화(`ontology_migration`, 02·§6 — 버전 분류·호환·proposal·backfill). **honest-gap §6.2:** 1,000만 문서 실제 처리·실측 부하는 수행되지 않았으며 — 전 작업이 검증 가능한 **엔지니어링 계약(`measured=False`)** 을 봉인, 10M 부하 판정 게이트(분산·재구축·아카이브·마이그레이션)는 실측 백엔드 재측정 대상. **Spec 그대로(0.1.9)** — Phase 5 전 작업 read-only·결정적·mock/실측 격리. §1 현재 단계·§3 Phase 5 완결 마킹. 다음: 설계 문서 Review → Stable 확정 대기.
