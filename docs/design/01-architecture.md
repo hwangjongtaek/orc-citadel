@@ -1,6 +1,6 @@
 # 01 · 시스템 아키텍처 (Citadel)
 
-> **상태:** Review · **Spec:** 0.1.0 · **Blueprint 매핑:** §7, §17
+> **상태:** ✅ Stable · **Spec:** 1.0.0 · **Blueprint 매핑:** §7, §17
 > 상위 규약: [`README.md`](./README.md) · 관련: [`03-storage`](./03-storage-and-data-model.md), [`06-graph`](./06-graph-service.md)
 
 전체 플랫폼(Citadel)의 컴포넌트 경계, 데이터 흐름, 기술 스택, 배포 토폴로지를 정의한다. 세부 스키마·계약은 각 하위 문서가 소유하며, 본 문서는 **컴포넌트 간 경계와 책임**을 확정한다.

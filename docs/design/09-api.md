@@ -1,6 +1,6 @@
 # 09 · API 계약
 
-> **상태:** Review · **Spec:** 0.1.1 · **Blueprint 매핑:** §5
+> **상태:** ✅ Stable · **Spec:** 1.0.0 · **Blueprint 매핑:** §5
 > 상위 규약: [README](./README.md) · 관련: [01-architecture](./01-architecture.md), [06-graph](./06-graph-service.md), [07-llm](./07-llm-and-agents.md), [03-storage](./03-storage-and-data-model.md)
 
 Citadel의 외부 계약(API Gateway = **Citadel Gate**, FastAPI)을 확정한다. blueprint §5(조사 요청/결과/지속 관찰)의 사용자 경험을 REST 리소스와 응답 스키마로 번역하며, 그래프·조사·저장 계층의 내부 세부는 각 정본 문서([`06`](./06-graph-service.md), [`07`](./07-llm-and-agents.md), [`03`](./03-storage-and-data-model.md))가 소유한다. 본 문서는 **client ↔ services 경계의 wire contract**만 확정한다 (컴포넌트 경계는 [`01`](./01-architecture.md) §3).

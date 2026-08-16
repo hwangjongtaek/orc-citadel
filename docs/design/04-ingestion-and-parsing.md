@@ -1,6 +1,6 @@
 # 04 · 수집·파싱 (Scouts · Archivists)
 
-> **상태:** Review · **Spec:** 0.1.0 · **Blueprint 매핑:** §8.1–§8.3
+> **상태:** ✅ Stable · **Spec:** 1.0.0 · **Blueprint 매핑:** §8.1–§8.3
 > 상위 규약: [README](./README.md) · 관련: [01-architecture](./01-architecture.md), [03-storage](./03-storage-and-data-model.md), [05-resolution](./05-resolution-and-extraction.md)
 
 허용된 소스에서 문서를 수집(Fetch)하고, 원문을 손실 없이 정규화(Parse/Normalize)하며, 복제·파생을 출처 계보로 축소(Dedup)하는 파이프라인 전반(stage S1·S3·S4)을 확정한다. 본 문서는 커넥터 모델과 세 stage의 계약을 소유하며, 저장 스키마·ID 체계는 [`03`](./03-storage-and-data-model.md)을, 추출·해소(S5–S6)는 [`05`](./05-resolution-and-extraction.md)를 정본으로 참조한다.

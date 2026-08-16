@@ -1,6 +1,6 @@
 # 03 · 저장 계층·데이터 모델 (Grand Archive · Chronicle · Hall of Witnesses)
 
-> **상태:** Review · **Spec:** 0.1.1 · **Blueprint 매핑:** §6.4, §6.5, §7.1, §17
+> **상태:** ✅ Stable · **Spec:** 1.0.0 · **Blueprint 매핑:** §6.4, §6.5, §7.1, §17
 > 상위 규약: [`README.md`](./README.md) · 관련: [`02-ontology`](./02-ontology.md), [`06-graph`](./06-graph-service.md)
 
 Lakehouse 저장 계층(raw/normalized/curated), 테이블 스키마, ID 체계 적용, **append-only mutation log**, **bitemporal 모델**, **provenance chain**을 확정한다. 본 계층이 시스템의 **Source of Truth**이며 그래프·검색 인덱스는 여기서 재구축된다 (불변식 §3-1).

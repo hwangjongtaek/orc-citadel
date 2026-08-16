@@ -1,6 +1,6 @@
 # 10 · 평가·테스트
 
-> **상태:** Review · **Spec:** 0.1.3 · **Blueprint 매핑:** §12, §15
+> **상태:** ✅ Stable · **Spec:** 1.0.0 · **Blueprint 매핑:** §12, §15
 > 상위 규약: [`README`](./README.md) · 관련: [`05-resolution`](./05-resolution-and-extraction.md), [`07-llm`](./07-llm-and-agents.md), [`11-observability`](./11-observability-and-governance.md)
 
 Orc Citadel의 **평가 지표(evaluation metrics)**, **골든 데이터셋(golden dataset)**, **회귀 테스트(regression)**, **테스트 전략(test strategy)**, **CI 게이트**를 확정한다. blueprint §12(평가 체계)·§15(테스트 전략)을 구현 계약으로 승격한 문서이며, 모델·프롬프트·온톨로지 버전 변경의 **승격 게이트(promotion gate)** SSOT다 ([`README`](./README.md) §2.3, [`07-llm`](./07-llm-and-agents.md) §9.5).

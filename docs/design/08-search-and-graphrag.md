@@ -1,6 +1,6 @@
 # 08 · 검색·GraphRAG
 
-> **상태:** Review · **Spec:** 0.1.0 · **Blueprint 매핑:** §10
+> **상태:** ✅ Stable · **Spec:** 1.0.0 · **Blueprint 매핑:** §10
 > 상위 규약: [README](./README.md) · 관련: [03-storage](./03-storage-and-data-model.md), [06-graph](./06-graph-service.md), [07-llm](./07-llm-and-agents.md)
 
 Citadel의 검색은 단일 벡터 RAG가 아니라 **BM25 · Vector search · Graph traversal 세 경로**를 조합하는 GraphRAG다. 본 문서는 Search Service([`01`](./01-architecture.md) §3 컴포넌트, S8 Index stage)의 인덱스 설계, Agent의 질의 분해 계약, hybrid ranking, 최종 context 구성 계약을 확정한다.

@@ -1,6 +1,6 @@
 # 05 · 해소·추출 (Lorekeepers)
 
-> **상태:** Review · **Spec:** 0.1.0 · **Blueprint 매핑:** §8.4–§8.9
+> **상태:** ✅ Stable · **Spec:** 1.0.0 · **Blueprint 매핑:** §8.4–§8.9
 > 상위 규약: [README](./README.md) · 관련: [02-ontology](./02-ontology.md), [03-storage](./03-storage-and-data-model.md), [06-graph](./06-graph-service.md), [10-eval](./10-evaluation-and-testing.md)
 
 Lorekeepers는 normalized zone의 문서를 받아 **entity mention → 해소된 entity**, **claim candidate → canonical claim → assertion**으로 정제하는 파이프라인이다. 이 문서는 blueprint §8.4–§8.9를 구현 계약으로 확정한다. 산출물은 모두 curated zone([`03`](./03-storage-and-data-model.md) §4)에 머물다가 §7 그래프 반영 게이트를 통과해야 authoritative graph([`06`](./06-graph-service.md))에 진입한다.

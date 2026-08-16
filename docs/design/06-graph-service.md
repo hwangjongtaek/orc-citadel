@@ -1,6 +1,6 @@
 # 06 · 그래프 서비스 (War Table)
 
-> **상태:** Review · **Spec:** 0.1.0 · **Blueprint 매핑:** §8.9, §17
+> **상태:** ✅ Stable · **Spec:** 1.0.0 · **Blueprint 매핑:** §8.9, §17
 > 상위 규약: [README](./README.md) · 관련: [02-ontology](./02-ontology.md), [03-storage](./03-storage-and-data-model.md), [05-resolution](./05-resolution-and-extraction.md)
 
 War Table은 조사자가 시간·근거·관계를 탐색하는 **serving 그래프**다. 본 문서는 [`02-ontology`](./02-ontology.md)의 시맨틱 레이어를 물리 그래프 DB로 매핑하고, [`03-storage`](./03-storage-and-data-model.md)의 `graph_mutations` 이벤트를 소비해 materialized graph를 구성·재구축하는 계약을 확정한다.

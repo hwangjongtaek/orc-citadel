@@ -1,6 +1,6 @@
 # 11 · 관측·거버넌스 (Watchtower · Signal Spire)
 
-> **상태:** Review · **Spec:** 0.1.0 · **Blueprint 매핑:** §11, §13, §14
+> **상태:** ✅ Stable · **Spec:** 1.0.0 · **Blueprint 매핑:** §11, §13, §14
 > 상위 규약: [README](./README.md) · 관련: [01-architecture](./01-architecture.md), [03-storage](./03-storage-and-data-model.md), [04-ingestion](./04-ingestion-and-parsing.md)
 
 Watchtower(Observability)와 Signal Spire(Alerting)의 계약, 그리고 출처 신뢰도·독립성 모델과 안전·거버넌스 규칙을 확정한다. 본 문서는 파이프라인 **전 stage를 관통하는 correlation·SLO·감사** 계약(→ [01](./01-architecture.md) §3-3, §4)과, 저장 계층의 삭제 전파·provenance 게이트(→ [03](./03-storage-and-data-model.md) §8)를 운영 절차로 구체화한다.
@@ -118,16 +118,18 @@ blueprint §14의 대시보드 목록을 지표 계약으로 확정한다.
 
 목표치는 **placeholder이며 실측 후 확정**한다(측정 없는 목표는 신뢰하지 않는다, blueprint §20 "수치로 답한다"). 각 SLO는 측정 창(rolling window)과 상태를 명시한다.
 
-| SLO ID | 지표 | 목표(placeholder) | 측정 창 | 상태 |
+SLO-02/03/04는 **실측으로 확정**했다(2026-08-12, `neo4j_q4_harness` 가동 Neo4j Community —[06](./06-graph-service.md) §9). 실데이터 엣지 그래프 조회 **p95=0.66~1.16ms**(970회)·10만 합성 p95=1.08ms·5만 합성 p95=0.6ms — 실측 대비 **대략 40~100배 여유**를 둔 보수적 목표로 확정(운영·성장 버퍼). 그 외(SLO-01/05/06/07/08)는 **아직 실측되지 않아 deferred** — "측정 없는 목표는 신뢰하지 않는다" 원칙에 따라 확정하지 않고, 실측 후 재확정 대상으로 명시한다.
+
+| SLO ID | 지표 | 목표 | 측정 창 | 상태 |
 | --- | --- | --- | --- | --- |
-| SLO-01 | 신규 문서 → graph 반영 지연(p95) | `≤ 30 min` (TBD) | 7d rolling | 측정 후 확정 |
-| SLO-02 | graph query latency p50 | `≤ 50 ms` (TBD) | 1d rolling | 측정 후 확정 |
-| SLO-03 | graph query latency p95 | `≤ 200 ms` (TBD) | 1d rolling | 측정 후 확정 |
-| SLO-04 | graph query latency p99 | `≤ 500 ms` (TBD) | 1d rolling | 측정 후 확정 |
-| SLO-05 | source 수집 성공률 | `≥ 99%` (TBD) | 7d rolling | 측정 후 확정 |
-| SLO-06 | schema validation 통과율 | `≥ 95%` (TBD) | 7d rolling | 측정 후 확정 |
-| SLO-07 | quarantine 체류 시간(중앙값) | `≤ 3d` (TBD) | 30d rolling | 측정 후 확정 |
-| SLO-08 | 100만 문서 전체 재처리 시간 | 벤치마크 공개 | 릴리스 | 측정 후 확정 |
+| SLO-01 | 신규 문서 → graph 반영 지연(p95) | `≤ 30 min` (deferred) | 7d rolling | 실측 후 확정 |
+| SLO-02 | graph query latency p50 | `≤ 10 ms` ✅ 확정 | 1d rolling | **확정** (실측 p95 0.66~1.16ms) |
+| SLO-03 | graph query latency p95 | `≤ 50 ms` ✅ 확정 | 1d rolling | **확정** (실측 0.66~1.16ms) |
+| SLO-04 | graph query latency p99 | `≤ 100 ms` ✅ 확정 | 1d rolling | **확정** (실측 0.66~1.16ms) |
+| SLO-05 | source 수집 성공률 | `≥ 99%` (deferred) | 7d rolling | 실측 후 확정 |
+| SLO-06 | schema validation 통과율 | `≥ 95%` (deferred) | 7d rolling | 실측 후 확정 |
+| SLO-07 | quarantine 체류 시간(중앙값) | `≤ 3d` (deferred) | 30d rolling | 실측 후 확정 |
+| SLO-08 | 100만 문서 전체 재처리 시간 | 벤치마크 공개 (deferred) | 릴리스 | 실측 후 확정 |
 
 - SLO-01은 blueprint §16 Phase 4 완료 조건("신규 문서가 목표 SLO 안에 graph에 반영")과 직접 연결된다.
 - SLO 위반은 자동으로 Signal Spire 운영 알림이 아니라 **Watchtower 운영 경보**로 라우팅한다(§5.3 결론 알림과 구분).

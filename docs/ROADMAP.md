@@ -4,14 +4,14 @@
 > 규칙: 설계·구현 변경은 (1) 해당 design 문서 수정 (2) `design/README.md` Spec version 반영 (3) 본 문서 §5 Changelog 기록의 3단계를 거친다.
 
 - **최종 갱신:** 2026-08-12
-- **현재 단계:** Phase 5 (1,000만 문서 Challenge) **완료(목록 전항 ✅)** — *Phase 1~4 완결(MVP 10/10·DoD ①②·Q4 PASS·Q6 유보 · 스위트 719) + Phase 5 (신호 알림 11 §4 — 747 · adaptive scheduling 04·01 — 785 · hot/cold 그래프 06·01 — 813 · impact 부분 재계산 06·10 — 842 · 다국어 ER 05 — 872 · ontology migration 02 — **902**). 설계 문서 Review → Stable 확정 대기*
+- **현재 단계:** Phase 5 (1,000만 문서 Challenge) **완료(목록 전항 ✅) + 설계 문서 Stable 확정** — *Phase 1~4 완결(MVP 10/10·DoD ①②·Q4 PASS·Q6 유보 · 스위트 719) + Phase 5 (신호 알림 11 §4 — 747 · adaptive scheduling 04·01 — 785 · hot/cold 그래프 06·01 — 813 · impact 부분 재계산 06·10 — 842 · 다국어 ER 05 — 872 · ontology migration 02 — 902) + 11개 설계 문서 **Stable(Spec 1.0.0, 2026-08-12)** — 스위트 902 Green*
 - **Spec version:** 0.1.4 · **Ontology version:** 1.0.0
 
 ## 1. 상태 요약 (한눈에)
 
 | 트랙 | 상태 | 비고 |
 | --- | --- | --- |
-| 상세 설계 (Design SSOT) | 🟡 Review | 12개 문서 Review 승격. 리뷰 패스 완료(BLOCKER 3 + MAJOR 36 해소, 상호 일관성 재검증 전항목 PASS). Stable 확정 대기 |
+| 상세 설계 (Design SSOT) | ✅ Stable | 11개 문서 **Stable 확정**(Spec 1.0.0, 2026-08-12). 리뷰 패스(BLOCKER 3 + MAJOR 36 해소)·상호 일관성 재검증 전항목 PASS. SLO-02/03/04 실측 확정, SLO-01/05/06/07/08·tool JSON schema 는 명시적 deferred(11 §2.3, 07 §7) |
 | 도메인·소스 선정 | ✅ 완료 | AI 반도체·데이터센터 공급망 확정, 초기 Scout 5종 선정(04 §1.4) |
 | 1만 문서 샘플 | ✅ 완료 | 2026-08-11 arXiv metadata 1만 + RSS/SEC — 총 raw 11,361건 |
 | Prototype 구현 | ✅ 완료 (S1–S47 + Q2/Q3/Q5) | 결정적+LLM 하이브리드 파이프라인 · bitemporal · 소비 계층(S28–31) · 평가/승격 트랙(S33–41) · **조사 에이전트 트랙(S43–47)** 구현 · Q2·Q3 해소 · test 스위트 514 Green · MVP 10/10 · Phase 1 DoD ①② (10만 재처리 · source-span 보고서 E2E) · Q4 3게이트 전항 PASS ([§5 Changelog](#5-changelog)) |
@@ -22,22 +22,22 @@
 
 [`docs/design/`](./design/README.md) 12개 문서의 작성 상태. 상태는 각 문서 헤더의 레전드(Draft/Review/Stable)와 동기화한다.
 
-| # | 문서 | 작성 | 리뷰 | 확정 |
+| # | 문서 | 작성 | 리뷰 | 확정 (Stable) |
 | --- | --- | :---: | :---: | :---: |
-| — | README (인덱스·규약) | ✅ | ✅ | ✅ |
-| 01 | architecture | ✅ | ✅ | ⬜ |
-| 02 | ontology | ✅ | ✅ | ⬜ |
-| 03 | storage-and-data-model | ✅ | ✅ | ⬜ |
-| 04 | ingestion-and-parsing | ✅ | ✅ | ⬜ |
-| 05 | resolution-and-extraction | ✅ | ✅ | ⬜ |
-| 06 | graph-service | ✅ | ✅ | ⬜ |
-| 07 | llm-and-agents | ✅ | ✅ | ⬜ |
-| 08 | search-and-graphrag | ✅ | ✅ | ⬜ |
-| 09 | api | ✅ | ✅ | ⬜ |
-| 10 | evaluation-and-testing | ✅ | ✅ | ⬜ |
-| 11 | observability-and-governance | ✅ | ✅ | ⬜ |
+| — | README (인덱스·규약) | ✅ | ✅ | ✅ (Spec 1.0.0) |
+| 01 | architecture | ✅ | ✅ | ✅ (Spec 1.0.0) |
+| 02 | ontology | ✅ | ✅ | ✅ (Spec 1.0.0) |
+| 03 | storage-and-data-model | ✅ | ✅ | ✅ (Spec 1.0.0) |
+| 04 | ingestion-and-parsing | ✅ | ✅ | ✅ (Spec 1.0.0) |
+| 05 | resolution-and-extraction | ✅ | ✅ | ✅ (Spec 1.0.0) |
+| 06 | graph-service | ✅ | ✅ | ✅ (Spec 1.0.0) |
+| 07 | llm-and-agents | ✅ | ✅ | ✅ (Spec 1.0.0) |
+| 08 | search-and-graphrag | ✅ | ✅ | ✅ (Spec 1.0.0) |
+| 09 | api | ✅ | ✅ | ✅ (Spec 1.0.0) |
+| 10 | evaluation-and-testing | ✅ | ✅ | ✅ (Spec 1.0.0) |
+| 11 | observability-and-governance | ✅ | ✅ | ✅ (Spec 1.0.0) |
 
-**설계 단계 종료 조건:** 12개 문서 전부 Review 통과 + 상호 참조 일관성 검증 + Phase 0 완료 조건(§3)에 매핑되는 스펙 확정.
+**설계 단계 종료 조건 (충족, 2026-08-12):** 12개 문서 전부 Review 통과 + 상호 참조 일관성 검증(깨진 링크 0·OptionA PASS) + Phase 0 완료 조건(§3)에 매핑되는 스펙 확정.**11개 문서 Stable 확정**(Spec 1.0.0). 명시적 deferred: 11 §2.3 SLO-01/05/06/07/08·07 §7 tool JSON schema — 실측 후 확정.
 
 ## 3. 단계별 로드맵 (Blueprint §16 → 실행 계획)
 
@@ -138,7 +138,7 @@
 
 (상세 계획은 Phase 4 종료 시 확정 — Signal Spire 첫 증분으로 진입.)
 
-> **Phase 5 완결 블록업 (2026-08-12):** 6 작업 + 설계 Review→Stable 확정 준비 완료 — 스위트 **902 Green** (Phase 4 종료 719 → +183 · 회귀 0, Spec **0.1.9 유지** — Phase 5 전 작업 read-only·결정적·mock/실측 격리). `signal_spire`(11 §4 지속 신호 알림 — 5 트리거·fire-once·alert 스키마) · `signal_scheduler`(04·01 신호 수율 기반 수집 예산 배분 — floor 보장+수율 비례, freshness) · `graph_temperature`(06 hot/cold 계층 분리 — 접근 온도·Q4 노드 게이트 아카이브·조회 SLO 라우팅) · `impact_graph`(06·10 영향 하류 부분 재계산 — 전파 BFS 범위·절감 게이트) · `multilingual_er`(05·ADR-507 교차-스크립트 해소 전단부 — 스크립트 탐지·NFKC 정규화·bridge·항상 POSSIBLY) · `ontology_migration`(02 §6 버저닝·거버넌스 계획·판정 — 버전 분류·호환·proposal·backfill 변환). Phase 5 는 1,000만 문서 Challenge 의 **확장 엔지니어링 계약 봉인**(10M 스케일 운용 준비) — 실제 1,000만 문서 처리·실측 부하는 수행되지 않았으며 이 작업들은 **정직히 `measured=False` 계약**의 산출물이다 (10 §6.2 honest-gap — 분산·재구축·아카이브·마이그레이션 등 10M 부하 판정 게이트는 실측 백엔드에서 재측정 대상). §1 현재 단계·§3 Phase 5 완결 마킹. **다음: 설계 문서 Review → Stable 확정**(12개 문서, 리뷰 패스 완료 후 단계 승격 대기).
+> **Phase 5 완결 블록업 (2026-08-12):** 6 작업 + 설계 Review→Stable 확정 준비 완료 — 스위트 **902 Green** (Phase 4 종료 719 → +183 · 회귀 0, Spec **0.1.9 유지** — Phase 5 전 작업 read-only·결정적·mock/실측 격리). `signal_spire`(11 §4 지속 신호 알림 — 5 트리거·fire-once·alert 스키마) · `signal_scheduler`(04·01 신호 수율 기반 수집 예산 배분 — floor 보장+수율 비례, freshness) · `graph_temperature`(06 hot/cold 계층 분리 — 접근 온도·Q4 노드 게이트 아카이브·조회 SLO 라우팅) · `impact_graph`(06·10 영향 하류 부분 재계산 — 전파 BFS 범위·절감 게이트) · `multilingual_er`(05·ADR-507 교차-스크립트 해소 전단부 — 스크립트 탐지·NFKC 정규화·bridge·항상 POSSIBLY) · `ontology_migration`(02 §6 버저닝·거버넌스 계획·판정 — 버전 분류·호환·proposal·backfill 변환). Phase 5 는 1,000만 문서 Challenge 의 **확장 엔지니어링 계약 봉인**(10M 스케일 운용 준비) — 실제 1,000만 문서 처리·실측 부하는 수행되지 않았으며 이 작업들은 **정직히 `measured=False` 계약**의 산출물이다 (10 §6.2 honest-gap — 분산·재구축·아카이브·마이그레이션 등 10M 부하 판정 게이트는 실측 백엔드에서 재측정 대상). §1 현재 단계·§3 Phase 5 완결 마킹. **다음: 설계 문서 Stable 확정 — 완료 (2026-08-12, 11개 문서 Spec 1.0.0).**
 
 ## 4. MVP 최종 성공 기준 (Blueprint §21 추적)
 
@@ -160,6 +160,7 @@
 가장 최신이 위로. 스펙·설계 변경을 기록한다 (구현 세부 커밋은 git 이력).
 
 ### 2026-08-12
+- **설계 문서 Review → Stable 확정 (11개, Spec 1.0.0).** 리뷰 패스(BLOCKER 3 + MAJOR 36 해소·상호 일관성 재검증 전항목 PASS) 완료 문서를 **Stable 로 승격** (README 인덱스·01~11 전부, `상태: ✅ Stable · Spec: 1.0.0`). **Stable 확정 전 TBD 잔존 검증으로 미확정 항목을 해소 후 승격** (과대 주장 없음): **SLO-02/03/04(graph query p50/p95/p99)를 실측으로 확정** — 06 §9 실측(p95 0.66~1.16ms·10만 합성 1.08ms·5만 0.6ms) 대비 **대략 40~100배 여유**의 보수적 목표 `p50≤10ms·p95≤50ms·p99≤100ms` (11 §2.3). **SLO-01/05/06/07/08**(수집 성공률·schema 통과율·quarantine 체류·재처리)과 **07 §7 tool JSON schema 본문**은 "측정 없는 목표는 신뢰하지 않는다"(blueprint §20) 원칙에 따라 **명시적 deferred**로 유지 — 실측 후 확정 대상(11 §2.3 `(deferred)`·07 §7). **Spec 0.1.9 → 1.0.0** (Stable 확정). 스키마·계약 실질 변경은 없음 — SLO 목표 확정·deferred 명시만. ROADMAP §1·§2·§5 반영. 다음: MVP 최종 성공 기준(§4)의 Phase 0~5 매핑 재검증·Phase 6(Stable 운용) 진입 준비 또는 유지·관리 작업.
 - **Phase 5 완결 블록업 (6 작업, 스위트 902 Green).** Phase 5(1,000만 문서 Challenge) 전 작업 구현·회귀 봉인 완료. 작업별 상태: 지속 Signal Spire 알림(`signal_spire`, 11 §4 — 5 트리거·fire-once·alert 스키마) · signal source adaptive scheduling(`signal_scheduler`, 04·01 — floor 보장+수율 비례, freshness) · hot/cold graph 분리(`graph_temperature`, 06 — 접근 온도·Q4 노드 게이트·SLO 라우팅) · impact graph 부분 재계산(`impact_graph`, 06·10 — 전파 BFS 범위·절감 게이트) · 다국어 ER(`multilingual_er`, 05·ADR-507 — 스크립트 탐지·NFKC·bridge·항상 POSSIBLY) · ontology migration 자동화(`ontology_migration`, 02·§6 — 버전 분류·호환·proposal·backfill). **honest-gap §6.2:** 1,000만 문서 실제 처리·실측 부하는 수행되지 않았으며 — 전 작업이 검증 가능한 **엔지니어링 계약(`measured=False`)** 을 봉인, 10M 부하 판정 게이트(분산·재구축·아카이브·마이그레이션)는 실측 백엔드 재측정 대상. **Spec 그대로(0.1.9)** — Phase 5 전 작업 read-only·결정적·mock/실측 격리. §1 현재 단계·§3 Phase 5 완결 마킹. 다음: 설계 문서 Review → Stable 확정 대기.
 - **Phase 5 — ontology migration 자동화 前단 (design 02).** `ontology_migration.py` — 02 §6.1·§6.2·§6.3 버저닝·거버넌스 절차의 **계획·판정 전단** 봉인(실제 발행은 이벤트 replay 재구축·`GraphService` Applier(06 §7.3) 경로 위임, read-only §3-3). `migration_level` — §6.1 semver 분류(결정적, 비정상 구성요소 0 폴백) · `compat_current` — §6.3 `ontology_version` 호환 판정(**major 만 비호환** → 전량 재평가) · `plan_migration` — element 집합 대비 `MigrationPlan`(level·`revalidate_required`·`backfill_ids`(非호환, 정렬)·`proposal_predicates`(미등록, unique·정렬)), **`prev==cur` → `unchanged` 명시(honest-gap §6.2)** · `quarantine_trigger` — §4-2 predicate 폐쇄성, 미등록 → `quarantine_and_propose`(자동 승격 금지; 신규 수집 게이트는 `gate.py` 몫) · `migration_actions` — §6.2 proposal→review→promotion→backfill 서열 · `backfill_events` — 06 §7.3 非호환 element 재해석 `reinterpret` 이벤트 계획. **빈/미지 버전은 보수적 非호환**(자동 호환 오인 대신 재해석 대상). 결정적·read-only·mock/실측 격리. **Spec 그대로(0.1.9).** TDD — `test_ontology_migration` 30개(분류·호환성·계획·honest-gap·proposal 트리거·절차 서열·backfill·보수적 비호환·read-only·결정성) — 스위트 872→**902개 통과**(회귀 0). Phase 5 목록 **전항 완료**. 다음: design 02 Review → Stable 확정 대기.
 - **Phase 5 — 다국어 ER (design 05).** `multilingual_er.py` — 같은 개체(기관)가 여러 언어·스크립트로 등장(TSMC ∽ 台積電, §1.2 `aliases`)할 때의 **교차-스크립트 해소 전단부** 봉인 (ADR-507 precision-first). `detect_script` — codepoint 다수결 지배 스크립트(latn/cjk/other, 결정적) · `norm_name` — **NFKC + 조합 발음구분부호 제거 + 로마자 소문자/공백/구두점 축약·CJK 공백 제거** → §2.1 `norm_name` blocking 의 교차-스크립트 기반 · `multilingual_alias_index` — caller-curated bridge(TSMC↔台積電)를 norm→entity 인덱싱 · `multilingual_block_keys` — bridge 를 타고 교차-스크립트로 같은 개체를 같은 bucket 으로 유도 · `propose_multilingual_candidates` — 스크립트 다른 개체를 **`POSSIBLY_SAME_AS`(kind=multilingual-script)** 로 제안 · `multilingual_merge_status` — **교차-스크립트는 항상 POSSIBLY**(자동 병합 금지). **honest-gap(§6.2):** bridge 없는 표면형은 교차 후보를 **추론하지 않음**(transliteration 은 모호·비결정적). read-only·결정적. **Spec 그대로(0.1.9).** TDD — `test_multilingual_er` 30개(스크립트·정규화·bridge·blocking 유도·제안·항상 POSSIBLY·honest-gap·read-only·결정성) — 스위트 842→**872개 통과**(회귀 0). 다음: Phase 5 는 ontology migration 자동화(02)(완료 — 902).

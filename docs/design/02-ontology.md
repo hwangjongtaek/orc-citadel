@@ -1,6 +1,6 @@
 # 02 · 온톨로지 (Ontology)
 
-> **상태:** Review · **Spec:** 0.1.1 · **Ontology version:** `1.0.0` · **Blueprint 매핑:** §6
+> **상태:** ✅ Stable · **Spec:** 1.0.0 · **Ontology version:** `1.0.0` · **Blueprint 매핑:** §6
 > 상위 규약: [`README.md`](./README.md) · 관련: [`03-storage`](./03-storage-and-data-model.md), [`06-graph`](./06-graph-service.md), [`05-resolution`](./05-resolution-and-extraction.md)
 
 War Table의 시맨틱 레이어를 정의하는 **핵심 SSOT**다. 노드 타입, 엣지 타입, 속성, 제약, 버저닝·거버넌스를 확정한다. 물리 저장 스키마는 [`03`](./03-storage-and-data-model.md), 그래프 라벨·인덱스는 [`06`](./06-graph-service.md)가 소유한다.

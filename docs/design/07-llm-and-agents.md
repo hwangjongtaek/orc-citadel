@@ -1,6 +1,6 @@
 # 07 · LLM·에이전트 (Warchief's Council · Seers)
 
-> **상태:** Review · **Spec:** 0.1.4 · **Blueprint 매핑:** §9
+> **상태:** ✅ Stable · **Spec:** 1.0.0 · **Blueprint 매핑:** §9
 > 상위 규약: [README](./README.md) · 관련: [01-architecture](./01-architecture.md), [05-resolution](./05-resolution-and-extraction.md), [06-graph](./06-graph-service.md), [08-search](./08-search-and-graphrag.md)
 
 LLM·에이전트 계층(Seers, Warchief's Council)의 사용 영역, 모델 계층화·라우팅, Agent 명세, 조사 루프(investigation loop), evidence-first 생성 계약, prompt/모델 버전 관리, structured output 계약을 정의한다. 본 문서는 blueprint §9를 구현 계약으로 확정하며, README §3 설계 불변식(특히 §3-3 agent는 graph mutate 직접 금지, §3-5 evidence-first)과 [01-architecture](./01-architecture.md) Agent Runtime 경계(§3, S9, ADR-103)를 위반할 수 없다.
@@ -322,7 +322,7 @@ propose(new model/prompt)
 
 - **강제 방식:** `output_config.format`(json_schema, `additionalProperties: false` + `required`) 또는 strict tool use(`strict: true`)를 사용한다. prefill 방식은 현행 모델에서 금지되므로 사용하지 않는다.
 - **파싱:** 산출 JSON은 항상 파서로 역직렬화하며 raw string 매칭을 하지 않는다. schema validation·provenance 검사 실패 시 quarantine으로 보낸다 (blueprint §8.9, → [05](./05-resolution-and-extraction.md), [06](./06-graph-service.md)).
-- **스키마 버전:** 산출 스키마는 `output_schema_version`으로 버전 관리되며 [03](./03-storage-and-data-model.md) 저장 스키마와 정합해야 한다 (contract test 대상, blueprint §15). **TBD:** 각 tool별(Extractor claim schema, judge decision schema, Synthesis report schema 등) 구체 JSON schema 본문은 미확정 — `0.1.0` 초기 버전으로 [03](./03-storage-and-data-model.md)·[09](./09-api.md)와 함께 확정 예정.
+- **스키마 버전:** 산출 스키마는 `output_schema_version`으로 버전 관리되며 [03](./03-storage-and-data-model.md) 저장 스키마와 정합해야 한다 (contract test 대상, blueprint §15). (**deferred)** 각 tool별(Extractor claim schema, judge decision schema, Synthesis report schema 등) 구체 JSON schema 본문은 **미확정** — `0.1.0` 초기 버전으로 [03](./03-storage-and-data-model.md)·[09](./09-api.md)와 함께, 해당 tool 이 실제 추출·판정 골든으로 검증될 때 확정한다(측정 없는 스키마 확정 금지, blueprint §20). 단계 승격과 무관하게 이 항목은 **명시적 deferred**로 유지된다.
 
 ### 7.1 tool 사용 계획
 
