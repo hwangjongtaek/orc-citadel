@@ -43,6 +43,7 @@ SOURCES = {
     "official-nvidia-news": ("rss", "https://nvidianews.nvidia.com/rss.xml"),
     "official-amd-ir": ("rss", "https://ir.amd.com/news-events/press-releases/rss"),
     "press-semiengineering": ("rss", "https://semiengineering.com/feed/"),
+    "gov-chips-nist": ("rss", "https://www.nist.gov/news-events/electronics/rss.xml"),
 }
 ARXIV_QUERY = "cat:cs.CR OR cat:cs.AI OR cat:cs.SE OR cat:cs.AR OR cat:eess.SY"
 

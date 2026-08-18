@@ -21,6 +21,15 @@ def test_sources_registers_amd_official_rss():
     assert "rss" in url.lower()
 
 
+def test_sources_registers_chips_nist_gov():
+    """CHIPS/NIST gov RSS 가 수집 소스로 등록 (design 04 §1.4 초기 #3, gov-public)."""
+    assert "gov-chips-nist" in SOURCES
+    kind, url = SOURCES["gov-chips-nist"]
+    assert kind == "rss"
+    assert url.startswith("https://www.nist.gov/")
+    assert "rss" in url.lower()
+
+
 class _NoSleep:
     def sleep(self, _):
         return None
