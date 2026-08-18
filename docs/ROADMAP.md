@@ -4,8 +4,8 @@
 > 규칙: 설계·구현 변경은 (1) 해당 design 문서 수정 (2) `design/README.md` Spec version 반영 (3) 본 문서 §5 Changelog 기록의 3단계를 거친다.
 
 - **최종 갱신:** 2026-08-12
-- **현재 단계:** Phase 6(Stable 운용) 진입 준비 — *Phase 1~5 완결(스위트 902 Green · MVP 10/10 실측/측정 재확정 · 설계 11개 문서 Stable Spec 1.0.0) 후, 이전 Phase 가 남긴 **deferred SLO(01/05/06/07/08)·tool schema·measured=False** 항목을 실측·measured 전환하는 **측정 기반 운영 단계**에 진입 준비(blueprint 미정의 — ROADMAP 신규 정의, §3 Phase 6)*
-- **Spec version:** 0.1.4 · **Ontology version:** 1.0.0
+- **현재 단계:** Phase 6(Stable 운용) 코드 봉인 축 **완결(블록업)** — *Phase 1~5(스위트 902·MVP 10/10·설계 11개 Stable Spec 1.0.0) 후, 이전 Phase 가 남긴 **deferred SLO(01/05/06/07/08)·tool schema·measured=False** 항목을 실측·measured 전환하는 **측정 기반 운영 단계** (blueprint 미정의 — ROADMAP 신규 정의, §3 Phase 6). Phase 6 에서 코드로 봉인 가능한 축 하니스·스키마·경보·nightly 게이트(DoD ②) 를 **전부 완결(스위트 998 Green)**. 남은 measured 전환(DoD ①: contradiction·lineage 실데이터 골든 / 1M 부하)·SLO 목표치 확정·수집 확대 는 **실데이터·인프라·부하 종속** — 실측 여건 갖춰질 때 재개 대기*
+- **Spec version:** 1.0.0 · **Ontology version:** 1.0.0
 
 ## 1. 상태 요약 (한눈에)
 
@@ -15,6 +15,7 @@
 | 도메인·소스 선정 | ✅ 완료 | AI 반도체·데이터센터 공급망 확정, 초기 Scout 5종 선정(04 §1.4) |
 | 1만 문서 샘플 | ✅ 완료 | 2026-08-11 arXiv metadata 1만 + RSS/SEC — 총 raw 11,361건 |
 | Prototype 구현 | ✅ 완료 (S1–S47 + Q2/Q3/Q5) | 결정적+LLM 하이브리드 파이프라인 · bitemporal · 소비 계층(S28–31) · 평가/승격 트랙(S33–41) · **조사 에이전트 트랙(S43–47)** 구현 · Q2·Q3 해소 · test 스위트 514 Green · MVP 10/10 · Phase 1 DoD ①② (10만 재처리 · source-span 보고서 E2E) · Q4 3게이트 전항 PASS ([§5 Changelog](#5-changelog)) |
+| Phase 6(Stable 운용) — 코드 봉인 축 | ✅ 완결 (스위트 998) | deferred SLO 하니스(SLO-01 923·05/06/07/08 948) · tool JSON schema(967) · Watchtower SLO 경보 라우팅(984) · **SLO nightly 게이트(998, DoD ② 운용 루프)**. 남은 DoD ① measured 전환·SLO 목표치 확정은 **실데이터/부하 종속**(§3 Phase 6) — 실측 여건 대기 |
 
 범례: ✅ 완료 · 🟡 진행 중 · ⬜ 예정 · ⛔ 블록됨
 
@@ -153,11 +154,11 @@
 | SLO-07 실측 — quarantine 체류 시간(중앙값) | [11](./design/11-observability-and-governance.md) §2.3 | 실측 후 확정 | 🟡 하니스 봉인 (스위트 948) — 실데이터 축적 후 확정 |
 | SLO-08 실측 — 100만 문서 전체 재처리 시간 벤치마크 | [11](./design/11-observability-and-governance.md) §2.3 | 실측 후 확정 | 🟡 하니스 봉인 (스위트 948) — 이행 시 벤치 공개 |
 | tool JSON schema 확정 — 실제 추출·판정 골든으로 | [07](./design/07-llm-and-agents.md) §7 | 실측(골든) 후 확정 | ✅ 4 tool 스키마 확정 (스위트 967) — extractor/canonical/contradiction/report |
-| #4·#9 measured 전환 — contradiction·lineage 골든 실데이터 재수집 / 1M 실측 러닝 | [10](./design/10-evaluation-and-testing.md), [11](./design/11-observability-and-governance.md) | 실측 전환 | ⬜ 예정 |
+| #4·#9 measured 전환 — contradiction·lineage 골든 실데이터 재수집 / 1M 실측 러닝 | [10](./design/10-evaluation-and-testing.md), [11](./design/11-observability-and-governance.md) | 실측 전환 | ⬜ 대기 — 실데이터 재확인(2026-08-12): `golden_entity_pairs` 5건(measured)·`golden_pairs` equivalent 22건(measured), **contradiction/conflict·`golden_lineage_pairs` 는 여전히 0건 미자연발생** → measured 전환 불가, 실측 여건 갖춰질 때(재수집·라벨링·1M) 재개 |
 | Watchtower 운영 경보 — SLO 위반 라우팅 | [11](./design/11-observability-and-governance.md) §5.3 | 운용 | ✅ 경보 라우팅 봉인 (스위트 984) — `watchtower_slo_alert` · Signal Spire 와 채널 분리 (ADR-1104) |
 | SLO nightly 게이트 — 운용 루프 통합 (DoD ②) | [11](./design/11-observability-and-governance.md) §2.3, [10](./design/10-evaluation-and-testing.md) §1.4 | 운용 | ✅ 게이트 오케스트레이션 봉인 (스위트 998) — `slo_nightly_gate` · 측정→판정→경보→error budget, CI 비차단 nightly |
 
-**DoD:** ① (이전 Phase 가 남긴) 모든 `measured=False`·`(deferred)` 항목 중 실측 가능한 것의 **measured 전환 및 SLO 확정** ② 지속 수집이 자동 신호·SLO 에 반영되는 **운용 루프** 가동. *진행 중 재확정 — blueprint 미정의 단계이므로 작업 우선순위는 실측 여건 따라 조정.*
+**DoD:** ① (이전 Phase 가 남긴) 모든 `measured=False`·`(deferred)` 항목 중 실측 가능한 것의 **measured 전환 및 SLO 확정** ② 지속 수집이 자동 신호·SLO 에 반영되는 **운용 루프** 가동. **블록업 재확정 (2026-08-12):** ② 운용 루프 체계는 봉인 완결(11 §2.3 `slo_nightly_gate`) · ① 의 코드 봉인 축(하니스·판정·경보·게이트) 도 완결. **남은 DoD ① measured 전환(contradiction·lineage)·#9·SLO 목표치 확정·수집 확대 는 실데이터(contradiction/lineage 골든 0건)·1M 부하·실측 인프라 종속** — 실측 여건 갖춰질 때 재개 (당장 실측 불가를 OK 로 착각 금지, §6.2). *작업 우선순위는 실측 여건 따라 조정.*
 
 ## 4. MVP 최종 성공 기준 (Blueprint §21 추적)
 
@@ -181,6 +182,7 @@
 가장 최신이 위로. 스펙·설계 변경을 기록한다 (구현 세부 커밋은 git 이력).
 
 ### 2026-08-12
+- **Phase 6 — 코드 봉인 축 완결·블록업 (스위트 998 Green).** Phase 6(Stable 운용, blueprint 미정의 — ROADMAP 신규 정의) 에서 **코드로 봉인 가능한 축을 전부 완결** (DoD ② 운용 루프 체계): deferred SLO 하니스(SLO-01 923·SLO-05/06/07/08 948) · tool JSON schema 확정(967, 07 §7) · Watchtower SLO 경보 라우팅(984, 11 §2.3·ADR-1104) · **SLO nightly 게이트(998, DoD ② — 측정→판정→경보→error budget, CI 비차단)**. 전 작업 read-only(불변식 §3-3)·결정적·mock/실측 격리 · **Spec 1.0.0 유지** (스키마·계약 실질 변경 없음). **실데이터 재확인(read-only, DuckDB 직접 조회):** ER·claim 측은 실데이터 골든으로 이미 measured(`golden_entity_pairs` 5·`golden_pairs` equivalent 22) — **contradiction/conflict·lineage(`golden_lineage_pairs`) 는 여전히 0건 미자연발생**, 1M 부하는 미실행 → **남은 DoD ① measured 전환(contradiction·lineage)·#9·SLO 목표치 확정은 실데이터/인프라/부하 종속** — 실측 여건 갖춰질 때 재개 대상으로 대기(과대 주장 금지, §6.2). §1 현재 단계→블록업·상태 요약·§3 Phase 6(#4·9 대기 표기) 반영.
 - **Phase 6 — SLO nightly 게이트 봉인, DoD ② 운용 루프 가동 (design 11 §2.3, 10 §1.4).** Phase 6 DoD ② "지속 수집이 자동 신호·SLO 에 반영되는 운용 루프" 의 **통합 오케스트레이션** 봉인 — `slo_nightly_gate.py`. 각 SLO 하니스 **측정 → 판정(evaluate_slo0*) → Watchtower 운영 경보 라우팅 → error budget** 을 하나의 기계적 nightly 게이트로 연결(10 §1.4 CI 비차단). `NIGHTLY_SLOS=(SLO-01/05/06/07/08)` · `classify_slo(미지정 id ValueError)` · `run_nightly_gate(measurements주입, router)` — `per_slo`·`violations`·`not_measured`(honest-gap §6.2 — 위반/분모 제외)·`error_budget{violations, measured_count, ratio}`(SLO-08 게이트 제외)·`router`(fire-once 상태). read-only·결정적 — 게이트는 분류·알림 산출물만, 저장·발송·스케줄은 운영 드라이버. **스키마·계약 변경 없음 → Spec 1.0.0 유지.** TDD — `test_slo_nightly_gate` 신규 14개 — 스위트 **984→998개 통과**(회귀 0). §3 Phase 6 nightly 게이트 행 ✅·design 11 §2.3 반영. 다음: 실데이터 축적 시 nightly 게이트 실측 주입·SLO 목표 확정.
 - **Phase 6 — Watchtower SLO 운영 경보 라우팅 봉인 (design 11 §2.3, ADR-1104).** §2.3 계약("SLO 위반은 Signal Spire 결론 알림이 아니라 **Watchtower 운영 경보**로 라우팅")을 코드로 봉인 — `watchtower_slo_alert.py`, Signal Spire `signal_spire.py` 결론 알림과 **별개 채널 `watchtower-operational`**. **위반 = `classified=="slo-gate"` 만** (각 SLO 하니스 `evaluate_slo01/05/06/07` 산출 shape 주입, 10 §1.4 CI 비차단 nightly) · **`not-measured` 는 위반 아님** — honest-gap(§6.2 부재가 OK 아님) → 버리지 않고 `not_measured` 버킷으로 노출 · **fire-once** `slo:{slo_id}` dedup_key 재알림 금지(ADR-1104) · **§2.3 rolling 창** SLO 별 메타(7d/1d/30d/release) · classified 미지정은 `unclassified` 버킷으로 퉁치지 않음. 알림에 측정 스냅샷(값·목표·within_slo) 담아 온콜 판단 근거 제공. read-only·결정적 — alert 는 산출물, 저장·발송은 호출자. **스키마·계약 변경 없음 → Spec 1.0.0 유지.** TDD — `test_watchtower_slo_alert` 신규 17개 — 스위트 **967→984개 통과**(회귀 0). §3 Phase 6 Watchtower 행 ✅·design 11 §2.3 반영. 다음: 실데이터 축적 시 위반 라우팅 실측 주입 또는 나머지 deferred.
 - **Phase 6 — tool JSON schema 확정 (design 07 §7 deferred 해소).** 07 §7 "각 tool별 구체 JSON schema 본문은 미확정"이 실제로는 **4 tool 계열이 이미 추출·판정 골든으로 검증된 코드**에 존재함을 정직히 정리 (측정 없는 확정 금지 blueprint §20 — 골든 검증된 contract). `tool_schemas.py` — 명시적 JSON Schema + 검증기로 공개 계약 봉인: **Extractor claim**(`CLAIM_CANDIDATE_SCHEMA`, 05 §6·provenance_ref ADR-305) · **canonical verdict**(07 §4.2 7라벨 enum) · **contradiction verdict**(07 §5.2 verdict/conflict_type/rationale 필수) · **synthesis report**(07 §3.8/§9). 각 `output_schema_version="1.0.0"` (07 §7 → [03] 저장 스키마 정합, contract test 대상 blueprint §15). 검증기 read-only·결정적, 실패 시 `{valid, reason}` — quarantine 경로. 스키마 실질 값 변경 없음(기존 validate_* 골든 그대로) → **Spec 1.0.0 유지**. TDD — `test_tool_schemas` 신규 19개 — 스위트 **948→967개 통과**(회귀 0). §3 Phase 6 tool schema 행 ✅·design 07 §7 반영. 다음: 실데이터/API·저장 contract 나머지 deferred.
