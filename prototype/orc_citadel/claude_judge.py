@@ -109,11 +109,14 @@ class ClaudeJudge:
     시 `None`(canonical/contradiction) 또는 stub 폴백 — 자동 병합·반박 금지(ADR-507).
     """
 
-    def __init__(self, client=None):
+    def __init__(self, client=None, slo_log=None):
         self._client = client if client is not None else _build_default_client()
         self._stub = DeterministicStub()
         self._canonical_prompt = _CANONICAL_SCHEMA_INSTRUCTION
         self._contradiction_prompt = _CONTRADICTION_SCHEMA_INSTRUCTION
+        # SLO-06(schema 검증 통과율, 11 §2.3) — verdict 스키마 검증 통과/실패를
+        # 선택 주입 로그에 기록 (기본 None → 동작 무변경, Spec 1.0.0).
+        self._slo_log = slo_log
         # S42: LLM 비용·토큰 누적 (design 10 §1.4). 기본 환산율은 placeholder.
         self._input_tokens = 0
         self._output_tokens = 0
@@ -182,6 +185,9 @@ class ClaudeJudge:
             # API 예외 → 안전 폴백 (외부 의존 격리).
             return self._stub.judge_canonicalization(pair)
         verdict = validate_canonical_verdict(raw)
+        if self._slo_log is not None:
+            self._slo_log.record_schema("claude_judge", kind="canonical_verdict",
+                                        valid=verdict is not None)
         if verdict is None:
             return None
         return {**asdict(verdict), **self._version()}
@@ -211,6 +217,9 @@ class ClaudeJudge:
         except Exception:
             return self._stub.judge_contradiction(pair)
         verdict = validate_contradiction_verdict(raw)
+        if self._slo_log is not None:
+            self._slo_log.record_schema("claude_judge", kind="contradiction_verdict",
+                                        valid=verdict is not None)
         if verdict is None:
             return None
         return {**asdict(verdict), **self._version()}

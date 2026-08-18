@@ -59,10 +59,14 @@ class Mutation:
 class Gate:
     """claim_candidates → promotion/quarantine 게이트 + append-only 이벤트."""
 
-    def __init__(self) -> None:
+    def __init__(self, slo_log=None) -> None:
         self._mutations: list[Mutation] = []
         self._seen: set[str] = set()  # idempotency (03 §7.2, 불변식 §3-6)
         self._results: dict[str, PromotionResult] = {}
+        # SLO-07(quarantine 체류 시간, 11 §2.3) — quarantine 진입/종료(해소)를
+        # 선택 주입 관측 로그에 기록. 기본 None → 동작 무변경 (Spec 1.0.0).
+        # 진입 키 추적·멱등·종료 매칭은 `SloObservationLog`가 담당 (여기 중복 상태 없음).
+        self._slo_log = slo_log
 
     def evaluate(self, c: ClaimCandidate) -> PromotionResult:
         """claim 후보를 검증해 promoted/quarantined 결정 + append-only 이벤트."""
@@ -97,6 +101,10 @@ class Gate:
             reasons=reasons,
         )
 
+        # SLO-07 — quarantine 진입/종료(해소) 이벤트 기록 (11 §2.3).
+        if self._slo_log is not None:
+            self._record_quarantine(c.claim_candidate_id, promote, reasons)
+
         if promote:
             self._emit(c.claim_candidate_id, op="create_node")
         return self._results[c.claim_candidate_id]
@@ -129,6 +137,9 @@ class Gate:
             status="promoted" if promote else "quarantined",
             reasons=reasons,
         )
+        # SLO-07 — quarantine 진입/종료(해소) 이벤트 기록 (11 §2.3).
+        if self._slo_log is not None:
+            self._record_quarantine(m.mention_id, promote, reasons)
         if promote:
             self._emit(m.mention_id, op="create_node")
         return self._results[m.mention_id]
@@ -156,9 +167,26 @@ class Gate:
             status="promoted" if promote else "quarantined",
             reasons=reasons,
         )
+        # SLO-07 — quarantine 진입/종료(해소) 이벤트 기록 (11 §2.3).
+        if self._slo_log is not None:
+            self._record_quarantine(e.edge_id, promote, reasons)
         if promote:
             self._emit(e.edge_id, op="create_edge")
         return self._results[e.edge_id]
+
+    def _record_quarantine(self, element_ref: str, promote: bool,
+                           reasons: list[str]) -> None:
+        """SLO-07 quarantine 진입/종료 이벤트 로그 기록.
+
+        quarantined 결정 → 진입(이벤트 로그가 체류 시각 시작). promoted 재평가 →
+        종료(해소) — 이전에 진입 기록이 있으면 로그가 진입/종료를 짝지어 체류 이벤트를
+        확정한다 (진입 없는 종료·재진입은 로그가 멱등·no-op 처리, honest-gap §6.2).
+        """
+        key = f"element:{element_ref}"
+        if promote:
+            self._slo_log.record_quarantine_exit(key)
+        else:
+            self._slo_log.record_quarantine_enter(key, reason="|".join(reasons))
 
     def _emit(self, element_ref: str, op: str) -> None:
         """승격 이벤트 append (idempotent). 재구축 가능 (03 §7)."""

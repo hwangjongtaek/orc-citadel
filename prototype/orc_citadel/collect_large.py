@@ -154,7 +154,7 @@ def _save_zone(source_id: str, url: str, content: bytes, meta: dict,
     return doc_id, True
 
 
-def collect_arxiv(total: int, windows: int = 0) -> dict:
+def collect_arxiv(total: int, windows: int = 0, slo_log=None) -> dict:
     """arXiv 페이징 metadata 수집. return {saved, skipped, errors}.
 
     04 §1.4 metadata(CC0) 경로: API Atom 응답의 <entry> 원문 XML을 그대로 raw
@@ -163,6 +163,10 @@ def collect_arxiv(total: int, windows: int = 0) -> dict:
     S50 — 단일 쿼리의 `start>~10k` HTTP 500 한계를 우회해 대량(10k+)을 수집한다.
     `windows>0` 이면 date_window 로 총량을 나눠 각 날짜 구간을 독립 쿼리(각 start<10k)로
     페이징한다 (S49+ 실측: 10k 한계). 그렇지 않으면 기존 단일 쿼리 배치(arcbatches).
+
+    SLO-05(수집 성공률, 11 §2.3) 측정용 `slo_log`(`SloObservationLog`)가 주입되면
+    문서별 시도/성공을 `record_collect` 로 기록한다. 기본 None → 동작 무변경
+    (Spec 1.0.0, 관측은 선택 주입).
     """
     conn = ArxivConnector()
     counts = {"saved": 0, "skipped": 0, "errors": 0}
@@ -212,6 +216,9 @@ def collect_arxiv(total: int, windows: int = 0) -> dict:
                 )
                 fetched += 1
                 counts["saved" if created else "skipped"] += 1
+                if slo_log is not None:
+                    # SLO-05 — fetch 성공한 문서는 저장 성공으로 기록 (시도 1건).
+                    slo_log.record_collect("research-arxiv-cs-cr", url, ok=True)
     return counts
 
 
@@ -251,8 +258,12 @@ def _sleep_for_arxiv() -> None:
     time.sleep(ARXIV_INTERVAL)
 
 
-def collect_rss(feed_url: str, source_id: str) -> dict:
-    """RSS 수집 — 피드 항목을 순회 (피드 길이 유한)."""
+def collect_rss(feed_url: str, source_id: str, slo_log=None) -> dict:
+    """RSS 수집 — 피드 항목을 순회 (피드 길이 유한).
+
+    SLO-05(11 §2.3) 측정용 `slo_log` 주입 시 fetch 성공/실패를 `record_collect`
+    로 기록한다. 기본 None → 동작 무변경 (Spec 1.0.0, 선택 주입).
+    """
     conn = RssConnector()
     counts = {"saved": 0, "skipped": 0, "errors": 0}
     seen: set[str] = set()
@@ -265,19 +276,26 @@ def collect_rss(feed_url: str, source_id: str) -> dict:
             content, hdrs = _get(url)
         except Exception as e:
             counts["errors"] += 1
+            if slo_log is not None:
+                slo_log.record_collect(source_id, url, ok=False)
             continue
         _save_zone(source_id, url, content,
                    {"http_status": 200, "content_type": hdrs.get("Content-Type"),
                     "hint_modified": ref.hint_modified.isoformat() if ref.hint_modified else None})
         counts["saved"] += 1
+        if slo_log is not None:
+            slo_log.record_collect(source_id, url, ok=True)
     return counts
 
 
-def collect_sec(limit: int = 5, ciks: list[str] | None = None) -> dict:
+def collect_sec(limit: int = 5, ciks: list[str] | None = None, slo_log=None) -> dict:
     """SEC EDGAR 수집 (S14 커넥터). gov filing index → raw 저장.
 
     browse-edgar fallback 포함(제한 환경). filing 손으로 원문(HTML/XBRL) 저장 —
     idempotent (content-hash). limit으로 CIK당 filing 수 상한(예의).
+
+    SLO-05(11 §2.3) 측정용 `slo_log` 주입 시 fetch 성공/실패를 `record_collect`
+    로 기록한다. 기본 None → 동작 무변경 (Spec 1.0.0, 선택 주입).
     """
     from orc_citadel.connectors.sec_edgar import SecEdgarConnector
 
@@ -292,6 +310,8 @@ def collect_sec(limit: int = 5, ciks: list[str] | None = None) -> dict:
                 fr = conn.fetch(ref, prior_etag=None)
             except Exception as e:
                 counts["errors"] += 1
+                if slo_log is not None:
+                    slo_log.record_collect("gov-sec-edgar", ref.url, ok=False)
                 continue
             _doc_id, created = _save_zone(
                 "gov-sec-edgar", ref.url, fr.content,
@@ -300,6 +320,8 @@ def collect_sec(limit: int = 5, ciks: list[str] | None = None) -> dict:
             )
             n += 1
             counts["saved" if created else "skipped"] += 1
+            if slo_log is not None:
+                slo_log.record_collect("gov-sec-edgar", ref.url, ok=True)
     return counts
 
 

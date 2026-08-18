@@ -371,3 +371,96 @@ def test_arxiv_date_windows_returns_months_recent_first():
     for s, e in wins:
         assert _re.fullmatch(r"\d{12}", s) and _re.fullmatch(r"\d{12}", e)
         assert s < e
+
+
+# --- Phase 6: SLO-05 관측 로그 배선 (design 11 §2.3, slo_observation_log) ---
+
+
+def test_collect_arxiv_feeds_slo05_log(monkeypatch):
+    """collect_arxiv → SLO-05 시도/성공 로그 기록 (문서별 저장 성공)."""
+    import orc_citadel.collect_large as cl
+    from orc_citadel.slo_observation_log import SloObservationLog
+
+    def fake_entries(self, config, cursor):
+        for i in range(3):
+            yield f"https://arxiv.org/abs/{i}", f"<entry><id>{i}</id></entry>".encode()
+
+    monkeypatch.setattr(cl.ArxivConnector, "discover_entries", fake_entries)
+    monkeypatch.setattr(cl, "_get", _no_doc_get)
+    monkeypatch.setattr(cl, "_save_zone", lambda *a, **k: ("doc-x", True))
+    monkeypatch.setattr(cl, "_sleep_for_arxiv", lambda: None)
+    monkeypatch.setattr(cl, "time", _NoSleep())
+
+    log = SloObservationLog()
+    counts = cl.collect_arxiv(total=3, slo_log=log)
+    assert counts["saved"] == 3
+    # SLO-05 — 3건 성공 시도 기록 → 하니스 성공률 1.0 measured.
+    from orc_citadel.slo_metrics_harness import collect_success_rate
+    res = collect_success_rate(log.success_results())
+    assert res["measured"] is True
+    assert res["n_attempt"] == 3 and res["success_rate"] == 1.0
+
+
+def test_collect_rss_feeds_slo05_success_and_failure(monkeypatch):
+    """collect_rss → 성공·실패 모두 SLO-05 로그 (ok True/False 구분)."""
+    import orc_citadel.collect_large as cl
+    from orc_citadel.connectors.base import DiscoveredRef
+    from orc_citadel.slo_observation_log import SloObservationLog
+    from orc_citadel.slo_metrics_harness import collect_success_rate
+
+    def fake_discover(self, feed_url, cursor):
+        yield DiscoveredRef(url="https://ok.example/1")
+        yield DiscoveredRef(url="https://fail.example/2")
+
+    originals = {}
+    def fake_get(url):
+        if url.startswith("https://fail"):
+            raise RuntimeError("boom")
+        return b"<rss/>", {"Content-Type": "application/rss+xml"}
+
+    monkeypatch.setattr(cl.RssConnector, "discover", fake_discover)
+    monkeypatch.setattr(cl, "_get", fake_get)
+    monkeypatch.setattr(cl, "_save_zone", lambda *a, **k: ("doc-x", True))
+
+    log = SloObservationLog()
+    counts = cl.collect_rss("http://feed", "src-x", slo_log=log)
+    assert counts["saved"] == 1 and counts["errors"] == 1
+    res = collect_success_rate(log.success_results())
+    assert res["n_attempt"] == 2 and res["success_rate"] == 0.5
+
+
+def test_collect_sec_feeds_slo05_log(monkeypatch):
+    """collect_sec → SLO-05 시도/성공 로그 기록."""
+    import orc_citadel.collect_large as cl
+    from orc_citadel.connectors.base import DiscoveredRef
+    from orc_citadel.connectors.sec_edgar import SecEdgarConnector
+    from orc_citadel.slo_observation_log import SloObservationLog
+    from orc_citadel.slo_metrics_harness import collect_success_rate
+
+    def fake_discover(self, config, cursor):
+        yield DiscoveredRef(url="https://www.sec.gov/Archives/d1.htm")
+
+    class FakeFetchResult:
+        http_status = 200
+        response_headers = {"content-type": "application/octet-stream"}
+        content = b"<html>10-Q</html>"
+
+    monkeypatch.setattr(SecEdgarConnector, "discover", fake_discover)
+    monkeypatch.setattr(SecEdgarConnector, "fetch",
+                        lambda self, ref, prior_etag=None: FakeFetchResult())
+    monkeypatch.setattr(cl, "_save_zone", lambda *a, **k: ("doc-x", True))
+
+    log = SloObservationLog()
+    cl.collect_sec(limit=1, ciks=["1045810"], slo_log=log)
+    res = collect_success_rate(log.success_results())
+    assert res["measured"] is True and res["n_attempt"] == 1
+
+
+def test_collectors_work_without_slo_log():
+    """slo_log 기본 None — 기존 동작 무변경 (선택 주입, Spec 1.0.0)."""
+    import orc_citadel.collect_large as cl
+    # 시그니처가 선택 인자로 None 기본을 가지는지 확인.
+    import inspect
+    assert inspect.signature(cl.collect_arxiv).parameters["slo_log"].default is None
+    assert inspect.signature(cl.collect_rss).parameters["slo_log"].default is None
+    assert inspect.signature(cl.collect_sec).parameters["slo_log"].default is None

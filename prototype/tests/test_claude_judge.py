@@ -92,3 +92,57 @@ def test_uses_configured_model():
     j = _judge(client)
     j.judge_canonicalization(("a", "b"))
     assert client.calls[0]["model"]  # 지정 모델
+
+
+# --- Phase 6: SLO-06 schema 검증 관측 배선 (design 11 §2.3) ---
+
+
+def test_canonical_verdict_feeds_slo06_schema_log():
+    """canonical verdict 검증 통과/실패 → SLO-06 schema 로그 기록."""
+    from orc_citadel.slo_observation_log import SloObservationLog
+    from orc_citadel.slo_metrics_harness import schema_pass_rate
+
+    log = SloObservationLog()
+    # valid 1건 + invalid 1건 (검증 2회).
+    client = _FakeClient([
+        {"relation": "equivalent", "canonical_text": "TSMC는 확장한다.",
+         "confidence": 0.9, "rationale": "동일"},
+        {"relation": "banana"},  # invalid → validate None
+    ])
+    j = ClaudeJudge(client=client, slo_log=log)
+    assert j.judge_canonicalization(("a", "b")) is not None
+    assert j.judge_canonicalization(("c", "d")) is None
+    res = schema_pass_rate(log.schema_results())
+    assert res["measured"] is True
+    assert res["n_total"] == 2 and res["pass_rate"] == 0.5
+
+
+def test_contradiction_verdict_feeds_slo06_schema_log():
+    """contradiction verdict 검증 통과/실패 → SLO-06 schema 로그."""
+    from orc_citadel.slo_observation_log import SloObservationLog
+    from orc_citadel.slo_metrics_harness import schema_pass_rate
+
+    log = SloObservationLog()
+    client = _FakeClient([
+        {"verdict": "real_conflict", "conflict_type": "value_conflict",
+         "rationale": "값 충돌", "confidence": 0.8, "evidence_spans": []},
+        {"verdict": "nope"},  # invalid
+    ])
+    j = ClaudeJudge(client=client, slo_log=log)
+    assert j.judge_contradiction(("a", "b")) is not None
+    assert j.judge_contradiction(("c", "d")) is None
+    res = schema_pass_rate(log.schema_results())
+    assert res["n_total"] == 2 and res["pass_rate"] == 0.5
+
+
+def test_stub_fallback_not_logged_as_schema():
+    """스텁 폴백(LLM 미검증)은 SLO-06 계수에서 제외 — 빈 로그 → not-measured."""
+    from orc_citadel.slo_observation_log import SloObservationLog
+    from orc_citadel.slo_metrics_harness import schema_pass_rate
+
+    log = SloObservationLog()
+    j = ClaudeJudge(client=None, slo_log=log)  # 오프라인 → stub 폴백
+    v = j.judge_canonicalization(("a", "b"))
+    assert v is not None  # stub 반환
+    assert log.schema_results() == []  # 검증 기록 없음
+    assert schema_pass_rate(log.schema_results())["measured"] is False

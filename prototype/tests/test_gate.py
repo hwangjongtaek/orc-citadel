@@ -106,3 +106,66 @@ def test_idempotent_event():
     gate.evaluate(c)
     gate.evaluate(c)
     assert len(gate.mutations()) == 1
+
+
+# --- Phase 6: SLO-07 quarantine 관측 배선 (design 11 §2.3, slo_observation_log) ---
+
+
+def test_gate_quarantine_enter_plus_exit_feeds_slo07_dwell():
+    """quarantined 진입 → promoted 재평가(해소) → SLO-07 체류 이벤트 + 중앙값."""
+    from orc_citadel.slo_observation_log import SloObservationLog
+    from orc_citadel.slo_metrics_harness import quarantine_dwell_median
+
+    log = SloObservationLog()  # 실제 clock
+    gate = Gate(slo_log=log)
+    # 동일 element가 먼저 quarantined(저신뢰) → 나중에 promoted(해소).
+    low = _claim(conf=0.1)  # low_confidence → quarantined
+    gate.evaluate(low)
+    assert gate.result(low.claim_candidate_id).status == "quarantined"
+
+    ok = _claim(conf=0.9)  # promoted → 해소
+    gate.evaluate(ok)
+    assert gate.result(ok.claim_candidate_id).status == "promoted"
+
+    # 동일 동치(element) — claim_candidate_id가 정확해야 함: 위 두 _claim은 id 동일.
+    assert ok.claim_candidate_id == low.claim_candidate_id
+    entries = log.dwell_entries()
+    assert len(entries) == 1   # 진입+종료 짝 1건
+    enter, exit_ = entries[0]
+    assert exit_ >= enter
+    assert quarantine_dwell_median(log.dwell_entries()) is not None
+
+
+def test_gate_quarantine_only_not_measured():
+    """진입만 있고 해소 없는 quarantine는 SLO-07 체류 미확정 (honest-gap)."""
+    from orc_citadel.slo_observation_log import SloObservationLog
+    from orc_citadel.slo_metrics_harness import quarantine_dwell_median
+
+    log = SloObservationLog()
+    gate = Gate(slo_log=log)
+    gate.evaluate(_claim(conf=0.1))  # quarantined 진입만
+    assert log.dwell_entries() == []          # 종료 없음 → 체류 미확정
+    assert log.open_quarantine_count() == 1
+    assert quarantine_dwell_median(log.dwell_entries()) is None
+
+
+def test_gate_slo_log_truth_chain_e2e():
+    """진입(저신뢰) → 해소(정상) 사이의 실제 경과 시간이 체류로 측정됨."""
+    from orc_citadel.slo_observation_log import SloObservationLog
+    from orc_citadel.slo_metrics_harness import quarantine_dwell_median_days
+
+    log = SloObservationLog()
+    gate = Gate(slo_log=log)
+    gate.evaluate(_claim(conf=0.1))   # 진입
+    # (실제 시간 일부 경과 — 해소 시점이 진입보다 늦음을 보장)
+    gate.evaluate(_claim(conf=0.95))  # 해소
+    med = quarantine_dwell_median_days(log.dwell_entries())
+    assert med is not None and med >= 0
+
+
+def test_gate_works_without_slo_log():
+    """slo_log 기본 None — 기존 동작 무변경 (선택 주입, Spec 1.0.0)."""
+    gate = Gate()
+    r = gate.evaluate(_claim())
+    assert r.promote
+    assert len(gate.mutations()) == 1
