@@ -97,7 +97,7 @@ _PREDICATE_RULES: list[tuple[re.Pattern, str, str, str | None]] = [
      "supplies", "asserted", "manufacturing"),
     # 공급망 파트너십/수급 계약 — partnership/agreement (02 §5.1 협력·공급관계).
     (re.compile(r"\b(partnership|strategic\s+partnership|agreement|alliance)\b", re.I),
-     "partners", "asserted", "partnership"),
+     "partners_with", "asserted", "partnership"),
 ]
 
 

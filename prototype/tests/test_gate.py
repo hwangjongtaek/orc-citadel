@@ -99,6 +99,21 @@ def test_controlled_predicates_include_announces():
     assert "supplies" in CONTROLLED_PREDICATES
 
 
+def test_controlled_predicate_partners_with_not_stale_partners():
+    """02 §5.1 공식 `partners_with` 는 어휘 포함, 축약 `partners` 는 비포함.
+
+    SLO-07 quarantine 원인(2026-08-12) — extractor 가 축약 `partners` 를 방출해
+    §4-2 폐쇄성 게이트에서 71건 permanent quarantine 되었다. 어휘는 온톨로지
+    표준 `partners_with` 를 담고 축약 `partners` 는 담지 않아야 정합 (폐쇄 유지).
+    """
+    assert "partners_with" in CONTROLLED_PREDICATES
+    assert "partners" not in CONTROLLED_PREDICATES
+    # partners_with claim 은 predicate 폐쇄성으로 quarantine 되지 않는다.
+    gate = Gate()
+    res = gate.evaluate(_claim(predicate="partners_with"))
+    assert not any("predicate" in r for r in res.reasons)
+
+
 def test_idempotent_event():
     """동일 claim 재평가 → 동일/추가 없는 이벤트 (03 §7 idempotency)."""
     gate = Gate()

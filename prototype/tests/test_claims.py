@@ -142,15 +142,25 @@ def test_supply_to_claim():
 
 
 def test_partnership_claim():
-    """'{E} partnership/agreement with {E2}' → partners(predicate) claim."""
+    """'{E} partnership/agreement with {E2}' → partners_with(predicate) claim.
+
+    predicate 는 02 §5.1 controlled vocabulary 의 공식 `partners_with` 여야 한다 —
+    extractor 가 과거 축약 `partners` 를 방출하면 §4-2 폐쇄성 게이트(2026-08-12 SLO-07
+    quarantine 원인 71건) 를 떨어뜨려 permanent quarantine 된다 (추출·온톨로지 정합화).
+    """
     doc_id, doc, segs, resolved, by_id = _doc(
         "TSMC announced a partnership with NVIDIA to develop advanced chips."
     )
     claims = extract_claims(doc_id, segs, resolved, by_id)
-    part = [c for c in claims if c.predicate == "partners"]
-    # partnership 을 잡는 규칙 대기 (subject 바인딩은 첫 해소 entity = TSMC or NVIDIA).
-    sup = [c for c in claims if c.predicate == "announces"]
-    assert part or sup  # 최소 announces(규칙) 는 기본적으로 잡혀야 함.
+    part = [c for c in claims if c.predicate == "partners_with"]
+    # partnership 규칙(partners_with) 이 잡아야 함.
+    assert part, f"no partners_with claim from: {[c.predicate for c in claims]}"
+    c = part[0]
+    assert c.event_type_hint == "partnership"
+    seg = segs[c.seg_order]
+    assert seg.text[c.char_start:c.char_end] == c.surface_fragment
+    # 미등록 축약 `partners` 는 폐쇄성 게이트에 실패해야 정합 (방출 금지).
+    assert all(c.predicate != "partners" for c in claims)
 
 
 # --- object 바인딩: 정규 삼항 완성 (공급망 엣지) ------------------------------
