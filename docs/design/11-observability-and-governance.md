@@ -150,6 +150,8 @@ SLO-02/03/04는 **실측으로 확정**했다(2026-08-12, `neo4j_q4_harness` 가
 
 > **구현 메모 (Phase 6 — 실행 경로 slo_log 배선, DoD ① 경로 완결, 2026-08-12):** 위 모듈·측정 경계 배선은 **선택 주입 계약**이었고 실제 실행 진입점인 `run_pipeline`(pipeline_runner) 이 내부 `Gate()` 를 직접 생성해 `slo_log` **전달 경로가 없던 미배선**을 해소. `run_pipeline(..., slo_log=None)` → 내부 `Gate(slo_log=slo_log)` 로 quarantine 진입/해소 로그가 **실제 파이프라인 실행 시 자동 축적** (SLO-07), `bulk_pipeline(..., slo_log=None)` 도 스레딩. 기본 None → 기존 동작 무변경·**Spec 1.0.0 유지** (선택 인자만, 계약 변경 없음). TDD — 배선 테스트 신규 2개(`run_pipeline(slo_log=)`→Gate 로그 스레딩·무로그 무변경) — 스위트 1018→**1020개 통과**(회귀 0). 다음: 로그 자동 축적 전제 갖춰짐 → 실제 런(수집·재처리·LLM judge)에서 SLO-05/06/07 실측·목표 확정.
 
+> **구현 메모 (Phase 6 — SLO-05/07 부분 배치 실측, DoD ① 경로 실증, 2026-08-12):** 배선된 관측 계층을 유한 배치(1,000건, 기존 104,554 read-only 데이터 재처리, `bulk_pipeline(slo_log=...)`)로 **실제 구동**해 배선의 실동작을 실증. 결과: **SLO-07 `open_quarantine=71`** — quarantine 진입 로그가 실제 `Gate`→`slo_log` 경로로 71건 누적됨(**배선 실증**, 동일 재처리에서 미배선 시 존재 불가). 그러나 **어느 SLO도 `measured=True` 가 되지 않음**(honest-gap §6.2 정직 표기): SLO-07 `dwell_resolved=0` — in-memory 단일 렌더에선 quarantine **해소(종료)가 발생하지 않아** 체류 미확정(진입 71건은 진행 중 성분으로 not-measured). SLO-05 `collect_attempts=0` — 기존 문서 재처리는 **fetch·수집 시도가 없어**(저장 dedup/불변식 §3-2) 성공률 분모 부재. SLO-06 `schema_checks=0` — 결정적 체인 `judge=None`은 verify_* verdict 미검증 → 통과율 분모 부재. **배선은 실증됐으나 측정값은 실측 필요 여건에 좌우됨**: SLO-05 는 신규 수집 런(네트워크 fetch), SLO-06 은 실제 LLM judge 구동, SLO-07 은 quarantine 해소를 유발하는 재평가(다문서·최신 zones 여건)가 있어야 진짜 `measured` 가 된다 — 부재는 결과로 유지(not-measured). 현재 DoD ① 실측 여건: SLO-05/06 신규 런·LLM, SLO-07 은 분산·후속 재평가 인프라와 함께 대기.
+
 ---
 
 ## 3. Idempotency·재시도 운영 (불변식 §3-6)
