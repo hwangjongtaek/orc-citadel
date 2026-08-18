@@ -154,6 +154,8 @@ SLO-02/03/04는 **실측으로 확정**했다(2026-08-12, `neo4j_q4_harness` 가
 
 > **실측 메모 (Phase 6 — SLO-05 measured=True 전환, 2026-08-12):** 신규 수집 런으로 SLO-05 를 **진짜 측정**. `collect_sec(limit=1)` — 성공(`ok=True`)·실패(`ok=False`) **양쪽을 기록하는 유일한 경로**(arxiv 는 성공만 기록 → vacuous 100% 회피). SEC EDGAR 1건 실제 네트워크 fetch 성공 → 관측 계층 누적 → sealed 하니스 `collect_success_rate` 판정 **`{success_rate:1.0, n_success:1, n_attempt:1, n_unknown:0, measured:True}`** — **SLO-05 `measured=True`** (배선 커밋 3ecb063 의 실데이터 실증). `n_attempt=1` 은 표본 부족 — 채널 성공률 1.0 은 낮은 통계 신뢰지만, 실제 일어난 시도/성공이 있고 `n_unknown=0` 이라 honest-gap(§6.2) 기준 **부재가 아닌 진짜 측정값**으로 정직 표기. 목표치(≥99%) 판정·샘플 확대는 다음 디자인된 수집 런에서.
 
+> **실측 메모 (Phase 6 — SLO-06 measured=True 전환, 2026-08-12):** 실제 LiteLLM judge 로 SLO-06 을 **진짜 측정**. `.env` 의 `LLM_PROVIDER=litellm`/`LLM_BASE_URL`/`LLM_MODEL=bunker-flash` config (`build_llm_client` 경유) 로 실제 proxy 라우팅 판정 — 실제 원문의 결정적 체인(extract→resolve→claim) 으로 candidate 쌍 생성, `ClaudeJudge(slo_log=)` 로 canonical·contradiction **20건 실제 판정** → 관측 로그 누적 → sealed 하니스 `schema_pass_rate` 판정 **`{pass_rate:1.0, n_pass:20, n_total:20, n_unknown:0, measured:True}`** — **SLO-06 `measured=True`** (프로바이더 config 커밋 e3fc602 의 실데이터 실증). read-only(`:memory:` zone)·유한 상한(20, smoke `_BoundedJudge` 와 동일 cap)·`n_unknown=0`(진짜 검증만 계수 — honest-gap §6.2). usage 4420/1678 tokens·20 calls (S42). 표본 20건은 게이트 기준이지만 더 넓은 샘플·실데이터 골든(contradiction 미자연발생)은 차기 실측 여건에서.
+
 ---
 ---
 
