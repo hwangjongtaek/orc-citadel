@@ -129,7 +129,7 @@ SLO-02/03/04는 **실측으로 확정**했다(2026-08-12, `neo4j_q4_harness` 가
 | SLO-05 | source 수집 성공률 | `≥ 99%` (deferred) | 7d rolling | **실측 (2026-08-12)** — SEC+RSS 50건 `{success_rate:1.0, n=50, measured:True, within_slo:True}` (목표 ≥99% 기계적 판정 기록) · **표본 확대 (2026-08-18, A5 런)** — arXiv windows+RSS 동일 런 `slo_log` 추가 축적 → **n=50 → n=440** `{success_rate:1.0, n=440, measured:True, within_slo:True}` (성공률 1.0 유지, 저표본 한계 완화) |
 | SLO-06 | schema validation 통과율 | `≥ 95%` (deferred) | 7d rolling | 실측 하니스 봉인(2026-08-12) — 실데이터 축적 후 확정 |
 | SLO-07 | quarantine 체류 시간(중앙값) | `≤ 3d` (deferred) | 30d rolling | 실측 하니스 봉인(2026-08-12) — 실데이터 축적 후 확정 |
-| SLO-08 | 100만 문서 전체 재처리 시간 | 벤치마크 공개 (deferred) | 릴리스 | 실측 하니스 봉인 + **부분 실측(2026-08-12)** — 배치 1,000건 full rebuild **16.83s(measured, per-doc 16.83ms)**, 전체 104,554건 외삽 ≈1.76h(projected, measured=False) |
+| SLO-08 | 100만 문서 전체 재처리 시간 | 벤치마크 공개 (deferred) | 릴리스 | 🟢 **측정·완주 (2026-08-18)** — **104,677건 전체 재처리 병렬 완주 벽시계 `334,033ms (~5.6min)` measured=True** (k=10 multiprocessing, speedup 5.10×@깨끗한 순차 16.28ms/doc ∿28.4min) — 이전(2026-08-12) 배치 1,000건 16.83s + 전체 외삽 1.76h(projected) 를 실측 완주로 대체. **게이트 없음(unclassified — 벤치 공개 계약)** |
 
 - SLO-01은 blueprint §16 Phase 4 완료 조건("신규 문서가 목표 SLO 안에 graph에 반영")과 직접 연결된다.
 - SLO 위반은 자동으로 Signal Spire 운영 알림이 아니라 **Watchtower 운영 경보**로 라우팅한다(§5.3 결론 알림과 구분).
