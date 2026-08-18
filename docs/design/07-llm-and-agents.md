@@ -314,6 +314,15 @@ propose(new model/prompt)
 - 골든셋: entity mention 1,000 / entity pair 1,000 / claim·evidence span 500 / claim pair 500 / 계보 클러스터 200 / 조사 질문 20~50 (blueprint §12.5).
 - 승격은 [README §2.6](./README.md) 변경 관리 3단계(문서·Spec version·ROADMAP)를 거친다.
 
+> **구현 메모 (Phase 6 — LLM 프로바이더 config: Anthropic/OpenRouter/LiteLLM, 2026-08-12):** ClaudeJudge 의 하드코딩 anthropic 의존을 풀어 **명시적 환경 config**로 프로바이더를 세팅 가능하게 확장. `llm_providers.py` — `OpenAICompatibleClient`(OpenRouter·LiteLLM 공용, **OpenAI-compatible `/chat/completions`** httpx 어댑터, 신규 의존성 0) + `build_llm_client()` 는 다른 백엔드(`build_neo4j_driver`/`build_minio_client`/`build_dsn`) 와 동일한 명시적 환경변수 패턴을 따른다:
+> ```
+> LLM_PROVIDER = anthropic | openrouter | litellm   (기본 anthropic)
+> LLM_MODEL    = 모델명 (openrouter 예: "anthropic/claude-sonnet")
+> LLM_API_KEY  = 프로바이더 API 키
+> LLM_BASE_URL = openrouter https://openrouter.ai/api/v1 / litellm proxy 엔드포인트
+> ```
+> OpenRouter·LiteLLM 은 둘 다 OpenAI-compatible 이므로 **단일 어댑터로 둘 다 커버**. SDK 부재·인식 불가 provider → `build_llm_client()` 가 `None` → ClaudeJudge **stub 폴백**(ADR-507 — 외부 의존 격리, 잘못된 설정이 조용한 실패가 아닌 명시적 폴백 유발). `ClaudeJudge._version()` 의 `model_provider`/`model_id`(07 §6.1) 를 하드코딩(`"anthropic"`/`MODEL_ID`) 에서 **실제 client 가 지닌 provider·model 로 정직 산출**(재현성 §6.1 경로 — 산출물 핀은 배포 실제 프로바이더 모델 명). 주입 계약(`messages_create` 시그니처)·출력 재검증(`validate_*`)·stub 폴백 계약은 무변경 → judge 소비 계약(05 §4.2/§5.2) intact. wire 계약·스키마 변경 없음 → **Spec 1.0.0 유지**. TDD — `test_llm_providers` 신규 10개(openrouter/litellm POST 계약·usage 캡처·비JSON {} ·provider 선택·기본 스텁·불가 provider None·judge version tuple openrouter 반영) — 스위트 1020→**1030개 통과**(회귀 0). `.env.example` 에 4개 LLM_* 예시 추가. 다음: SLO-06 실측 — 실제 프로바이더 구동(OpenRouter/LiteLLM 키 허가 후).
+
 ---
 
 ## 7. Structured Output 계약

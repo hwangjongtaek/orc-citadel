@@ -65,6 +65,7 @@ class _AnthropicClient:
 
         self._client = anthropic.Anthropic(api_key=api_key, base_url=base_url)
         self.model = model
+        self.provider = "anthropic"
         self.last_usage = {}  # 최근 호출 usage (S42 비용 집계).
 
     def messages_create(self, model, system, user, max_tokens, temperature):
@@ -94,12 +95,15 @@ class _AnthropicClient:
 
 
 def _build_default_client():
-    """anthropic 사용 가능 시 실제 client, 아니면 None (오프라인 → stub 폴백)."""
-    try:
-        import anthropic  # noqa: F401
-    except ImportError:
-        return None
-    return _AnthropicClient(model=MODEL_ID)
+    """실제 client — LLM_PROVIDER/LLM_MODEL/API_KEY/BASE_URL 환경 config 로 선택.
+
+    `llm_providers.build_llm_client` 가 Anthropic·OpenRouter·LiteLLM 중 선택하고,
+    SDK 부재·인식 불가 provider → None (오프라인 → stub 폴백, ADR-507). 빌더가
+    anthropic SDK 를 lazy import 하므로 미설치 시에도 import 는 안전.
+    """
+    from orc_citadel.llm_providers import build_llm_client
+
+    return build_llm_client()
 
 
 class ClaudeJudge:
@@ -151,9 +155,13 @@ class ClaudeJudge:
 
     # --- version tuple (07 §6.1) ---
     def _version(self) -> dict:
+        # 실제 client 가 지닌 provider·model 로 정직하게 산출 (재현성 §6.1) —
+        # stub 폴백(주입 client None)이면 alias 기본값 사용.
+        provider = getattr(self._client, "provider", "anthropic")
+        model = getattr(self._client, "model", MODEL_ID)
         return {
-            "model_provider": "anthropic",
-            "model_id": MODEL_ID,
+            "model_provider": provider,
+            "model_id": model,
             "prompt_template_hash": _prompt_hash(self._canonical_prompt),
             "output_schema_version": OUTPUT_SCHEMA_VERSION,
             "ontology_version": ONTOLOGY_VERSION,
