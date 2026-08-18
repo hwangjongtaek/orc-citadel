@@ -241,15 +241,19 @@ def _persist_llm_verdicts(zone, judge) -> None:
     _p(zone, judge)
 
 
-def run_pipeline(metas, zone, judge=None, mutation_log=None) -> PipelineResult:
+def run_pipeline(metas, zone, judge=None, mutation_log=None, slo_log=None) -> PipelineResult:
     """raw docs(meta list)를 단일 진입점으로 실행해 결정적 체인 + 그래프 + 영속 완료.
 
     `mutation_log`(① postgres SoT) 제공 시 graph mutation 을 로그에 기록하고,
     그래프는 로그의 **replay**(⑤ `replay_graph`)로 재구축한다 (ADR-304 실경로).
     미제공 시 기존 in-memory `_build_graph(gate)` 유지 (파괴 없음).
+
+    `slo_log`(`SloObservationLog`, design 11 §2.3) 주입 시 내부 `Gate` 에 전달되어
+    quarantine 진입/해소 → SLO-07 체류 로그가 **실제 파이프라인 실행 시 자동 축적**됨.
+    기본 None → 기존 동작 무변경 (선택 주입, Spec 1.0.0).
     """
     resolver = EntityResolver()
-    gate = Gate()
+    gate = Gate(slo_log=slo_log)
     result = PipelineResult()
 
     all_claims = _run_chain(metas, zone, gate, resolver, judge, result,

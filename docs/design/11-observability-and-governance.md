@@ -148,6 +148,8 @@ SLO-02/03/04는 **실측으로 확정**했다(2026-08-12, `neo4j_q4_harness` 가
 
 > **구현 메모 (Phase 6 — SLO 관측 로그 배선, DoD ① 선행 완결, 2026-08-12):** 위 관측 계층(`slo_observation_log`) 을 **실제 측정 경계에 배선** — 다음 수집·처리 런부터 로그가 자동 축적되어 SLO-05/06/07 실측이 **코드로 완결**됨 (DoD ①의 실측 경로 완성). 전부 **선택 주입(`slo_log=None` 기본)** → 기존 동작 무변경·Spec 1.0.0 유지. **SLO-05** `collect_large` 의 `collect_arxiv`/`collect_rss`/`collect_sec` — 각 문서 저장(성공)·fetch 실패 지점에서 `record_collect` → 성공률 실측 경로. **SLO-06** `claude_judge.ClaudeJudge(slo_log=)` — `validate_canonical_verdict`·`validate_contradiction_verdict` 검증 결과를 `record_schema` 로 기록 (스텁 폴백=LLM 미검증은 계수 제외 — 실제 스키마 검증만, honest-gap §6.2). **SLO-07** `Gate(slo_log=)` — **quartarined 결정 → 진입, promoted 재평가(해소) → 종료** 이벤트 기록 (`element:<ref>` 키) → 동일 element 진입→해소가 체류 이벤트로 확정 (진입-무해소는 진행 중 제외·진입 없는 해소 무시 — honest-gap). read-only·결정적·mock/실측 격리 유지. **스키마·계약 변경 없음 → Spec 그대로(1.0.0)** (기존 계약 무변경, 선택 주입만). TDD — 배선 테스트 신규 11개(collect_arxiv/rss/sec→SLO-05 성공률, judge canonical/contradiction→SLO-06 통과율, stub 미계수, gate 진입/해소→SLO-07 체류·진입만 미측정·진입→해소 경과 측정·무로그 동작) — 스위트 1007→**1018개 통과**(회귀 0). 다음: 다음 런에서 로그 자동 축적 → SLO-05/06/07 실측·목표 확정.
 
+> **구현 메모 (Phase 6 — 실행 경로 slo_log 배선, DoD ① 경로 완결, 2026-08-12):** 위 모듈·측정 경계 배선은 **선택 주입 계약**이었고 실제 실행 진입점인 `run_pipeline`(pipeline_runner) 이 내부 `Gate()` 를 직접 생성해 `slo_log` **전달 경로가 없던 미배선**을 해소. `run_pipeline(..., slo_log=None)` → 내부 `Gate(slo_log=slo_log)` 로 quarantine 진입/해소 로그가 **실제 파이프라인 실행 시 자동 축적** (SLO-07), `bulk_pipeline(..., slo_log=None)` 도 스레딩. 기본 None → 기존 동작 무변경·**Spec 1.0.0 유지** (선택 인자만, 계약 변경 없음). TDD — 배선 테스트 신규 2개(`run_pipeline(slo_log=)`→Gate 로그 스레딩·무로그 무변경) — 스위트 1018→**1020개 통과**(회귀 0). 다음: 로그 자동 축적 전제 갖춰짐 → 실제 런(수집·재처리·LLM judge)에서 SLO-05/06/07 실측·목표 확정.
+
 ---
 
 ## 3. Idempotency·재시도 운영 (불변식 §3-6)

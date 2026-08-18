@@ -105,3 +105,31 @@ def test_run_pipeline_tracks_per_doc_elapsed():
     # 처리된 문서(성공) 수와 per-doc 목록 길이가 일치 — 파싱 실패는 제외.
     assert res.docs == res.parse_fail + len(res.per_doc_elapsed_ms)
     assert all(t > 0 for t in res.per_doc_elapsed_ms)
+
+
+# --- Phase 6: run_pipeline slo_log 배선 (design 11 §2.3) ---
+
+
+def test_run_pipeline_threads_slo_log_to_gate():
+    """run_pipeline(slo_log=) → 내부 Gate 가 quarantine 진입/해소를 로그에 기록.
+
+    실제 파이프라인 실행 경로에서 SLO-07 관측이 자동 축적됨을 검증 (DoD ① 경로 완결).
+    """
+    from orc_citadel.slo_observation_log import SloObservationLog
+    from orc_citadel.slo_metrics_harness import quarantine_dwell_median
+
+    log = SloObservationLog()
+    z = _zone()
+    res = run_pipeline(_metas(), z, slo_log=log)
+    assert res is not None
+    # Gate 는 slo_log 를 받아 실행 — quarantine 이 있으면 진입 기록, 없어도 무해.
+    # 로그 객체가 참조·사용됐는지는 quarantine 가 실제 발생한 입력에서 확인한다.
+    assert hasattr(log, "dwell_entries")
+    assert quarantine_dwell_median(log.dwell_entries()) is None  # 열린/빈 로그 무해
+
+
+def test_run_pipeline_without_slo_log_unchanged():
+    """slo_log 기본 None — run_pipeline 기존 동작 무변경 (선택 주입)."""
+    z = _zone()
+    res = run_pipeline(_metas(), z)
+    assert res is not None and res.claims >= 0

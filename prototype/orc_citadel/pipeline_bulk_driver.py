@@ -12,19 +12,21 @@ from __future__ import annotations
 import time
 
 
-def bulk_pipeline(metas, zone=None, mutation_log=None):
+def bulk_pipeline(metas, zone=None, mutation_log=None, slo_log=None):
     """raw metas 를 결정적 체인으로 흘려 그래프를 재구축한다.
 
     - `mutation_log` 제공 시 `run_pipeline` 이 그래프 변화를 postgres
       SoT(`graph_mutations`)에 기록하고, 반환 그래프는 그 로그의 **replay**(ADR-304)로
       재구축된다 (authoritative 그래프의 유일 조회 경로).
     - 미제공 시 in-memory replay 그래프(파괴 없음).
+    - `slo_log` 주입 시 내부 Gate 로 전달 (SLO-07 quarantine 로그, design 11 §2.3).
     - 반환: `(PipelineResult, GraphService)`.
     """
     from .pipeline_runner import run_pipeline
 
     begun = time.perf_counter()
-    result = run_pipeline(metas, zone, judge=None, mutation_log=mutation_log)
+    result = run_pipeline(metas, zone, judge=None, mutation_log=mutation_log,
+                          slo_log=slo_log)
 
     if mutation_log is not None:
         from .graph_replay import replay_graph
