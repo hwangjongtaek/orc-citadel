@@ -147,9 +147,9 @@
 
 | 작업 | 담당 스펙 | 성격 | 상태 |
 | --- | --- | --- | :---: |
-| 수집 지속 운용 — 1만 샘플 → 10만 → (더) 수집 | [04](./design/04-ingestion-and-parsing.md), [11](./design/11-observability-and-governance.md) | 실측 | ⬜ 예정 |
+| 수집 지속 운용 — 1만 샘플 → 10만 → (더) 수집 | [04](./design/04-ingestion-and-parsing.md), [11](./design/11-observability-and-governance.md) | 실측 | 🟡 가동 중 — 배치(2026-08-18) raw **104,642 → 104,677 (+35)** · arXiv 날짜윈도우 미수집 +25 · RSS 신규 +10 (nvidia/amd 는 content-hash 중복) · **SLO-05 표본 n=50 → n=440 동반 확대** (동일 런 slo_log 주입) |
 | SLO-01 실측 — 신규 문서 → graph 반영 지연 p95 | [11](./design/11-observability-and-governance.md) §2.3 | 실측 후 확정 | 🟢 **measured=True (2026-08-12)** — 신규 RSS 수집 77건 → 실제 `bulk_pipeline` 반영 `{p95_ms:495,638 (~8.3min), n:77, classified:'ok'}` ≤ 30min 목표 (하니스 봉인 923) |
-| SLO-05 실측 — source 수집 성공률 | [11](./design/11-observability-and-governance.md) §2.3 | 실측 후 확정 | 🟢 **measured=True (2026-08-12)** — SEC(2 CIK)+RSS(3 source) 실제 수집 **표본 n=50** `{success_rate:1.0, n_success:50, n_attempt:50, n_unknown:0}` · **목표(≥99%) `within_slo=True`** (하니스 봉인 948·관측 로그·배선 완결). 저표본 일반화 한계는 후속 런 |
+| SLO-05 실측 — source 수집 성공률 | [11](./design/11-observability-and-governance.md) §2.3 | 실측 후 확정 | 🟢 **measured=True (2026-08-12)** — SEC(2 CIK)+RSS(3 source) 실제 수집 **표본 n=50** `{success_rate:1.0, n_success:50, n_attempt:50, n_unknown:0}` · **목표(≥99%) `within_slo=True`** (하니스 봉인 948·관측 로그·배선 완결) · **표본 확대(2026-08-18): n=50 → n=440** `{success_rate:1.0, n_success:440, n_attempt:440, n_unknown:0}` — 동일 A5 수집 런 `slo_log` 동반 (arXiv windows + RSS). 저표본 일반화 한계 완화 (계속 확대는 차기 런) |
 | SLO-06 실측 — schema validation 통과율 | [11](./design/11-observability-and-governance.md) §2.3 | 실측 후 확정 | 🟢 **measured=True (2026-08-12)** — 실제 LiteLLM judge(`bunker-flash`) **40건 판정** `{pass_rate:1.0, n_pass:40, n_total:40, n_unknown:0}` (프로바이더 config e3fc602 + 관측 로그 배선). 더 넓은 샘플/실데이터 골든은 차기 |
 | SLO-07 실측 — quarantine 체류 시간(중앙값) | [11](./design/11-observability-and-governance.md) §2.3 | 실측 후 확정 | 🟡 하니스 봉인 (스위트 948) + **관측 로그·배선 완결(2026-08-12)** — Gate quarantine 진입/해소 이벤트 자동 · **실측(2026-08-12): `open_quarantine=71`, `dwell_resolved=0`** — 원인 분해 `unknown_predicate:partners` → **predicate 정합화로 근본 해소**(extractor `partners`→`partners_with`, 02 §5.1 봉인 표준) — 재처리 시 해당 quarantine 제거. real 체류(진입→해소) 는 재평가(다중 라운드·분산 후속 재평가 인프라) 가 있어야 하므로 **not-measured(구조적) 대기 유지** |
 | SLO-08 실측 — 100만 문서 전체 재처리 시간 벤치마크 | [11](./design/11-observability-and-governance.md) §2.3 | 실측 후 확정 | 🟡 하니스 봉인 (스위트 948) + **부분 실측(2026-08-12)** — 배치 1,000건 **16.83s measured**(per-doc 16.83ms), 전체 104,554건 외삽 ≈1.76h **projected(measured=False)** — 완주 벽시계는 분산 batch·인프라 갖춰질 때 재측정 |
@@ -180,6 +180,9 @@
 ## 5. Changelog
 
 가장 최신이 위로. 스펙·설계 변경을 기록한다 (구현 세부 커밋은 git 이력).
+
+### 2026-08-18
+- **A5 수집 지속 운용 배치 — raw 성장 + SLO-05 표본 대폭 확대 (04 §1.4, 11 §2.3).** `collect_large`(RSS 3 source + arXiv `windows` 날짜윈도우, S50 10k 한계 우회) 의 실제 수집 런을 폴라이트(1 req/3s)·resumable(content-hash 멱등)·`slo_log` 주입으로 재가동 → **raw 104,642 → 104,677 (+35)**. 세부: arXiv 날짜윈도우(과거 연대 미수집) **+25 신규 metadata**(CC0 경로 — abs 스크레이핑 없음, anti-bot 회피) · RSS 신규 **+10**(semiengineering 신규 아티클; nvidia·amd 는 모두 content-hash **중복** — `collect_rss` 의 `saved` 카운터가 fetch 성공을 세는 것임을 정직히 구분, 실제 디스크 신규는 +10). **SLO-05 표본 동반 확대: n=50 → n=440** `{success_rate:1.0, n_success:440, n_attempt:440, n_unknown:0}` measured=True — 동일 런 슬로로그 배선으로 arXiv windows+RSS 의 시도/성공 400건 추가 축적, changelog 189 의 저표본(n=50) 일반화 한계 완화. 성공률 1.0 유지·`within_slo=True`(≥99%). raw 데이터는 gitignore(수집 원문 커밋 제외) — 커밋은 문서만. 코드 변경 없음 → **Spec 1.0.0 유지**. §3 Phase 6 A5 행·SLO-05 행·design 11 §2.3 반영. 다음: 수집 계속 확대(10만+ → 더)는 사용자 인계로 폴라이트 러너 실행 가능.
 
 ### 2026-08-12
 - **Phase 6 — predicate 정합화 재검증: quarantine 71→0건.** 정합화 커밋(a3eadd8) 후 실제 재처리(read-only `:memory:` 골든 500건, `run_pipeline(slo_log=)`) 로 영향 실증 — **`open_quarantine` 71→0건** (이전 전부 `unknown_predicate:partners`), promoted_claims 425 정상 승격·nodes 2186. `partners_with` predicate 는 §4-2 폐쇄성 게이트 통과 → 해당 claim quarantine 제거 확인. SLO-07 의 **고정 원인(unknown_predicate) 성분 제거 완료** — real quarantine 체류(진입→해소) 는 여전히 재평가 인프라 필요로 not-measured(구조적) 대기 유지. §3 Phase 6 SLO-07 행·design 11 §2.3 반영. 코드 변경 없음 → **Spec 1.0.0 유지**.

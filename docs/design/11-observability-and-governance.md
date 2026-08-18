@@ -126,7 +126,7 @@ SLO-02/03/04는 **실측으로 확정**했다(2026-08-12, `neo4j_q4_harness` 가
 | SLO-02 | graph query latency p50 | `≤ 10 ms` ✅ 확정 | 1d rolling | **확정** (실측 p95 0.66~1.16ms) |
 | SLO-03 | graph query latency p95 | `≤ 50 ms` ✅ 확정 | 1d rolling | **확정** (실측 0.66~1.16ms) |
 | SLO-04 | graph query latency p99 | `≤ 100 ms` ✅ 확정 | 1d rolling | **확정** (실측 0.66~1.16ms) |
-| SLO-05 | source 수집 성공률 | `≥ 99%` (deferred) | 7d rolling | **실측 (2026-08-12)** — SEC+RSS 50건 `{success_rate:1.0, n=50, measured:True, within_slo:True}` (목표 ≥99% 기계적 판정 기록) |
+| SLO-05 | source 수집 성공률 | `≥ 99%` (deferred) | 7d rolling | **실측 (2026-08-12)** — SEC+RSS 50건 `{success_rate:1.0, n=50, measured:True, within_slo:True}` (목표 ≥99% 기계적 판정 기록) · **표본 확대 (2026-08-18, A5 런)** — arXiv windows+RSS 동일 런 `slo_log` 추가 축적 → **n=50 → n=440** `{success_rate:1.0, n=440, measured:True, within_slo:True}` (성공률 1.0 유지, 저표본 한계 완화) |
 | SLO-06 | schema validation 통과율 | `≥ 95%` (deferred) | 7d rolling | 실측 하니스 봉인(2026-08-12) — 실데이터 축적 후 확정 |
 | SLO-07 | quarantine 체류 시간(중앙값) | `≤ 3d` (deferred) | 30d rolling | 실측 하니스 봉인(2026-08-12) — 실데이터 축적 후 확정 |
 | SLO-08 | 100만 문서 전체 재처리 시간 | 벤치마크 공개 (deferred) | 릴리스 | 실측 하니스 봉인 + **부분 실측(2026-08-12)** — 배치 1,000건 full rebuild **16.83s(measured, per-doc 16.83ms)**, 전체 104,554건 외삽 ≈1.76h(projected, measured=False) |
