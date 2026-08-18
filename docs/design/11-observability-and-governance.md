@@ -156,7 +156,8 @@ SLO-02/03/04는 **실측으로 확정**했다(2026-08-12, `neo4j_q4_harness` 가
 
 > **실측 메모 (Phase 6 — SLO-06 measured=True 전환, 2026-08-12):** 실제 LiteLLM judge 로 SLO-06 을 **진짜 측정**. `.env` 의 `LLM_PROVIDER=litellm`/`LLM_BASE_URL`/`LLM_MODEL=bunker-flash` config (`build_llm_client` 경유) 로 실제 proxy 라우팅 판정 — 실제 원문의 결정적 체인(extract→resolve→claim) 으로 candidate 쌍 생성, `ClaudeJudge(slo_log=)` 로 canonical·contradiction **20건 실제 판정** → 관측 로그 누적 → sealed 하니스 `schema_pass_rate` 판정 **`{pass_rate:1.0, n_pass:20, n_total:20, n_unknown:0, measured:True}`** — **SLO-06 `measured=True`** (프로바이더 config 커밋 e3fc602 의 실데이터 실증). read-only(`:memory:` zone)·유한 상한(20, smoke `_BoundedJudge` 와 동일 cap)·`n_unknown=0`(진짜 검증만 계수 — honest-gap §6.2). usage 4420/1678 tokens·20 calls (S42). 표본 20건은 게이트 기준이지만 더 넓은 샘플·실데이터 골든(contradiction 미자연발생)은 차기 실측 여건에서.
 
----
+> **실측 메모 (Phase 6 — SLO-07 quarantine 원인 분해, 구조적 not-measured 확정, 2026-08-12):** 실제 파이프라인(`run_pipeline(slo_log=)`) 500건 구동으로 quarantine 진입을 실제 측정 → **`open_quarantine=71`, `dwell_resolved=0`** (단일 패스). quarantine 원인을 직접 분해한 결과 **71건 전부 `unknown_predicate:partners`** — predicate `partners` 가 `CONTROLLED_PREDICATES`(02 §4-2 폐쇄성) 에 없어 quarantine 되는 **고정 원인**. 즉 SLO-07 해소(진입→종료 짝)는 현 체인 구조에서 **구조적으로 발생 불가**하다: (1) Gate 결정성 — 동일 claim 재평가는 동일 결과, (2) 단일 패스 — element 를 1회만 평가, (3) quarantine 원인이 전부 고정(unknown_predicate) 이라 **후속 라운드가 해소시킬 의존 상태 차이가 없음**. 이 71건은 **permanent quarantine**(정당 — 미지 predicate 는 authoritative 진입 금지, 02 §4-2) 로 체류 시간이란 개념 자체가 적용 안 됨. **SLO-07 `not-measured` 는 측정 부재가 아니라 구조적 성질** — real quarantine 체류가 발생하려면 **quarantine 이 promoted 로 해소되는 element**(의존 상태가 평가 사이에 변하는 것 — 예: 미해소 subject→재평가, contradiction 재평가) 가 필요하며, 이는 **다중 라운드 파이프라인/분산 후속 재평가 인프라** 와 함께 와야 한다. 현 단일 패스는 해소를 생산하지 않으므로 honest-gap(§6.2) 기준 **not-measured 유지**가 정직 표기다 (부재/구조적 부재를 측정으로 오인 금지). 현재 `unknown_predicate:partners` quarantine 은 predicate 어휘 확장(02 §4-2) 또는 폐기 정책의 별도 결정 사항으로, SLO-07 실측 여건과 독립적.
+
 ---
 
 ## 3. Idempotency·재시도 운영 (불변식 §3-6)
