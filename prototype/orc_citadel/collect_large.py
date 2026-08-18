@@ -43,7 +43,9 @@ SOURCES = {
     "official-nvidia-news": ("rss", "https://nvidianews.nvidia.com/rss.xml"),
     "official-amd-ir": ("rss", "https://ir.amd.com/news-events/press-releases/rss"),
     "press-semiengineering": ("rss", "https://semiengineering.com/feed/"),
-    "gov-chips-nist": ("rss", "https://www.nist.gov/news-events/electronics/rss.xml"),
+    # gov-chips-nist 제외 (2026-08-18): NIST 동적 페이지 본문이 매 요청 달라져
+    # content-hash 기반 doc_id 가 매 런 새로 발급 → 중복 저장(80→고유 40 실측).
+    # URL 기반 idempotency(04 §2.1 hash(source_id,url,fetch_window)) 전환 전까지 보류.
 }
 ARXIV_QUERY = "cat:cs.CR OR cat:cs.AI OR cat:cs.SE OR cat:cs.AR OR cat:eess.SY"
 
