@@ -52,6 +52,47 @@ def test_rss_fetch_returns_fetch_result():
     assert res.http_status == 200
 
 
+# ---- BIS sitemap 커넥터 (04 §1.4 신규 — sitemap 기반 수출통제 정책 소스) ----
+SITEMAP_XML = b"""<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+ <url><loc>https://media.bis.gov/enforcement/penalties</loc><lastmod>2026-08-01</lastmod></url>
+ <url><loc>https://media.bis.gov/licensing/country-guidance/china-export-controls</loc><priority>0.5</priority></url>
+ <url><loc>https://media.bis.gov/learn-support/deemed-exports</loc><lastmod>2026-07-10</lastmod></url>
+</urlset>"""
+
+
+def test_sitemap_connector_source_type_gov():
+    """BIS 는 gov 소스 (수출통제 규제 기관)."""
+    from orc_citadel.connectors.sitemap import SitemapConnector
+    assert SitemapConnector().source_type == "gov"
+
+
+def test_sitemap_discover_yields_locations():
+    """sitemap discover 는 <loc> 마다 DiscoveredRef 를 낸다 (lastmod → hint_modified)."""
+    from orc_citadel.connectors.sitemap import SitemapConnector
+    conn = SitemapConnector()
+    with mock.patch.object(conn, "_http_get", return_value=SITEMAP_XML):
+        refs = list(conn.discover("https://www.bis.gov/sitemap.xml", cursor=None))
+    assert len(refs) == 3
+    assert all(isinstance(r, DiscoveredRef) for r in refs)
+    assert refs[0].url == "https://media.bis.gov/enforcement/penalties"
+    assert refs[0].hint_modified is not None  # lastmod 파싱
+    assert refs[1].hint_modified is None       # lastmod 없으면 None
+
+
+def test_sitemap_fetch_returns_fetch_result():
+    """sitemap 대상 URL fetch → FetchResult (정책 페이지 HTML)."""
+    from orc_citadel.connectors.sitemap import SitemapConnector
+    body = b"<html><body>export control policy</body></html>"
+    conn = SitemapConnector()
+    with mock.patch.object(conn, "_http_get", return_value=body):
+        res = conn.fetch(DiscoveredRef("https://media.bis.gov/enforcement/penalties", None), prior_etag=None)
+    assert isinstance(res, FetchResult)
+    assert res.content == body
+    assert res.content_hash.startswith("sha256:")
+    assert res.http_status == 200
+
+
 # ---- 2. 버전 대조: DiscoveredRef/FetchResult가 04 §1.2 필드 보유 ----
 
 def test_discovered_ref_has_extra():

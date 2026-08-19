@@ -110,6 +110,7 @@ blueprint §8.1의 우선순위 **API › RSS › sitemap › download**를 sour
 
 - **초기 Scout 5종**은 Phase 0에서 선정·확정된 세부 표를 §1.4에 둔다 (source config 구체 스키마·라이선스·접근 방식).
 - 어떤 전략이든 `politeness`를 우회할 수 없다. rate limit 초과·`429`/`503`은 `backoff`(exponential + jitter)로 물러난 뒤 재시도한다(§6).
+- **`sitemap` 1급 kind (2026-08-19, Spec 1.1.0):** RSS 를 노출하지 않는 정부 정책 사이트(예: **BIS 수출통제**)는 API·RSS 가 없어도 **sitemap.xml(정적 XML, robots `Allow`) 으로 수집 대상 URL 을 정적 열거**할 수 있다. §1.3 표의 "sitemap"(fallback) 을 1급 `SOURCES` kind 로 승격 — `SitemapConnector`(04 §1.2 discover/fetch 계약) + `collect_sitemap`. 변경 탐지는 sitemap `<lastmod>` + `content_hash`. robots 개방 확인 시 **headless·비용 불필요**, 기존 `_get`/`_save_zone`·URL-skip(S1)·content-hash(S2) 재사용.
 - `download`(PDF/바이너리)는 원본 bytes를 그대로 S2에 저장하고 파싱은 S3로 미룬다. 수집 단계에서 본문을 재작성하지 않는다.
 
 ### 1.4 초기 Scout 5종 (Phase 0 선정)
@@ -131,7 +132,8 @@ blueprint §8.1의 우선순위 **API › RSS › sitemap › download**를 sour
   - 상업 테크 프레스(EE Times·The Register·TechCrunch)는 robots.txt가 **AI 크롤러(`anthropic-ai`/`ClaudeBot`)를 명시 차단** → Phase 0 초기 세트에서 제외. SemiEngineering만 개방.
   - TSMC 프로미스룸(`pr.tsmc.com`)은 Cloudflare 403 → 1차 세트 제외.
 - **미확정 항목:** SEC 필링 내용의 정확한 법적 public-domain 프레이밍(SEC 저작권 페이지 404) · SemiEngineering/EE Times/TechCrunch 공식 라이선스 문구 — 실무상 store-only로 취급하고, 확정 시 `compliance.license`·`license_url` 갱신.
-- **추가 후보(Phase 1+):** BIS 수출통제(도메인 가치 최고, RSS 없어 scraping Medium). (AMD IR RSS는 2026-08-12 실신호 확장으로 **#6 정식 소스 승격** — robotics 열려있음, 결정적 extractor 공급망 신호 고밀도: 10건 수집 → claims +59·엣지 +21 실측, `signal_source_runner` `SIGNAL_SOURCE_IDS` 포함.)
+- **추가 후보(Phase 1+):** (AMD IR RSS는 2026-08-12 실신호 확장으로 **#6 정식 소스 승격** — robotics 열려있음, 결정적 extractor 공급망 신호 고밀도: 10건 수집 → claims +59·엣지 +21 실측, `signal_source_runner` `SIGNAL_SOURCE_IDS` 포함.)
+- **BIS 수출통제 — sitemap 커넥터로 정식 채택 (2026-08-19, Spec 1.1.0, #7):** 이전 "RSS 없어 scraping Medium" 으로 유보됐으나, 실측로 **robots `Allow: /`(개방)·sitemap.xml(정적 37 URL) 존재** → RSS 없이도 sitemap 1급 kind 로 **수집 불가가 아님** 것으로 재평가. `gov-bis-exportcontrol`(`sitemap`, `https://www.bis.gov/sitemap.xml`) 등록·`SitemapConnector` 개발·`collect_sitemap` 배선. **실측 (A18, 2026-08-19):** sitemap 37 `<loc>` 전부 수집(정책·가이드 — country guidance·compliance·deemed exports 등), raw +37. **신호 수율 실측:** `signal_density` **0.000**(claims 0) — 정책 문서는 결정적 extractor 신호 희소, **`SIGNAL_SOURCE_IDS` 미포함**(A10 원칙 정합). **raw 수집 소스로 유효**(쿼리·조사 재료 정책 컨텍스트, 무중복 URL-skip). `sitemap.connecter` 계약은 §1.3·2.1 반영.
 - **배선 상태 (2026-08-18, A9→A11 정정):** `collect_large.SOURCES` 에 구현된 초기 소스는 NVIDIA(#4)·AMD(#6)·SemiEngineering(#5)·arXiv(#2)·SEC(#1) 이고 **#3 CHIPS/NIST 는 미배선 유지** (보류). **A9 런으로 #3 를 임시 배선했으나 A11 추적 검증으로 **content-hash dedup 결함** 발견 → **미배선 복귀·보류**. 근본 원인: `_save_zone` 의 doc_id 가 **content sha256** 이고(Hash 기반, 03 §7), **NIST 동적 페이지 본문이 매 요청 달라져** 매 런 hash 가 새로 발급 → 같은 URL이 doc_id 2개로 **중복 저장**(A11 실측: gov 80건 = 고유 40×2). A9"A9 의 "gov 신규 +40" 은 **중복 허수**였다(실은 40 고유 문서 2번 저장). 처리: 40 간 중복 doc 정리(80→40 고유) + `SOURCES` 제거. **근본 해결은 URL 기반 idempotency 키**(04 §2.1 `hash(source_id,url,fetch_window)`) 전환 — 계약·Spec 번프 수반, 별도 작업 전까지 **gov 보류**. Gov 는 raw 성장 잠재력이 있으나(gov-public·CHIPS법 정책 문서 40 고유 확보) dedup 미해결로 **현재 수집 불가**. **signal 스코프 (2026-08-18, A10, 그대로 유효):** `signal_density` — gov 40건 claims 1·density 0.025(=비신호 arXiv 수준) vs signal 3종 0.63~5.9 → **`SIGNAL_SOURCE_IDS` 미포함 유지**. details: ROADMAP §5 A9·A10.
 
 ## 2. Fetch stage (S1) 계약

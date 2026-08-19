@@ -42,6 +42,14 @@ def test_sources_excludes_chips_nist_gov():
     assert "gov-chips-nist" not in SOURCES
 
 
+def test_sources_registers_bis_gov_sitemap():
+    """BIS(수출통제) gov 가 sitemap 소스로 등록 (04 §1.4 신규 — RSS 없는 gov)."""
+    assert "gov-bis-exportcontrol" in SOURCES
+    kind, url = SOURCES["gov-bis-exportcontrol"]
+    assert kind == "sitemap"
+    assert "bis.gov" in url
+
+
 class _NoSleep:
     def sleep(self, _):
         return None

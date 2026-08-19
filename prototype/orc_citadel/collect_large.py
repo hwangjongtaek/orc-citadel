@@ -43,6 +43,7 @@ SOURCES = {
     "official-nvidia-news": ("rss", "https://nvidianews.nvidia.com/rss.xml"),
     "official-amd-ir": ("rss", "https://ir.amd.com/news-events/press-releases/rss"),
     "press-semiengineering": ("rss", "https://semiengineering.com/feed/"),
+    "gov-bis-exportcontrol": ("sitemap", "https://www.bis.gov/sitemap.xml"),
     # gov-chips-nist 제외 (2026-08-18): NIST 동적 페이지 본문이 매 요청 달라져
     # content-hash 기반 doc_id 가 매 런 새로 발급 → 중복 저장(80→고유 40 실측).
     # URL 기반 idempotency(04 §2.1 hash(source_id,url,fetch_window)) 전환 전까지 보류.
@@ -300,6 +301,44 @@ def collect_rss(feed_url: str, source_id: str, slo_log=None, known_urls=None) ->
     return counts
 
 
+def collect_sitemap(sitemap_url: str, source_id: str, slo_log=None, known_urls=None) -> dict:
+    """sitemap 기반 정책 소스 수집 (BIS 등 RSS 없는 gov, 04 §1.4 신규).
+
+    `SitemapConnector.discover` 로 sitemap `<loc>` 을 열거 → 각 URL `_get`·`_save_zone`.
+    RSS 커넥터 통합 수집과 동일: robots 개방 + sitemap 정적 XML + content-hash/URL
+    idempotency(S1·S2). `known_urls`(이전 런 저장 URL) 제공 시 이미 저장 URL 은
+    재수집 하지 않고 skip (04 §2.1).
+    """
+    from orc_citadel.connectors.sitemap import SitemapConnector
+
+    conn = SitemapConnector()
+    counts = {"saved": 0, "skipped": 0, "errors": 0}
+    seen: set[str] = set()
+    known = known_urls or set()
+    for ref in conn.discover(sitemap_url, cursor=None):
+        url = ref.url
+        if not url.startswith("http") or url in seen:
+            continue
+        seen.add(url)
+        if url in known:  # S1 — 이미 이전 런 저장 URL → 재수집 skip (04 §2.1).
+            counts["skipped"] += 1
+            continue
+        try:
+            content, hdrs = _get(url)
+        except Exception:
+            counts["errors"] += 1
+            if slo_log is not None:
+                slo_log.record_collect(source_id, url, ok=False)
+            continue
+        _save_zone(source_id, url, content,
+                   {"http_status": 200, "content_type": hdrs.get("Content-Type"),
+                    "hint_modified": ref.hint_modified.isoformat() if ref.hint_modified else None})
+        counts["saved"] += 1
+        if slo_log is not None:
+            slo_log.record_collect(source_id, url, ok=True)
+    return counts
+
+
 def collect_sec(limit: int = 5, ciks: list[str] | None = None, slo_log=None) -> dict:
     """SEC EDGAR 수집 (S14 커넥터). gov filing index → raw 저장.
 
@@ -376,8 +415,13 @@ def main() -> None:
 
     if not args.skip_rss:
         for source_id, (kind, url) in SOURCES.items():
-            print(f"[{source_id}] RSS 수집 (known_urls={len(_stored_urls(source_id))}건 skip 후보)")
-            c = collect_rss(url, source_id, known_urls=_stored_urls(source_id))
+            known = _stored_urls(source_id)
+            if kind == "sitemap":
+                print(f"[{source_id}] sitemap 수집 (known_urls={len(known)}건 skip 후보)")
+                c = collect_sitemap(url, source_id, known_urls=known)
+            else:
+                print(f"[{source_id}] RSS 수집 (known_urls={len(known)}건 skip 후보)")
+                c = collect_rss(url, source_id, known_urls=known)
             print(f"  -> {c}")
 
     print(f"[research-arxiv-cs-cr] arXiv metadata 페이징 수집 (total={args.limit}, "
