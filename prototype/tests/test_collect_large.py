@@ -9,7 +9,7 @@ import pathlib
 
 import pytest
 
-from orc_citadel.collect_large import _save_zone, arxiv_batches, SOURCES
+from orc_citadel.collect_large import _save_zone, _stored_urls, arxiv_batches, SOURCES
 
 
 def test_sources_registers_amd_official_rss():
@@ -19,6 +19,17 @@ def test_sources_registers_amd_official_rss():
     assert kind == "rss"
     assert url.startswith("https://ir.amd.com/")
     assert "rss" in url.lower()
+
+
+def test_stored_urls_reads_existing_fetch_meta(tmp_path):
+    """_stored_urls — source 의 기존 저장 URL 집합 반환 (04 §2.1 S1 재수집 방지용)."""
+    raw = tmp_path / "raw"
+    _save_zone("s1", "http://a/1", b"x", {}, raw_dir=raw)
+    _save_zone("s1", "http://a/2", b"y", {}, raw_dir=raw)
+    _save_zone("s2", "http://b/9", b"z", {}, raw_dir=raw)  # 다른 source 제외
+    got = _stored_urls("s1", raw_dir=raw)
+    assert got == {"http://a/1", "http://a/2"}
+    assert "http://b/9" not in got
 
 
 def test_sources_excludes_chips_nist_gov():
@@ -437,6 +448,34 @@ def test_collect_rss_feeds_slo05_success_and_failure(monkeypatch):
     assert counts["saved"] == 1 and counts["errors"] == 1
     res = collect_success_rate(log.success_results())
     assert res["n_attempt"] == 2 and res["success_rate"] == 0.5
+
+
+def test_collect_rss_skips_known_urls_from_prior_run(monkeypatch):
+    """collect_rss → `known_urls`(이전 런 저장 URL) 는 재수집 skip (04 §2.1 S1 idempotency).
+
+    동일 URL 의 다른 형식/미세변화 재수집으로 신규-중복 doc_id 가 생기는 것을 방지 —
+    이미 저장된 URL 은 fetch 자체를 하지 않는다 (content-hash dedup 과 달리 URL 기준).
+    """
+    import orc_citadel.collect_large as cl
+    from orc_citadel.connectors.base import DiscoveredRef
+
+    def fake_discover(self, feed_url, cursor):
+        yield DiscoveredRef(url="https://known.example/1")   # 이미 저장됨
+        yield DiscoveredRef(url="https://fresh.example/2")   # 신규
+
+    fetched = []
+    def fake_get(url):
+        fetched.append(url)
+        return b"<rss/>", {"Content-Type": "application/rss+xml"}
+
+    monkeypatch.setattr(cl.RssConnector, "discover", fake_discover)
+    monkeypatch.setattr(cl, "_get", fake_get)
+    monkeypatch.setattr(cl, "_save_zone", lambda *a, **k: ("doc-x", True))
+
+    counts = cl.collect_rss("http://feed", "src-x",
+                            known_urls={"https://known.example/1"})
+    assert counts["saved"] == 1          # 신규 1건만 저장
+    assert fetched == ["https://fresh.example/2"]   # 이미 저장 URL 은 fetch 안 함
 
 
 def test_collect_sec_feeds_slo05_log(monkeypatch):

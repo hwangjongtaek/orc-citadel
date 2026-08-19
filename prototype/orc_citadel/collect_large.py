@@ -261,20 +261,29 @@ def _sleep_for_arxiv() -> None:
     time.sleep(ARXIV_INTERVAL)
 
 
-def collect_rss(feed_url: str, source_id: str, slo_log=None) -> dict:
+def collect_rss(feed_url: str, source_id: str, slo_log=None, known_urls=None) -> dict:
     """RSS 수집 — 피드 항목을 순회 (피드 길이 유한).
 
     SLO-05(11 §2.3) 측정용 `slo_log` 주입 시 fetch 성공/실패를 `record_collect`
     로 기록한다. 기본 None → 동작 무변경 (Spec 1.0.0, 선택 주입).
+
+    `known_urls`(이전 런 저장 URL 집합, 04 §2.1 S1 idempotency) 제공 시 **이미
+    저장된 URL 은 재수집(fetch) 하지 않고 skip** — 동일 URL 의 다른 형식/미세변화
+    재수집으로 신규-중복 doc_id 가 생기는 것(§2.2 버전 보존과 무관한 재-harvest) 을
+    방지한다. content-hash dedup(S2)과 달리 URL 기준 재수집 차단.
     """
     conn = RssConnector()
     counts = {"saved": 0, "skipped": 0, "errors": 0}
     seen: set[str] = set()
+    known = known_urls or set()
     for ref in conn.discover(feed_url, cursor=None):
         url = ref.url
         if not url.startswith("http") or url in seen:
             continue
         seen.add(url)
+        if url in known:  # S1 — 이미 이전 런 저장 URL → 재수집 skip (04 §2.1).
+            counts["skipped"] += 1
+            continue
         try:
             content, hdrs = _get(url)
         except Exception as e:
@@ -328,6 +337,28 @@ def collect_sec(limit: int = 5, ciks: list[str] | None = None, slo_log=None) -> 
     return counts
 
 
+def _stored_urls(source_id: str, raw_dir=None) -> set[str]:
+    """해당 source 의 기존 저장 URL 집합 — S1 재수집 방지용 (04 §2.1 idempotency).
+
+    `raw_dir/<source_id>/doc/*/fetch.json` 의 url 을 수집한다(결정적·read-only).
+    전면 적용: 수집 런이 이 URL 을 `collect_rss(known_urls=...)` 로 넘겨, 이미 저장된
+    URL 의 재수집(중복 doc_id 발생 경로) 을 방지한다.
+    """
+    import json
+
+    base = raw_dir or RAW
+    urls: set[str] = set()
+    for fj in (base / source_id / "doc").glob("*/fetch.json"):
+        try:
+            meta = json.loads(fj.read_text())
+        except Exception:
+            continue
+        u = meta.get("url")
+        if isinstance(u, str) and u:
+            urls.add(u)
+    return urls
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description="대형 resumable 수집 러너")
     p.add_argument("--limit", type=int, default=300,
@@ -345,8 +376,8 @@ def main() -> None:
 
     if not args.skip_rss:
         for source_id, (kind, url) in SOURCES.items():
-            print(f"[{source_id}] RSS 수집")
-            c = collect_rss(url, source_id)
+            print(f"[{source_id}] RSS 수집 (known_urls={len(_stored_urls(source_id))}건 skip 후보)")
+            c = collect_rss(url, source_id, known_urls=_stored_urls(source_id))
             print(f"  -> {c}")
 
     print(f"[research-arxiv-cs-cr] arXiv metadata 페이징 수집 (total={args.limit}, "

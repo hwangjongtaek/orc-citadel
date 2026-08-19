@@ -143,6 +143,7 @@ blueprint §8.1. 입력은 `source config` + `DiscoveredRef`, 출력은 S2로 �
 - **idempotency key:** `hash(source_id, url, fetch_window)`([`01`](./01-architecture.md) §4 S1). 동일 소스·URL·수집 창(window)의 재실행은 동일 key로 중복 작업을 만들지 않는다(불변식 §3-6).
 - `fetch_window`는 `discovery.fetch_window`에서 파생한 결정적 값이다. `incremental`은 커서 구간(예: `2025-02-15/2025-02-16`), `full`은 상수 토큰을 쓴다.
 - S1의 idempotency는 "같은 창을 다시 긁지 않는다"를, S2의 idempotency(`doc_id`)는 "같은 bytes를 다시 저장하지 않는다"를 보장한다. 두 계층은 독립적이다.
+- **구현 완료 (2026-08-19, A15 — Spec 1.0.0 유지):** S1 재수집 방지를 `collect_large` 에 전면 적용. `_stored_urls(source_id)` — 해당 소스의 기존 저장 URL 집합(read-only) · `collect_rss(..., known_urls=None)` — 제공 시 이미 저장된 URL 은 **재수집(fetch) 자체를 하지 않고 skip**(`counts["skipped"]++`, SLO-05 `record_collect` 미기록 — skip 은 fetch 아님, 성공률 분모 부적절). `main()` RSS 루프가 `known_urls=_stored_urls(source_id)` 로 배선. **실측 (A15):** nvidia known 37→skip 20·amd 10→skip 10·semi 41→skip 10, raw +0 (신규 없음, 중복 재수집 완전 차단) — 이전 A-runs 의 "saved:20" 이 실제로 같은 URL 재-fetch 였음을 확정. 2-tier 계약(S1 URL skip + S2 content-hash) 정합. arXiv 창-쿼리는 과거 연대 소진으로 URL-skip 보다는 기존 S2 dedup + 최신 windows 로 운용.
 
 ### 2.2 Content hash 기반 변경 탐지 → 새 doc_id
 
