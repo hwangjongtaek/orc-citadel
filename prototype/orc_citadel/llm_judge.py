@@ -81,7 +81,12 @@ def validate_contradiction_verdict(d: dict) -> ContradictionVerdict | None:
         return None
     if not isinstance(rationale, str) or not rationale.strip():  # §5.3 필수.
         return None
-    spans = tuple(tuple(s.items()) for s in (d.get("evidence_spans") or []))
+    raw_spans = d.get("evidence_spans") or []
+    if not all(isinstance(s, dict) for s in raw_spans):
+        # ADR-704·07 §7: 구조화 실패는 후보 유지(None 유도) — 검증 함수는 예외를
+        # 전파하지 않고 스키마 위반으로 처리 (LLM 출력 이형·손상에 방어적).
+        return None
+    spans = tuple(tuple(s.items()) for s in raw_spans)
     return ContradictionVerdict(
         verdict=v, conflict_type=ctype, rationale=rationale, confidence=float(conf),
         evidence_spans=spans,

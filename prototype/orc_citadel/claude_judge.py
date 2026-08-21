@@ -44,7 +44,8 @@ _CONTRADICTION_SCHEMA_INSTRUCTION = """\
  "conflict_type": <value_conflict | temporal | scope | null>,
  "rationale": <모순 여부 근거 한 문장 이상>,
  "confidence": <0.0~1.0 실수>,
- "evidence_spans": [<지지 구간, 없으면 빈 배열>]}
+ "evidence_spans": [{"doc_id": "...", "char_start": <정수>, "char_end": <정수>}, ...]}
+evidence_spans 각 항목은 반드시 dict 객체여야 한다 (없으면 빈 배열 []).
 verdict/conflict_type은 05 §5.2·ADR-504 라벨만 허용한다.
 """
 

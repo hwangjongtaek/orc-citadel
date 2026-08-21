@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from orc_citadel.claude_judge import ClaudeJudge
+from orc_citadel.claude_judge import ClaudeJudge, _CONTRADICTION_SCHEMA_INSTRUCTION
 from orc_citadel.llm_judge import DeterministicStub
 
 
@@ -146,3 +146,20 @@ def test_stub_fallback_not_logged_as_schema():
     assert v is not None  # stub 반환
     assert log.schema_results() == []  # 검증 기록 없음
     assert schema_pass_rate(log.schema_results())["measured"] is False
+
+
+def test_contradiction_prompt_specifies_dict_evidence_spans():
+    """contradiction 스키마 프롬프트는 05 §5.2 의 evidence_spans dict 구조를 명시.
+
+    무비용 LLM 실측(SLO-06)에서 contradiction verdict 가 evidence_spans 를 str
+    리스트로 반환해 스키마 검증 실패가 체계적으로 발생한 원인이 프롬프트의 모호한
+    '<지지 구간>' 표기였음. 검증 함수(`validate_contradiction_verdict`)는 dict 항목을
+    요구(05 §5.2 line 158) 하므로, 프롬프트가 그 계약을 LLM 에 명확히 전달해야 한다 —
+    설계-프롬프트 정합 회귀 고정.
+    """
+    p = _CONTRADICTION_SCHEMA_INSTRUCTION
+    # dict 필드가 스키마에 명시되어 있어야 한다(설계 05 §5.2 dict 구조).
+    assert '"doc_id"' in p and '"char_start"' in p and '"char_end"' in p
+    assert 'evidence_spans' in p
+    # "dict 객체" 요구가 명시되어야 한다.
+    assert 'dict 객체' in p

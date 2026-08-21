@@ -75,6 +75,27 @@ def test_contradiction_verdict_requires_rationale():
     }) is None
 
 
+def test_contradiction_verdict_malformed_evidence_span_returns_none():
+    """evidence_spans 에 dict 가 아닌 항목(str 등)이 섞이면 크래시가 아니라 None.
+
+    ADR-704·07 §7: 구조화 실패는 후보 유지(None 유도) — 검증 함수는 예외를
+    전파하지 않고 스키마 위반으로 처리해야 한다 (LLM 출력 이형·손상에 방어적,
+    canonical 과 동일한 방어 원칙). 본 케이스는 무비용 LLM 실측(SLO-06) 중
+    실제로 발견된 이형 (evidence_spans 항목을 str 로 반환).
+    """
+    assert validate_contradiction_verdict({
+        "verdict": "real_conflict", "conflict_type": "value_conflict",
+        "rationale": "충돌", "confidence": 0.8,
+        "evidence_spans": ["oops-not-a-dict"],
+    }) is None
+    # 일부만 malformed 여도 역시 None (전체 스키마 위반 — 부분 성공 과대 주장 금지).
+    assert validate_contradiction_verdict({
+        "verdict": "real_conflict", "conflict_type": "value_conflict",
+        "rationale": "충돌", "confidence": 0.8,
+        "evidence_spans": [{"doc_id": "d", "char_start": 0, "char_end": 4}, "oops"],
+    }) is None
+
+
 # --- 스텁 LLM (외부 의존 격리) ----------------------------------------------
 
 def test_deterministic_stub_outputs_valid():
