@@ -50,6 +50,20 @@ def test_sources_registers_bis_gov_sitemap():
     assert "bis.gov" in url
 
 
+def test_sources_registers_tomshardware_independent_press():
+    """Tom's Hardware — 벤더 자사와 독립된 복수 관점 언론 소스로 등록.
+
+    #4 contradiction·SLO-07 의 공통 근본 원인은 "상호 모순될 수 있는 관점이
+    소스셋에 없다"(arXiv 논문 + 벤더 자사 블로그는 상호 모순이 구조적으로 드묾).
+    Tom's Hardware(robots-개방, 일반 크롤러 아티클 본문 허용) 는 같은 사건을 벤더
+    자사와 다른 관점으로 보도해 모순 자연발생 경로를 연다 (A25, design 04 §1.4).
+    """
+    assert "press-tomshardware" in SOURCES
+    kind, url = SOURCES["press-tomshardware"]
+    assert kind == "rss"
+    assert "tomshardware.com" in url
+
+
 class _NoSleep:
     def sleep(self, _):
         return None

@@ -43,6 +43,7 @@ SOURCES = {
     "official-nvidia-news": ("rss", "https://nvidianews.nvidia.com/rss.xml"),
     "official-amd-ir": ("rss", "https://ir.amd.com/news-events/press-releases/rss"),
     "press-semiengineering": ("rss", "https://semiengineering.com/feed/"),
+    "press-tomshardware": ("rss", "https://www.tomshardware.com/feeds/all"),
     "gov-bis-exportcontrol": ("sitemap", "https://www.bis.gov/sitemap.xml"),
     # gov-chips-nist 제외 (2026-08-18): NIST 동적 페이지 본문이 매 요청 달라져
     # content-hash 기반 doc_id 가 매 런 새로 발급 → 중복 저장(80→고유 40 실측).
