@@ -20,8 +20,8 @@ from urllib.parse import unquote, urlparse
 from orc_citadel.api_facade import ApiFacade
 from orc_citadel.curated_zone import CuratedZone
 from orc_citadel.graph_service import GraphService
-from orc_citadel.viewer_pages import (PAGE_ARCHIVE, PAGE_GATE, PAGE_SPIRE,
-                                      PAGE_TABLE, PAGE_WATCHTOWER)
+from orc_citadel.viewer_pages import (PAGE_ARCHIVE, PAGE_CHRONICLE, PAGE_GATE,
+                                      PAGE_SPIRE, PAGE_TABLE, PAGE_WATCHTOWER)
 
 # 컨테이너에서는 VIEWER_HOST=0.0.0.0 으로 외부 바인딩 (docker-compose.yml).
 HOST, PORT = os.environ.get("VIEWER_HOST", "127.0.0.1"), 8791
@@ -156,6 +156,47 @@ def _archive_normalized(norm_db: str) -> tuple[list[dict], dict]:
             "publication_time", "revision_time", "parser_version", "char_len"]
     docs = [dict(zip(cols, r)) | {"segments": segmap.get(r[0], 0)} for r in rows]
     return docs, {"documents": len(docs), "segments": segs}
+
+
+def _parse_dt(s: str | None):
+    """ISO datetime 문자열 → datetime. 미지정/오류는 None (결정적)."""
+    from datetime import datetime
+
+    if not s:
+        return None
+    try:
+        return datetime.fromisoformat(s)
+    except Exception:
+        return None
+
+
+def _postgres_replay_status() -> dict:
+    """postgres `graph_mutations` SoT 재생 가용성 (ADR-304) — 정직 탐지.
+
+    접속 성공 시 mutation 수까지 보고, 실패(미가동·드라이버 미설치)는
+    available=False 로 (honest-gap §6.2 — 재생 불가를 실측으로 오인 금지).
+    """
+    import os
+
+    creds = dict(host=os.environ.get("POSTGRES_HOST", "localhost"),
+                 port=os.environ.get("POSTGRES_PORT", "5432"),
+                 user=os.environ.get("POSTGRES_USER"),
+                 password=os.environ.get("POSTGRES_PASSWORD"),
+                 dbname=os.environ.get("POSTGRES_DB"))
+    try:
+        import psycopg
+        c = psycopg.connect(connect_timeout=1, **creds)
+    except Exception:
+        return {"available": False,
+                "note": "postgres SoT 미가동 또는 드라이버 미설치 — graph_mutations replay 불가 (honest-gap §6.2)"}
+    try:
+        n = c.execute("SELECT COUNT(*) FROM graph_mutations").fetchone()[0]
+        return {"available": True, "mutation_count": n}
+    except Exception:
+        return {"available": False,
+                "note": "postgres 접속 성공했으나 graph_mutations 미존재 (honest-gap §6.2)"}
+    finally:
+        c.close()
 
 
 def _build():
@@ -354,6 +395,27 @@ class Handler(BaseHTTPRequestHandler):
                            "형식일 뿐 '중복'이 아님.",
         }
 
+    @_j
+    def _api_chronicle(self, qs):
+        """Chronicle Vault — bitemporal assertions(as-of)·supersedes 체인·graph-replay 상태."""
+        zone = self.facade.zone
+        valid_at = _parse_dt(qs.get("valid_at"))
+        tx_at = _parse_dt(qs.get("tx_at"))
+        rows = zone.assertions_as_of(valid_at=valid_at, tx_at=tx_at)
+        superseded = [r for r in rows if r.get("supersedes_id")]
+        avail = getattr(self, "postgres_available", None)
+        replay = (_postgres_replay_status() if avail is None else
+                  {"available": avail,
+                   "note": ("postgres SoT" if avail else
+                            "postgres SoT 미가동 (honest-gap §6.2)")})
+        return {
+            "assertions": rows,
+            "supersedes_chain": superseded,
+            "graph_replay": replay,
+            "as_of": {"valid_at": valid_at.isoformat() if valid_at else None,
+                      "tx_at": tx_at.isoformat() if tx_at else None},
+        }
+
     def do_GET(self):
         if Handler.facade is None:
             Handler.facade = _build()
@@ -396,6 +458,10 @@ class Handler(BaseHTTPRequestHandler):
             body = self._api_archive(qs).encode()
             self.send_response(200); self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body); return
+        if parsed.path == "/api/chronicle":
+            body = self._api_chronicle(qs).encode()
+            self.send_response(200); self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body); return
 
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -411,7 +477,8 @@ _PAGES = {
     "/watchtower": PAGE_WATCHTOWER,  # 수집 관제
     "/spire": PAGE_SPIRE,            # 알림 센터
     "/archive": PAGE_ARCHIVE,        # 문서 탐색
-}  # chronicle 은 다음 스텝에서 추가.
+    "/chronicle": PAGE_CHRONICLE,    # 시간 탐색
+}
 
 
 def _page_for(path: str) -> str:

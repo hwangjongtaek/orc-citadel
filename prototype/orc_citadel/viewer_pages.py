@@ -343,3 +343,62 @@ function esc(s){const d=document.createElement('div');d.textContent=s;return d.i
 </script>
 </body></html>
 """
+
+
+# --- Chronicle Vault — 시간 탐색 (`/chronicle`). ---
+PAGE_CHRONICLE = """<!doctype html><html lang="ko"><meta charset="utf-8">
+<title>Orc Citadel — Chronicle Vault (시간 탐색)</title>
+""" + CSS + """
+<body>
+<h1>🏰 Orc Citadel — Chronicle Vault <span class="dim">(시간 탐색 · bitemporal)</span></h1>
+<div class="sub">assertion valid/tx 축 · supersedes 체인 · graph-replay 상태 · read-only</div>
+""" + nav("/chronicle") + """
+
+<h2>⏳ AS-OF 조회 <span class="dim">(valid_at · tx_at ISO datetime — 선택, 기본 현재 tx)</span></h2>
+<div class="card">
+  <form id="asof">
+    <label>valid_at <input id="v" name="valid_at" placeholder="2026-08-01T00:00:00"></label>
+    <label>tx_at &nbsp;<input id="t" name="tx_at" placeholder="2026-08-01T00:00:00"></label>
+    <button type="submit">조회</button>
+  </form>
+</div>
+
+<h2>📜 Assertions <span class="dim">(bitemporal 범위 + supersedes)</span></h2>
+<div class="card"><table id="assertions"></table></div>
+
+<h2>🔗 Supersedes 체인</h2>
+<div class="card" id="chain"></div>
+
+<h2>⏪ Graph Replay <span class="dim">(postgres `graph_mutations` SoT — ADR-304)</span></h2>
+<div class="card" id="replay"></div>
+
+<script>
+const $=s=>document.querySelector(s);
+function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+function fmt(v){return v?esc(String(v).slice(0,10)):'<span class="na">—</span>';}
+
+async function load(qs){
+  const r=await (await fetch('/api/chronicle'+qs)).json();
+  $('#assertions').innerHTML='<tr><th>assertion</th><th>subject</th><th>predicate</th><th>valid_from</th><th>valid_to</th><th>tx_from</th><th>tx_to</th><th>supersedes</th></tr>'+
+    (r.assertions||[]).map(a=>`<tr>
+      <td><code>${esc(a.assertion_id)}</code></td><td>${esc(a.subject_id)}</td><td>${esc(a.predicate)}</td>
+      <td>${fmt(a.valid_from)}</td><td>${fmt(a.valid_to)}</td><td>${fmt(a.tx_from)}</td><td>${fmt(a.tx_to)}</td>
+      <td>${a.supersedes_id?`<code>${esc(a.supersedes_id)}</code>`:'<span class="na">—</span>'}</td></tr>`).join('')||'<span class="muted">조회 결과 없음</span>';
+  $('#chain').innerHTML=(r.supersedes_chain||[]).map(a=>'<p><code>'+esc(a.assertion_id)+'</code> supersedes <code>'+esc(a.supersedes_id)+'</code></p>').join('')||'<span class="muted">supersedes 체인 없음</span>';
+  const rp=r.graph_replay||{};
+  $('#replay').innerHTML=rp.available
+    ? '<p>정상 — mutation 수 <b>'+rp.mutation_count+'</b></p>'
+    : '<p class="na">unavailable</p><p class="dim">'+esc(rp.note)+'</p>';
+}
+
+load('');
+$('#asof').onsubmit=e=>{
+  e.preventDefault();
+  const p=new URLSearchParams();
+  if($('#v').value)p.set('valid_at',$('#v').value);
+  if($('#t').value)p.set('tx_at',$('#t').value);
+  load('?'+p.toString());
+};
+</script>
+</body></html>
+"""
