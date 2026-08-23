@@ -274,3 +274,33 @@ function esc(s){const d=document.createElement('div');d.textContent=s;return d.i
 </script>
 </body></html>
 """
+
+
+# --- Signal Spire — 알림 센터 (`/spire`). ---
+PAGE_SPIRE = """<!doctype html><html lang="ko"><meta charset="utf-8">
+<title>Orc Citadel — Signal Spire · Alerts (알림 센터)</title>
+""" + CSS + """
+<body>
+<h1>🏰 Orc Citadel — Signal Spire · Alerts <span class="dim">(알림 센터)</span></h1>
+<div class="sub">결론·confidence 의 중요 변화 한정 알림 · fire-once (11 §4, ADR-1104) · read-only</div>
+""" + nav("/spire") + """
+
+<h2>🔔 5 종 트리거 카탈로그 <span class="dim">(정본 signal_spire.TRIGGER_TYPES)</span></h2>
+<div class="card"><table id="triggers"></table></div>
+
+<h2>🕯️ 알림 피드 <span class="dim">(실 점화 없음 → 정직 빈 상태, §6.2)</span></h2>
+<div class="card" id="feed"><span class="muted">새 알림 없음 — 아직 점화된 알림이 없습니다.</span></div>
+
+<script>
+const $=s=>document.querySelector(s);
+function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+
+(async()=>{
+  const r=await (await fetch('/api/spire')).json();
+  $('#triggers').innerHTML='<tr><th>Trigger</th><th>의미</th></tr>'+
+    (r.trigger_catalog||[]).map(t=>`<tr><td><code>${esc(t.trigger)}</code></td><td>${esc(t.description)}</td></tr>`).join('');
+  $('#feed').innerHTML='<p class="muted">'+esc(r.note)+'</p><p class="dim">'+esc(r.fire_once_rule)+'</p>';
+})();
+</script>
+</body></html>
+"""

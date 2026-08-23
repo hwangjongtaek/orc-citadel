@@ -20,7 +20,7 @@ from urllib.parse import unquote, urlparse
 from orc_citadel.api_facade import ApiFacade
 from orc_citadel.curated_zone import CuratedZone
 from orc_citadel.graph_service import GraphService
-from orc_citadel.viewer_pages import PAGE_GATE, PAGE_TABLE, PAGE_WATCHTOWER
+from orc_citadel.viewer_pages import PAGE_GATE, PAGE_SPIRE, PAGE_TABLE, PAGE_WATCHTOWER
 
 # 컨테이너에서는 VIEWER_HOST=0.0.0.0 으로 외부 바인딩 (docker-compose.yml).
 HOST, PORT = os.environ.get("VIEWER_HOST", "127.0.0.1"), 8791
@@ -99,6 +99,32 @@ def _slo_panel() -> dict:
         "error_budget": gate["error_budget"],
         "violations": gate["violations"],
     }
+
+
+# Signal Spire trigger → 평가 함수 (정본 signature_spire.trigger_*).
+_SPIRE_TRIGGER_FNS = {
+    "contradicting_evidence": "trigger_contradicting_evidence",
+    "claim_changed": "trigger_claim_changed",
+    "plan_to_execution": "trigger_plan_to_execution",
+    "new_independent_source": "trigger_new_independent_source",
+    "confidence_threshold": "trigger_confidence_threshold",
+}
+
+
+def _spire_catalog() -> list[dict]:
+    """Signal Spire 5 종 트리거 카탈로그 — 정본 모듈 docstring 을 설명으로.
+
+    허위·가공 없이 `signal_spire.TRIGGER_TYPES` 순서와 각 평가 함수 docstring 첫
+    줄을 사용한다 (read-only, 결정적).
+    """
+    from orc_citadel import signal_spire as ss
+
+    out = []
+    for t in ss.TRIGGER_TYPES:
+        fn = getattr(ss, _SPIRE_TRIGGER_FNS[t], None)
+        doc = (fn.__doc__ or "").strip().splitlines()[0] if fn else ""
+        out.append({"trigger": t, "description": doc})
+    return out
 
 
 def _build():
@@ -266,6 +292,17 @@ class Handler(BaseHTTPRequestHandler):
         } for s in raw_sources]
         return {"sources": sources, "slo": _slo_panel()}
 
+    @_j
+    def _api_spire(self, qs):
+        """Signal Spire — 5 종 트리거 카탈로그 + fire-once 규칙 + 정직 빈 alert feed."""
+        return {
+            "trigger_catalog": _spire_catalog(),
+            "fire_once_rule": "동일 (investigation_id, trigger_type, target) 은 1회 점화 (ADR-1104 — 재알림 없음)",
+            "alerts": [],
+            "note": "점화된 알림 없음 (honest-gap §6.2) — alert 는 in-memory fire-once 이며 "
+                    "영속 저장소가 없어 런 간 유지되지 않음. 실제 mutation 이벤트에서 파생된 것만 렌더.",
+        }
+
     def do_GET(self):
         if Handler.facade is None:
             Handler.facade = _build()
@@ -300,6 +337,10 @@ class Handler(BaseHTTPRequestHandler):
             body = self._api_watchtower(qs).encode()
             self.send_response(200); self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body); return
+        if parsed.path == "/api/spire":
+            body = self._api_spire(qs).encode()
+            self.send_response(200); self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body); return
 
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -313,7 +354,8 @@ _PAGES = {
     "/": PAGE_GATE,           # Citadel Gate (진입 대시보드)
     "/table": PAGE_TABLE,     # 기존 개발 화면 (랭킹·보고서·조사·근거)
     "/watchtower": PAGE_WATCHTOWER,  # 수집 관제
-}  # spire/archive/chronicle 는 각 스텝에서 추가.
+    "/spire": PAGE_SPIRE,            # 알림 센터
+}  # archive/chronicle 은 각 스텝에서 추가.
 
 
 def _page_for(path: str) -> str:
