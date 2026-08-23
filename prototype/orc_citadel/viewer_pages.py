@@ -304,3 +304,42 @@ function esc(s){const d=document.createElement('div');d.textContent=s;return d.i
 </script>
 </body></html>
 """
+
+
+# --- Grand Archive — 문서 탐색 (`/archive`). ---
+PAGE_ARCHIVE = """<!doctype html><html lang="ko"><meta charset="utf-8">
+<title>Orc Citadel — Grand Archive (문서 탐색)</title>
+""" + CSS + """
+<body>
+<h1>🏰 Orc Citadel — Grand Archive <span class="dim">(문서 탐색)</span></h1>
+<div class="sub">normalized documents · raw source 목록 · dedup lineage · read-only</div>
+""" + nav("/archive") + """
+
+<h2>📚 Normalized Documents <span class="dim">(oc.duckdb · read-only · segment 수 포함)</span></h2>
+<div class="card"><table id="docs"></table></div>
+
+<h2>📦 Raw 존 <span class="dim">(source × 문서 수 — Atom meta/전체 page 두 형식 공존)</span></h2>
+<div class="card"><table id="raw"></table></div>
+
+<h2>♻️ Dedup Cluster <span class="dim">(curated clusters)</span></h2>
+<div class="card" id="clusters"></div>
+
+<script>
+const $=s=>document.querySelector(s);
+function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+
+(async()=>{
+  const r=await (await fetch('/api/archive')).json();
+  $('#docs').innerHTML='<tr><th>doc_id</th><th>source</th><th>title</th><th>segments</th><th>char_len</th><th>parser</th></tr>'+
+    (r.normalized_documents||[]).map(d=>`<tr>
+      <td><code>${esc(d.doc_id)}</code></td><td>${esc(d.source_id)}</td><td>${esc(d.title||'')}</td>
+      <td>${d.segments}</td><td>${d.char_len}</td><td><span class="badge">${esc(d.parser_version)}</span></td></tr>`).join('')||'<span class="muted">문서 없음</span>';
+
+  $('#raw').innerHTML='<tr><th>source</th><th>문서 수</th></tr>'+
+    (r.raw_sources||[]).map(s=>`<tr><td>${esc(s.source_id)}</td><td>${s.doc_count}</td></tr>`).join('')||'<span class="muted">raw 없음</span>';
+
+  $('#clusters').innerHTML='<p>dedup clusters <b>'+r.dedup_clusters+'</b></p><p class="dim">'+esc(r.format_note)+'</p>';
+})();
+</script>
+</body></html>
+"""

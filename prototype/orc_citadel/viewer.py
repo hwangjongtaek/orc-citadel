@@ -20,7 +20,8 @@ from urllib.parse import unquote, urlparse
 from orc_citadel.api_facade import ApiFacade
 from orc_citadel.curated_zone import CuratedZone
 from orc_citadel.graph_service import GraphService
-from orc_citadel.viewer_pages import PAGE_GATE, PAGE_SPIRE, PAGE_TABLE, PAGE_WATCHTOWER
+from orc_citadel.viewer_pages import (PAGE_ARCHIVE, PAGE_GATE, PAGE_SPIRE,
+                                      PAGE_TABLE, PAGE_WATCHTOWER)
 
 # 컨테이너에서는 VIEWER_HOST=0.0.0.0 으로 외부 바인딩 (docker-compose.yml).
 HOST, PORT = os.environ.get("VIEWER_HOST", "127.0.0.1"), 8791
@@ -125,6 +126,36 @@ def _spire_catalog() -> list[dict]:
         doc = (fn.__doc__ or "").strip().splitlines()[0] if fn else ""
         out.append({"trigger": t, "description": doc})
     return out
+
+
+def _archive_normalized(norm_db: str) -> tuple[list[dict], dict]:
+    """normalized 존 documents(+segment 수) — read-only 연결 (잠금 회피).
+
+    `normalized_zone.documents()`/`segments()` 와 동일 스키마를 read_only DuckDB
+    로 직접 조회해, 수집 파이프라인과의 잠금 충돌을 피한다. DB 미존재 시 빈(정직).
+    """
+    import duckdb
+
+    try:
+        c = duckdb.connect(str(norm_db), read_only=True)
+    except Exception:
+        return [], {"documents": 0, "segments": 0}
+    try:
+        rows = c.execute(
+            "SELECT doc_id, source_id, url, title, language, publication_time, "
+            "revision_time, parser_version, char_len FROM documents"
+        ).fetchall()
+        segs = c.execute("SELECT COUNT(*) FROM segments").fetchone()[0]
+        segmap = dict(c.execute(
+            "SELECT doc_id, COUNT(*) FROM segments GROUP BY doc_id").fetchall())
+    except Exception:
+        rows, segs, segmap = [], 0, {}
+    finally:
+        c.close()
+    cols = ["doc_id", "source_id", "url", "title", "language",
+            "publication_time", "revision_time", "parser_version", "char_len"]
+    docs = [dict(zip(cols, r)) | {"segments": segmap.get(r[0], 0)} for r in rows]
+    return docs, {"documents": len(docs), "segments": segs}
 
 
 def _build():
@@ -303,6 +334,26 @@ class Handler(BaseHTTPRequestHandler):
                     "영속 저장소가 없어 런 간 유지되지 않음. 실제 mutation 이벤트에서 파생된 것만 렌더.",
         }
 
+    @_j
+    def _api_archive(self, qs):
+        """Grand Archive — normalized documents·raw source 목록·dedup cluster 수."""
+        norm_db = getattr(self, "normalized_db", NORM_DB)
+        raw_dir = getattr(self, "raw_dir", RAW_DIR)
+        docs, counts = _archive_normalized(norm_db)
+        raw_sources, raw_total = _count_raw(raw_dir)
+        clusters = getattr(self, "curated_clusters", None)
+        if clusters is None:
+            clusters = len(self.facade.zone.clusters())
+        return {
+            "normalized_documents": docs,
+            "normalized_counts": counts,
+            "raw_sources": raw_sources,
+            "raw_doc_count": raw_total,
+            "dedup_clusters": clusters,
+            "format_note": "raw 존은 Atom meta/전체 page 두 형식이 공존(04 §2.2) — 서로 다른 "
+                           "형식일 뿐 '중복'이 아님.",
+        }
+
     def do_GET(self):
         if Handler.facade is None:
             Handler.facade = _build()
@@ -341,6 +392,10 @@ class Handler(BaseHTTPRequestHandler):
             body = self._api_spire(qs).encode()
             self.send_response(200); self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body); return
+        if parsed.path == "/api/archive":
+            body = self._api_archive(qs).encode()
+            self.send_response(200); self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body); return
 
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -355,7 +410,8 @@ _PAGES = {
     "/table": PAGE_TABLE,     # 기존 개발 화면 (랭킹·보고서·조사·근거)
     "/watchtower": PAGE_WATCHTOWER,  # 수집 관제
     "/spire": PAGE_SPIRE,            # 알림 센터
-}  # archive/chronicle 은 각 스텝에서 추가.
+    "/archive": PAGE_ARCHIVE,        # 문서 탐색
+}  # chronicle 은 다음 스텝에서 추가.
 
 
 def _page_for(path: str) -> str:
