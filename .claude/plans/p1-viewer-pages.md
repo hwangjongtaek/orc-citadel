@@ -75,3 +75,17 @@ handoff `docs/handoff-viewer-pages.md`: 목업 8페이지 중 미구현 5개 페
 - 신규 테스트는 인메모리 zone(`CuratedZone(":memory:")`)/facade 로 실 `data/*.duckdb` 를 열지 않음(기존 `test_viewer_graph.py` 패턴). 실제 웹 렌더 검증은 실행 스모크로.
 - api 핸들러 테스트는 `types.SimpleNamespace(facade=...)` + unbound 호출(기존 패턴).
 - read-only 연결로만 DuckDB 접근 — 잠금 충돌 회피.
+
+## 완료 검증 (2026-08-23, handoff §4-3 자가 체크리스트)
+
+| 페이지 | 목업 핵심 정보 블록 | 실데이터/정직 상태 | 상태 |
+| --- | --- | --- | --- |
+| `/` Citadel Gate | 존 요약(raw/normalized/curated)·랭킹 top5·신호 분포 | raw 8 source/104,970 · normalized 6/90 · curated 29·7·586 · 랭킹 3 | ✅ |
+| `/table` (기존 화면) | 랭킹·보고서·조사·근거 (기존 기능 무손실) | 29 어세션, 랭킹, E2E 조사 | ✅ 회귀 0 |
+| `/watchtower` | source 상태표 + SLO 판정표 + error budget | source 8(source_type·doc 수 실측); SLO nightly 5 전항 `not-measured`(관측 미누적), budget ratio None | ✅ |
+| `/archive` | normalized documents(+segments)·raw 목록·dedup lineage | normalized 6 docs(segment 수 포함)·raw 8 source·cluster 0, 형식 구분 표기 | ✅ |
+| `/chronicle` | bitemporal assertions 범위·supersedes 체인·as-of | curated 29 assertions(valid/tx 범위)·supersedes 체인; graph_replay `available=False`(postgres 미가동, honest-gap) | ✅ |
+| `/spire` | 5 트리거 카탈로그·fire-once·alert 피드 | TRIGGER_TYPES 5종(docstring 설명)·fire-once 규칙; alert feed 정직 빈(영속 저장소 없음) | ✅ |
+
+**검증:** viewer 스모크 신규 10개 + 기존 graph = 15 Green · 전체 스위트 **1054 passed, 회귀 0** (2개 실패 `test_claude_cost`/`test_claude_judge` 는 base 커밋에서도 동일 — pre-existing, 본 작업 무관) · 6 라우트 라이브 HTTP 200 실데이터 렌더 실측.
+
