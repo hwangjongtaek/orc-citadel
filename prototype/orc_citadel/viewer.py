@@ -10,7 +10,6 @@ claim 근거(S29)를 HTML로 렌더링한다.
 """
 from __future__ import annotations
 
-import html
 import json
 import os
 import pathlib
@@ -21,17 +20,55 @@ from urllib.parse import unquote, urlparse
 from orc_citadel.api_facade import ApiFacade
 from orc_citadel.curated_zone import CuratedZone
 from orc_citadel.graph_service import GraphService
-from orc_citadel.viewer_pages import PAGE_TABLE
+from orc_citadel.viewer_pages import PAGE_GATE, PAGE_TABLE
 
 # 컨테이너에서는 VIEWER_HOST=0.0.0.0 으로 외부 바인딩 (docker-compose.yml).
 HOST, PORT = os.environ.get("VIEWER_HOST", "127.0.0.1"), 8791
 DB = pathlib.Path(__file__).resolve().parent.parent / "data" / "curated.duckdb"
+RAW_DIR = DB.parent / "raw"          # raw zone flat 파일 (설계 03 §2.1)
+NORM_DB = DB.parent / "oc.duckdb"    # normalized zone DuckDB (03 §3)
 
 # JSON serialization — datetime/tuple을 str로.
 def _j(fn):
     def wrap(*a, **k):
         return json.dumps(fn(*a, **k), default=str, ensure_ascii=False)
     return wrap
+
+
+def _count_raw(raw_dir: str) -> tuple[list[dict], int]:
+    """raw 존 파일 트리(source/doc/<doc_id>)에서 source×문서 수를 센다 (read-only).
+
+    디렉터리 수로만 세어 파일 I/O·파싱 없이 결정적·가볍게. 미존재 시 빈 목록.
+    """
+    raw_dir = pathlib.Path(raw_dir)
+    out: list[dict] = []
+    if raw_dir.is_dir():
+        for source in sorted(p.name for p in raw_dir.iterdir() if p.is_dir()):
+            doc_dir = raw_dir / source / "doc"
+            n = sum(1 for d in doc_dir.iterdir() if d.is_dir()) if doc_dir.is_dir() else 0
+            out.append({"source_id": source, "doc_count": n})
+    return out, sum(s["doc_count"] for s in out)
+
+
+def _count_normalized(norm_db: str) -> dict:
+    """normalized zone 문서·segment 수 (read-only 연결 — 잠금 충돌 회피).
+
+    read_only=True 로 열어 수집 파이프라인과 동시 실행해도 잠금이 안 건다.
+    DB 미존재 시 0 (honest-gap).
+    """
+    import duckdb
+    try:
+        c = duckdb.connect(str(norm_db), read_only=True)
+    except Exception:
+        return {"documents": 0, "segments": 0}
+    try:
+        docs = c.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
+        segs = c.execute("SELECT COUNT(*) FROM segments").fetchone()[0]
+    except Exception:
+        docs = segs = 0
+    finally:
+        c.close()
+    return {"documents": docs, "segments": segs}
 
 
 def _build():
@@ -48,9 +85,6 @@ def _build():
                   "payload": {"type": "ABOUT", "from": a["subject_id"], "to": a["claim_id"],
                               "props": {}}}])
     return ApiFacade(z, g)
-
-
-def _esc(v): return html.escape(str(v))
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -161,6 +195,35 @@ class Handler(BaseHTTPRequestHandler):
             "independence_summary": graph_view["independence_summary"],
         }
 
+    @_j
+    def _api_gate(self, qs):
+        """Citadel Gate — 존 카운트(raw/normalized/curated)·랭킹 top N·신호 분포."""
+        raw_dir = getattr(self, "raw_dir", RAW_DIR)
+        norm_db = getattr(self, "normalized_db", NORM_DB)
+        z = self.facade.zone
+        top = [{
+            "subject_id": r.subject_id, "rank": r.rank, "signal": r.signal,
+            "value": r.confidence["value"],
+            "evidence_count": r.confidence["evidence_count"],
+            "independent_source_count": r.confidence["independent_source_count"],
+        } for r in self.facade._ranking.ranked(limit=5)]
+        raw_sources, raw_total = _count_raw(raw_dir)
+        norm = _count_normalized(norm_db)
+        return {
+            "raw_sources": raw_sources,
+            "raw_doc_count": raw_total,
+            "normalized_counts": norm,
+            "curated": {
+                "assertions": len(z.assertions()),
+                "entities": len(z.entities()),
+                "mentions": len(z.mentions()),
+                "claims": len(z.claims()),
+                "dup_clusters": len(z.clusters()),
+            },
+            "ranking_top": top,
+            "signal_distribution": {k: len(v) for k, v in self.facade._ranking.by_signal().items()},
+        }
+
     def do_GET(self):
         if Handler.facade is None:
             Handler.facade = _build()
@@ -187,6 +250,10 @@ class Handler(BaseHTTPRequestHandler):
             body = self._api_investigate(qs).encode()
             self.send_response(200); self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body); return
+        if parsed.path == "/api/gate":
+            body = self._api_gate(qs).encode()
+            self.send_response(200); self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body); return
 
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -197,8 +264,9 @@ class Handler(BaseHTTPRequestHandler):
 
 
 _PAGES = {
-    "/": PAGE_TABLE,  # 구조 단계 — 아직 기존 화면 유지 (이후 Citadel Gate 로 교체).
-}
+    "/": PAGE_GATE,        # Citadel Gate (진입 대시보드)
+    "/table": PAGE_TABLE,  # 기존 개발 화면 (랭킹·보고서·조사·근거)
+}  # watchtower/spire/archive/chronicle 는 각 스텝에서 추가.
 
 
 def _page_for(path: str) -> str:

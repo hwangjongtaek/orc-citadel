@@ -182,3 +182,54 @@ async function loadInvestigation(subj){
 </script>
 </body></html>
 """
+
+
+# --- Citadel Gate — 홈/진입 대시보드 (`/`). ---
+PAGE_GATE = """<!doctype html><html lang="ko"><meta charset="utf-8">
+<title>Orc Citadel — Citadel Gate (진입 대시보드)</title>
+""" + CSS + """
+<body>
+<h1>🏰 Orc Citadel — Citadel Gate <span class="dim">(홈 · 진입 대시보드)</span></h1>
+<div class="sub">Temporal Evidence Intelligence · 시스템 상태 · 존 카운트 · 랭킹 top N · read-only</div>
+""" + nav("/") + """
+
+<h2>🗄️ 시스템 존 요약 <span class="dim">(raw / normalized / curated — 실측)</span></h2>
+<div class="grid" id="zones"></div>
+
+<h2>📊 Subject 랭킹 top 5 <span class="dim">(S31 · value + 근거 + 독립출처 봉투)</span></h2>
+<div class="card"><table id="rank"></table></div>
+
+<h2>🚦 신호 분포 <span class="dim">(contradicted · low_evidence · high_confidence · normal)</span></h2>
+<div class="card" id="signals"></div>
+
+<script>
+const $=s=>document.querySelector(s);
+const dark=b=>{const w=Math.max(2,Math.round(b*140));const x=Math.min(255,Math.round(b*60+40));
+  return `linear-gradient(90deg,#0b3a2e 0%,rgb(${x},${Math.round(180*b+40)},${Math.round(120*b+40)}) ${w}%)`};
+const pill=s=>s==='high_confidence'?'<span class="pill hi">high</span>':s==='contradicted'
+  ?'<span class="pill contradicted">contradicted</span>':s==='low_evidence'?'<span class="pill lo">low evidence</span>'
+  :'<span class="pill normal">normal</span>';
+const valBar=v=>'<span class="bar"><i style="width:'+Math.max(2,v*100)+'%;background:'+dark(v)+'"></i></span>'+(v*100).toFixed(0)+'%';
+function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+
+(async()=>{
+  const r=await (await fetch('/api/gate')).json();
+  $('#zones').innerHTML=[
+    ['raw', r.raw_doc_count+' docs', (r.raw_sources||[]).length+' source'],
+    ['normalized', r.normalized_counts.documents+' docs', r.normalized_counts.segments+' segments'],
+    ['curated', r.curated.assertions+' assertions', r.curated.entities+' entities · '+r.curated.mentions+' mentions'],
+    ['dedup', r.curated.dup_clusters+' clusters', ''],
+  ].map(z=>`<div class="card"><div style="font-size:15px;font-weight:700">${esc(z[0])}</div>
+    <div style="font-size:13px;margin-top:4px">${esc(z[1])}</div><div class="dim">${esc(z[2])}</div></div>`).join('');
+
+  const rows=(r.ranking_top||[]).map(x=>`<tr><td>#${x.rank}</td><td>${esc(x.subject_id)}</td>${pill(x.signal)}
+    <td>${valBar(x.value)}</td><td>${x.evidence_count}</td><td>${x.independent_source_count}</td>
+    <td><a href="/table">상세</a></td></tr>`).join('');
+  $('#rank').innerHTML='<tr><th>#</th><th>Subject</th><th>신호</th><th>value</th><th>근거</th><th>독립출처</th><th></th></tr>'+rows;
+
+  const sig=Object.entries(r.signal_distribution||{}).map(([k,v])=>`<span class="badge">${pill(k)} ${esc(k)} <b>${v}</b></span>`).join(' ')||'<span class="muted">정보 없음</span>';
+  $('#signals').innerHTML=sig;
+})();
+</script>
+</body></html>
+"""
