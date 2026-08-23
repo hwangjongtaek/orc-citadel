@@ -37,6 +37,8 @@ Citadel의 외부 계약(API Gateway = **Citadel Gate**, FastAPI)을 확정한�
 
 > 계약 규칙: 클라이언트는 세계관 명칭을 **표시 레이어에서만** 사용하고, 경로·필드 키·ID는 기술 용어를 신뢰한다. UI 명칭 변경이 API를 깨뜨리지 않는다.
 
+> **프로토타입 뷰어 (개발용, wire 계약과 별개):** `prototype/orc_citadel/viewer.py`(stdlib `http.server`, read-only)가 위 공간들을 **SPA 라우트**로 렌더링한다 — `/`(Citadel Gate 대시보드) · `/watchtower`(수집 관제) · `/archive`(Grand Archive) · `/chronicle`(Chronicle Vault) · `/spire`(Signal Spire) · `/table`(기존 개발 화면). 각 페이지는 `/api/gate|watchtower|archive|chronicle|spire` JSON 을 fetch 해 클라이언트 렌더하며, **기구현 영속 데이터를 실측으로** 채우고 실측이 없는 축(SLO 관측·signal alert·postgres replay)은 `not-measured`/빈 상태로 정직 표기(honest-gap §6.2). 본 09 의 REST wire 계약과는 별개 — 스키마·계약 추가 없음 (Spec 유지).
+
 ### 1.4 페이지네이션 — Cursor 기반
 
 목록 응답은 **opaque cursor** 방식을 사용한다. offset 페이지네이션은 대량 그래프·이벤트에서 불안정하므로 채택하지 않는다.
