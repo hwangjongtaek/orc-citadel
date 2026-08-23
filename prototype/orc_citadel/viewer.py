@@ -20,7 +20,7 @@ from urllib.parse import unquote, urlparse
 from orc_citadel.api_facade import ApiFacade
 from orc_citadel.curated_zone import CuratedZone
 from orc_citadel.graph_service import GraphService
-from orc_citadel.viewer_pages import PAGE_GATE, PAGE_TABLE
+from orc_citadel.viewer_pages import PAGE_GATE, PAGE_TABLE, PAGE_WATCHTOWER
 
 # 컨테이너에서는 VIEWER_HOST=0.0.0.0 으로 외부 바인딩 (docker-compose.yml).
 HOST, PORT = os.environ.get("VIEWER_HOST", "127.0.0.1"), 8791
@@ -69,6 +69,36 @@ def _count_normalized(norm_db: str) -> dict:
     finally:
         c.close()
     return {"documents": docs, "segments": segs}
+
+
+# design 02 §2.3 — Source.source_type vocab (source_id 접두사에서 결정적 파생).
+_SOURCE_TYPE_TOKENS = ("official", "press", "gov", "research", "exchange")
+
+
+def _source_type(source_id: str) -> str:
+    """source_id 의 접두사 → source_type. 미인식은 'source'(정직)."""
+    head = source_id.split("-", 1)[0]
+    return head if head in _SOURCE_TYPE_TOKENS else "source"
+
+
+def _slo_panel() -> dict:
+    """Watchtower SLO 판정표 — 관측 없음(런 간 미누적)을 honest-gap 으로 노출.
+
+    SLO 관측은 in-memory(영속 저장소 없음)라 런 간 누적되지 않는다. 이 뷰어는
+    가짜 측정값을 채우지 않고 nightly 5 SLO 를 전부 `not-measured` 로 나열하고,
+    error budget 은 `run_nightly_gate({})`(실측 없음)의 정직 결과를 쓴다.
+    """
+    from orc_citadel.slo_nightly_gate import NIGHTLY_SLOS, run_nightly_gate
+
+    reason = "관측 없음(런 간 미누적, in-memory slo_log)"
+    nightly = [{"slo_id": s, "measured": False, "classified": "not-measured",
+                "reason": reason} for s in NIGHTLY_SLOS]
+    gate = run_nightly_gate({})
+    return {
+        "nightly_slos": nightly,
+        "error_budget": gate["error_budget"],
+        "violations": gate["violations"],
+    }
 
 
 def _build():
@@ -224,6 +254,18 @@ class Handler(BaseHTTPRequestHandler):
             "signal_distribution": {k: len(v) for k, v in self.facade._ranking.by_signal().items()},
         }
 
+    @_j
+    def _api_watchtower(self, qs):
+        """Watchtower — source 수집 사실(실측) + SLO 판정표(honest-gap)."""
+        raw_dir = getattr(self, "raw_dir", RAW_DIR)
+        raw_sources, _ = _count_raw(raw_dir)
+        sources = [{
+            "source_id": s["source_id"],
+            "source_type": _source_type(s["source_id"]),
+            "doc_count": s["doc_count"],
+        } for s in raw_sources]
+        return {"sources": sources, "slo": _slo_panel()}
+
     def do_GET(self):
         if Handler.facade is None:
             Handler.facade = _build()
@@ -254,6 +296,10 @@ class Handler(BaseHTTPRequestHandler):
             body = self._api_gate(qs).encode()
             self.send_response(200); self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body); return
+        if parsed.path == "/api/watchtower":
+            body = self._api_watchtower(qs).encode()
+            self.send_response(200); self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body); return
 
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -264,9 +310,10 @@ class Handler(BaseHTTPRequestHandler):
 
 
 _PAGES = {
-    "/": PAGE_GATE,        # Citadel Gate (진입 대시보드)
-    "/table": PAGE_TABLE,  # 기존 개발 화면 (랭킹·보고서·조사·근거)
-}  # watchtower/spire/archive/chronicle 는 각 스텝에서 추가.
+    "/": PAGE_GATE,           # Citadel Gate (진입 대시보드)
+    "/table": PAGE_TABLE,     # 기존 개발 화면 (랭킹·보고서·조사·근거)
+    "/watchtower": PAGE_WATCHTOWER,  # 수집 관제
+}  # spire/archive/chronicle 는 각 스텝에서 추가.
 
 
 def _page_for(path: str) -> str:

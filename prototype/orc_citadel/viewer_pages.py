@@ -233,3 +233,44 @@ function esc(s){const d=document.createElement('div');d.textContent=s;return d.i
 </script>
 </body></html>
 """
+
+
+# --- Watchtower — 수집 관제 (`/watchtower`). ---
+PAGE_WATCHTOWER = """<!doctype html><html lang="ko"><meta charset="utf-8">
+<title>Orc Citadel — Watchtower · Ingestion Monitor (수집 관제)</title>
+""" + CSS + """
+<body>
+<h1>🏰 Orc Citadel — Watchtower · Ingestion Monitor <span class="dim">(수집 관제)</span></h1>
+<div class="sub">source 수집 사실(실측) · SLO 판정표(honest-gap §6.2) · read-only</div>
+""" + nav("/watchtower") + """
+
+<h2>📡 Source 상태 <span class="dim">(raw 존 · source × 문서 수 · source_type)</span></h2>
+<div class="card"><table id="sources"></table></div>
+
+<h2>🛎️ SLO 판정표 <span class="dim">(nightly 5 — 관측 미누적 → 전항 not-measured, 정직)</span></h2>
+<div class="card"><table id="slo"></table></div>
+
+<h2>📈 Error Budget <span class="dim">(위반/측정 — 측정 없음이면 ratio None)</span></h2>
+<div class="card" id="budget"></div>
+
+<script>
+const $=s=>document.querySelector(s);
+function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+
+(async()=>{
+  const r=await (await fetch('/api/watchtower')).json();
+  $('#sources').innerHTML='<tr><th>Source</th><th>type</th><th>문서 수</th></tr>'+
+    (r.sources||[]).map(s=>`<tr><td>${esc(s.source_id)}</td><td><span class="badge">${esc(s.source_type)}</span></td>
+      <td>${s.doc_count}</td></tr>`).join('')||'<span class="muted">source 없음</span>';
+
+  const sl=(r.slo.nightly_slos||[]).map(x=>`<tr><td>${esc(x.slo_id)}</td>
+    <td><span class="pill lo">${esc(x.classified)}</span></td><td class="dim">${esc(x.reason)}</td></tr>`).join('');
+  $('#slo').innerHTML='<tr><th>SLO</th><th>판정</th><th>이유</th></tr>'+sl;
+
+  const eb=r.slo.error_budget||{};
+  $('#budget').innerHTML=`<p>violations <b>${eb.violations}</b> · measured <b>${eb.measured_count}</b>
+    · violation_ratio <b>${eb.violation_ratio===null?'<span class="na">not-measured (분모 제외)</span>':eb.violation_ratio}</b></p>`;
+})();
+</script>
+</body></html>
+"""
