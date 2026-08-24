@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.orc-citadel.nightly</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/hwangjongtaek/Projects/private/orc-citadel/prototype/.venv/bin/python</string>
+    <string>/Users/hwangjongtaek/Projects/private/orc-citadel/prototype/scripts/scheduler_runner.py</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/hwangjongtaek/Projects/private/orc-citadel/prototype</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PYTHONPATH</key>
+    <string>/Users/hwangjongtaek/Projects/private/orc-citadel/prototype</string>
+  </dict>
+
+  <!-- 스텟: SLO-06(7d 누적 확정) 및 수집 안정성 목표 하에 상주. 항상 띄워져 있어야 발화 기회를 놓치지 않는다 -->
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>ProcessType</key>
+  <string>Background</string>
+
+  <key>StandardOutPath</key>
+  <string>/tmp/com.orc-citadel.nightly.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/com.orc-citadel.nightly.err</string>
+</dict>
+</plist>

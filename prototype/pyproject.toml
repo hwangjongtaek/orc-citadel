@@ -9,6 +9,8 @@ dependencies = [
     "neo4j>=6.2.0",
     "psycopg[binary]>=3.3.4",
     "requests>=2.34.2",
+    "apscheduler>=3.10",
+    "sqlalchemy>=2.0",
 ]
 
 [project.optional-dependencies]
