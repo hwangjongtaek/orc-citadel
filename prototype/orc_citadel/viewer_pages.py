@@ -8,40 +8,103 @@ JS 는 각 페이지가 `viewer.py` 의 `/api/*` JSON 엔드포인트를 fetch �
 """
 import html
 
-# 공유 스타일 — 모든 페이지가 사용 (dark 토큰, DESIGN.md).
+# 공유 스타일 — DESIGN.md 토큰 + 목업 공유 셸 (docs/mockups/*.html 인라인 셸 재현).
+# 외부 폰트(Cinzel/Space Grotesk/Inter/JetBrains)는 오프라인 stdlib 뷰어라
+# --font-* 의 로컬 fallback 스택으로 대체 (목업 자체가 fallback 병기).
 CSS = """
- <style>
- :root{--bg:#0f1419;--panel:#1a2230;--line:#2a3444;--txt:#e6edf3;--mut:#8b98a9;
-   --hi:#4ade80;--md:#fbbf24;--lo:#f87171;--acc:#60a5fa;}
- *{box-sizing:border-box} body{margin:0;font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;
-   background:var(--bg);color:var(--txt);padding:28px}
- h1{font-size:20px;margin:0 0 4px} .sub{color:var(--mut);margin-bottom:20px}
- h2{font-size:15px;margin:26px 0 10px;border-bottom:1px solid var(--line);padding-bottom:6px}
- .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:14px}
- table{border-collapse:collapse;width:100%} th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
- th{color:var(--mut);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.5px}
- .pill{display:inline-block;padding:1px 9px;border-radius:20px;font-size:12px;font-weight:600}
- .hi{background:#14532d;color:var(--hi)} .normal{background:#1e3a5f;color:var(--acc)}
- .med{background:#713f12;color:var(--md)} .lo{background:#7f1d1d;color:var(--lo)}
- .contradicted{background:#701a1a;color:#fca5a5}
- .bar{background:#0a0e14;border-radius:6px;height:10px;width:140px;display:inline-block;vertical-align:middle;margin-right:8px;overflow:hidden}
- .bar>i{display:block;height:100%;background:var(--acc)}
- a{color:var(--acc);text-decoration:none;cursor:pointer} a:hover{text-decoration:underline}
- .dim{font-size:12px;color:var(--mut)} .muted{color:var(--mut)}
- .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
- .badge{display:inline-block;background:#0a0e14;border:1px solid var(--line);border-radius:6px;padding:1px 7px;margin:2px;font-size:12px}
- .err{color:var(--lo)} .na{color:var(--md)}
- .nav{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:22px;align-items:baseline}
- .nav a{color:var(--mut);border:1px solid var(--line);padding:4px 12px;border-radius:7px;font-size:13px}
- .nav a:hover{color:var(--txt);border-color:var(--acc)}
- .nav a.cur{color:var(--txt);background:#1e3a5f;border-color:var(--acc)}
- .nav .word{font-weight:700;color:var(--txt);margin-right:6px}
- </style>
+<style>
+ :root{
+   --citadel-void:#07111C; --citadel-night:#0D1B2A;
+   --surface:#111820; --surface-variant:#26313A;
+   --on-surface:#D6CCB8; --on-surface-muted:#59636A; --parchment:#C8B58E;
+   --primary:#45E06F; --secondary:#20B85A; --ember:#E97824; --signal-amber:#FFB13B;
+   --crimson:#7B2833; --error:#E05252; --uncertain:#A78BFA; --superseded:#59636A;
+   --font-display:"Cinzel",Georgia,serif; --font-head:"Space Grotesk",system-ui,sans-serif;
+   --font-body:"Inter",system-ui,sans-serif; --font-data:"JetBrains Mono",ui-monospace,monospace;
+   --r-sm:4px; --r-md:8px; --r-lg:12px; --r-full:9999px;
+   --sp-xs:4px; --sp-sm:8px; --sp-md:16px; --sp-lg:24px; --sp-xl:32px;
+ }
+ *{box-sizing:border-box;margin:0;padding:0}
+ body{font-family:var(--font-body);background:var(--citadel-void);color:var(--on-surface);font-size:14px;line-height:1.55;-webkit-font-smoothing:antialiased}
+ .app{min-height:100vh;background:var(--citadel-night)}
+ main{max-width:1200px;margin:0 auto;padding:var(--sp-md) var(--sp-lg) var(--sp-xl)}
+ .mono{font-family:var(--font-data)}
+ a{color:var(--secondary);text-decoration:none} a:hover{color:var(--primary);text-decoration:underline}
+ ::selection{background:rgba(69,224,111,.25)}
+ h1{font-size:20px;margin:0 0 4px;font-family:var(--font-head)}
+ .sub{color:var(--on-surface-muted);margin-bottom:20px}
+ header{display:flex;align-items:center;gap:var(--sp-lg);padding:10px var(--sp-lg);background:var(--surface);border-bottom:1px solid var(--surface-variant)}
+ .wordmark{font-family:var(--font-display);font-weight:700;font-size:18px;letter-spacing:.14em;color:var(--on-surface);display:flex;align-items:center;gap:10px;white-space:nowrap}
+ .crest{width:22px;height:22px;flex:none;display:grid;place-items:center;color:var(--primary)}
+ .space{display:flex;flex-direction:column;min-width:0;padding-left:var(--sp-lg);border-left:1px solid var(--surface-variant)}
+ .space .eyebrow{font-family:var(--font-head);font-size:10px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--on-surface-muted)}
+ .space .title{font-family:var(--font-head);font-size:15px;font-weight:600;color:var(--on-surface);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ .grow{flex:1 1 auto}
+ .search{display:flex;align-items:center;gap:8px;background:var(--surface-variant);border-radius:var(--r-md);padding:8px 12px;width:300px;max-width:32vw;color:var(--on-surface-muted)}
+ .search svg{flex:none}
+ .search input{background:none;border:none;outline:none;color:var(--on-surface);font-family:var(--font-body);font-size:13px;width:100%}
+ .search input::placeholder{color:var(--on-surface-muted)}
+ .spire{position:relative;display:flex;align-items:center;gap:8px;font-family:var(--font-head);font-size:12px;font-weight:600;color:var(--signal-amber);background:rgba(255,177,59,.08);border:1px solid rgba(255,177,59,.3);padding:8px 12px;border-radius:var(--r-md);cursor:pointer;white-space:nowrap}
+ .spire .dot{width:7px;height:7px;border-radius:var(--r-full);background:var(--signal-amber);box-shadow:0 0 8px 1px var(--signal-amber)}
+ .masthead{position:relative;height:108px;overflow:hidden;border-bottom:1px solid var(--surface-variant);display:flex;align-items:center;padding:0 var(--sp-lg);background:linear-gradient(90deg,rgba(7,17,28,.95) 0%,rgba(7,17,28,.72) 55%,rgba(13,27,42,.42) 100%),var(--citadel-night)}
+ .masthead h1{font-family:var(--font-head);font-size:22px;font-weight:600;color:var(--on-surface);letter-spacing:-.01em;text-shadow:0 2px 14px rgba(7,17,28,.9)}
+ .masthead p{font-family:var(--font-head);font-size:11px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;color:var(--parchment);margin-top:5px;text-shadow:0 2px 14px rgba(7,17,28,.9)}
+ .spaces{display:flex;flex-wrap:wrap;gap:2px;margin-bottom:var(--sp-lg)}
+ .spaces a{padding:6px 12px;border-radius:var(--r-md);font-family:var(--font-head);font-size:12px;font-weight:600;color:var(--on-surface-muted)}
+ .spaces a:hover{color:var(--on-surface);background:var(--surface-variant)}
+ .spaces a.active{color:var(--primary);background:rgba(69,224,111,.08)}
+ .panel,.card{background:var(--surface);border:1px solid var(--surface-variant);border-radius:var(--r-lg);overflow:hidden}
+ .card{margin-bottom:var(--sp-md)}
+ .card>.body,.panel-body{padding:var(--sp-md)}
+ .panel-head{display:flex;align-items:center;justify-content:space-between;padding:12px var(--sp-md);border-bottom:1px solid var(--surface-variant)}
+ .panel-head h2{font-family:var(--font-head);font-size:12px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--on-surface)}
+ .panel-head .sub{font-family:var(--font-head);font-size:10px;letter-spacing:.08em;color:var(--on-surface-muted);text-transform:uppercase}
+ h2.h{font-family:var(--font-head);font-size:12px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--on-surface);margin:var(--sp-md) 0 10px;display:flex;align-items:center;gap:8px}
+ h2.h::after{content:"";flex:1;height:1px;background:var(--surface-variant)}
+ table{border-collapse:collapse;width:100%;font-size:13px}
+ th{font-family:var(--font-head);font-size:9.5px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--on-surface-muted);text-align:left;padding:8px 10px;border-bottom:1px solid var(--surface-variant);white-space:nowrap}
+ td{padding:11px 10px;border-bottom:1px solid rgba(38,49,58,.5);vertical-align:middle}
+ tr:last-child td{border-bottom:none}
+ tbody tr:hover td{background:rgba(38,49,58,.28)}
+ td.num,th.num{text-align:right;font-family:var(--font-data)}
+ .badge{display:inline-block;font-family:var(--font-head);font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;padding:3px 8px;border-radius:var(--r-sm);background:var(--surface-variant);color:var(--on-surface)}
+ .badge.good{background:rgba(69,224,111,.14);color:var(--primary)}
+ .badge.warn{background:rgba(255,177,59,.14);color:var(--signal-amber)}
+ .badge.err{background:rgba(224,82,82,.14);color:var(--error)}
+ .badge.uncert{background:rgba(167,139,250,.14);color:var(--uncertain)}
+ .pill{display:inline-block;font-family:var(--font-head);font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;padding:3px 10px;border-radius:var(--r-md)}
+ .pill.hi{background:rgba(69,224,111,.14);color:var(--primary)}
+ .pill.normal{background:var(--surface-variant);color:var(--on-surface)}
+ .pill.med{background:rgba(255,177,59,.14);color:var(--signal-amber)}
+ .pill.lo{background:rgba(224,82,82,.14);color:var(--error)}
+ .pill.contradicted{background:rgba(123,40,51,.55);color:var(--error)}
+ .chip{display:inline-flex;align-items:center;gap:6px;font-family:var(--font-head);font-size:11px;font-weight:500;padding:5px 10px;border-radius:var(--r-full);border:1px solid var(--surface-variant);color:var(--on-surface);margin:0 6px 6px 0}
+ .chip .sw{width:8px;height:8px;border-radius:var(--r-full);display:inline-block}
+ .sec-label{font-family:var(--font-head);font-size:10px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--on-surface-muted);display:flex;align-items:center;gap:8px;margin:var(--sp-md) 0 10px}
+ .sec-label::after{content:"";flex:1;height:1px;background:var(--surface-variant)}
+ .span{font-family:var(--font-data);font-size:11px;color:var(--parchment);background:var(--surface-variant);padding:8px 10px;border-radius:var(--r-sm)}
+ .trail{display:flex;gap:6px;flex-wrap:wrap;font-family:var(--font-data);font-size:10px;color:var(--on-surface-muted)}
+ .conf{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--surface-variant);border:1px solid var(--surface-variant);border-radius:var(--r-md);overflow:hidden}
+ .conf .cell{background:var(--surface);padding:10px 12px}
+ .conf .num{font-family:var(--font-head);font-size:20px;font-weight:600;color:var(--on-surface)}
+ .conf .num.good{color:var(--primary)}
+ .conf .cap{font-family:var(--font-head);font-size:9.5px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--on-surface-muted)}
+ .btn{font-family:var(--font-head);font-size:11px;font-weight:600;padding:6px 12px;border-radius:var(--r-md);border:1px solid var(--surface-variant);color:var(--on-surface);background:none;cursor:pointer}
+ .btn.primary{border-color:var(--primary);color:var(--primary);background:rgba(69,224,111,.06)}
+ .btn.run{border:none;color:var(--citadel-void);background:var(--primary);box-shadow:0 0 0 1px rgba(69,224,111,.4),0 6px 18px -6px rgba(69,224,111,.5)}
+ .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:var(--sp-md);margin-bottom:var(--sp-md)}
+ .bar{background:var(--surface-variant);border-radius:6px;height:10px;width:140px;display:inline-block;vertical-align:middle;margin-right:8px;overflow:hidden}
+ .bar>i{display:block;height:100%;background:var(--primary)}
+ .dim{font-size:12px;color:var(--on-surface-muted)} .muted{color:var(--on-surface-muted)}
+ .err{color:var(--error)} .na{color:var(--signal-amber)}
+ code,pre{font-family:var(--font-data);font-size:12px;color:var(--parchment)}
+ ::-webkit-scrollbar{width:8px;height:8px} ::-webkit-scrollbar-thumb{background:var(--surface-variant);border-radius:var(--r-full)}
+</style>
 """
 
 
-def nav(cur: str | None = None) -> str:
-    """공간 내비 바 (경량 기능 링크). `cur` 가 현재 페이지면 강조."""
+def nav(cur: str) -> str:
+    """공간 전환 탭 (목업 .spaces 셸). `cur` 가 현재 페이지면 active."""
     links = [
         ("/", "Citadel Gate"),
         ("/table", "War Table · Council"),
@@ -50,12 +113,68 @@ def nav(cur: str | None = None) -> str:
         ("/chronicle", "Chronicle Vault"),
         ("/spire", "Signal Spire"),
     ]
-    body = "".join(
-        f'<a class="{"cur" if (r == cur) else "normal"}" href="{r}">'
-        f"{html.escape(t)}</a>" for r, t in links
+    tabs = "".join(
+        f'<a class="{"active" if (r == cur) else ""}" href="{r}">{html.escape(t)}</a>'
+        for r, t in links
     )
+    return f'<nav class="spaces">{tabs}</nav>'
+
+
+def _crest() -> str:
+    """워드마크 쉴드(SVG) — 목업 .crest 재현."""
+    return ('<span class="crest" aria-hidden="true">'
+            '<svg width="22" height="22" viewBox="0 0 24 24" fill="none">'
+            '<path d="M12 2 L20 6 V13 C20 18 12 22 12 22 C12 22 4 18 4 13 V6 Z" '
+            'stroke="currentColor" stroke-width="1.6" fill="rgba(69,224,111,.07)"/>'
+            '<path d="M9 9 Q12 12 15 9 M12 11 V15" stroke="currentColor" stroke-width="1.6" '
+            'stroke-linecap="round"/><circle cx="12" cy="8" r="1.3" fill="currentColor"/>'
+            '</svg></span>')
+
+
+def _search_icon() -> str:
+    return ('<svg width="15" height="15" viewBox="0 0 24 24" fill="none">'
+            '<circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/>'
+            '<path d="M20 20 L16.5 16.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>'
+            '</svg>')
+
+
+# 공간별 (라우트) 브레이드크럼 — (eyebrow EN·function, title KO).
+_SPACE_META = {
+    "/":         ("Citadel Gate · Home", "본부 · Home"),
+    "/table":    ("War Table · Council Chamber", "조사 · 그래프"),
+    "/watchtower": ("Watchtower · Ingestion", "수집 관제"),
+    "/archive":  ("Grand Archive · Documents", "문서 탐색"),
+    "/chronicle": ("Chronicle Vault · History", "시간 탐색"),
+    "/spire":    ("Signal Spire · Alerts", "알림 센터"),
+}
+
+
+def shell(route: str, body: str, title: str) -> str:
+    """목업 공유 셸로 페이지를 감싼 전체 HTML.
+
+    header(워드마크+브레이드크럼+검색+Signal Spire 칩)·masthead 밴드·공간 탭을
+    포함하고, `body`(페이지 본문+JS)를 main 에 넣는다. 히어로 PNG 는 오프라인이므로
+    flat night 그라데이션으로 대체(목업 .masthead 의 fallback 조합).
+    """
+    eyebrow, app_title = _SPACE_META.get(route, _SPACE_META["/"])
     return (
-        '<div class="nav"><span class="word">🏰 Orc Citadel</span>' + body + "</div>"
+        '<!doctype html><html lang="ko"><meta charset="utf-8">'
+        f"<title>{html.escape(title)}</title>" + CSS +
+        '<body><div class="app">'
+        "<header>"
+        f'<a class="wordmark" href="/">{_crest()}ORC&nbsp;CITADEL</a>'
+        f'<div class="space"><span class="eyebrow">{html.escape(eyebrow)}</span>'
+        f'<span class="title">{html.escape(app_title)}</span></div>'
+        '<div class="grow"></div>'
+        f'<label class="search">{_search_icon()}'
+        '<input placeholder="entity · claim · source 검색" /></label>'
+        '<a class="spire" href="/spire" title="Signal Spire · 결론·confidence 변화 알림">'
+        '<span class="dot"></span> Signal Spire · 0</a>'
+        "</header>"
+        '<div class="masthead"><div class="mh-txt">'
+        f"<h1>{html.escape(app_title)}</h1><p>{html.escape(eyebrow)}</p></div></div>"
+        "<main>" + nav(route) + body + "</main>"
+        "</div></body></html>"
     )
 
 
@@ -63,16 +182,14 @@ def _esc(v):
     return html.escape(str(v))
 
 
-# --- 기존 개발 화면 (랭킹·보고서·조사·근거) — /table 에 서빙. ---
-PAGE_TABLE = """<!doctype html><html lang="ko"><meta charset="utf-8">
-<title>Orc Citadel — War Table · Council (실데이터 뷰어)</title>
-""" + CSS + """
-<body>
-<h1>🏰 Orc Citadel — War Table · Council <span class="dim">(실데이터 뷰어)</span></h1>
-<div class="sub">Phase 0 · 커리티드 존(curated.duckdb) · read-only (09 §2 / §3 wire 계약) · 파이프라인 → 어세션 → 근거 신뢰도</div>
-""" + nav("/table") + """
+def _esc(v):
+    return html.escape(str(v))
 
-<h2>📊 Subject 신뢰도 랭킹 <span class="dim">(S31 · value 단일 게이지 금지 → 봉투 노출)</span></h2>
+
+# --- 기존 개발 화면 (랭킹·보고서·조사·근거) — /table 에 서빙. ---
+PAGE_TABLE = shell(
+    "/table",
+    """<h2>📊 Subject 신뢰도 랭킹 <span class="dim">(S31 · value 단일 게이지 금지 → 봉투 노출)</span></h2>
 <div class="card"><table id="rank"></table></div>
 
 <h2>🔍 Subject 조사 보고서 <span class="dim">(S30 · 09 §3 conclusion</span></h2>
@@ -180,20 +297,14 @@ async function loadInvestigation(subj){
   if(first) selectSubject(first.dataset.subj);
 })();
 </script>
-</body></html>
-"""
+    """,
+    "Orc Citadel — War Table · Council (실데이터 뷰어)")
 
 
 # --- Citadel Gate — 홈/진입 대시보드 (`/`). ---
-PAGE_GATE = """<!doctype html><html lang="ko"><meta charset="utf-8">
-<title>Orc Citadel — Citadel Gate (진입 대시보드)</title>
-""" + CSS + """
-<body>
-<h1>🏰 Orc Citadel — Citadel Gate <span class="dim">(홈 · 진입 대시보드)</span></h1>
-<div class="sub">Temporal Evidence Intelligence · 시스템 상태 · 존 카운트 · 랭킹 top N · read-only</div>
-""" + nav("/") + """
-
-<h2>🗄️ 시스템 존 요약 <span class="dim">(raw / normalized / curated — 실측)</span></h2>
+PAGE_GATE = shell(
+    "/",
+    """<h2>🗄️ 시스템 존 요약 <span class="dim">(raw / normalized / curated — 실측)</span></h2>
 <div class="grid" id="zones"></div>
 
 <h2>📊 Subject 랭킹 top 5 <span class="dim">(S31 · value + 근거 + 독립출처 봉투)</span></h2>
@@ -231,20 +342,14 @@ function esc(s){const d=document.createElement('div');d.textContent=s;return d.i
   $('#signals').innerHTML=sig;
 })();
 </script>
-</body></html>
-"""
+    """,
+    "Orc Citadel — Citadel Gate (진입 대시보드)")
 
 
 # --- Watchtower — 수집 관제 (`/watchtower`). ---
-PAGE_WATCHTOWER = """<!doctype html><html lang="ko"><meta charset="utf-8">
-<title>Orc Citadel — Watchtower · Ingestion Monitor (수집 관제)</title>
-""" + CSS + """
-<body>
-<h1>🏰 Orc Citadel — Watchtower · Ingestion Monitor <span class="dim">(수집 관제)</span></h1>
-<div class="sub">source 수집 사실(실측) · SLO 판정표(honest-gap §6.2) · read-only</div>
-""" + nav("/watchtower") + """
-
-<h2>📡 Source 상태 <span class="dim">(raw 존 · source × 문서 수 · source_type)</span></h2>
+PAGE_WATCHTOWER = shell(
+    "/watchtower",
+    """<h2>📡 Source 상태 <span class="dim">(raw 존 · source × 문서 수 · source_type)</span></h2>
 <div class="card"><table id="sources"></table></div>
 
 <h2>🛎️ SLO 판정표 <span class="dim">(nightly 5 — 관측 미누적 → 전항 not-measured, 정직)</span></h2>
@@ -272,20 +377,14 @@ function esc(s){const d=document.createElement('div');d.textContent=s;return d.i
     · violation_ratio <b>${eb.violation_ratio===null?'<span class="na">not-measured (분모 제외)</span>':eb.violation_ratio}</b></p>`;
 })();
 </script>
-</body></html>
-"""
+    """,
+    "Orc Citadel — Watchtower · Ingestion Monitor (수집 관제)")
 
 
 # --- Signal Spire — 알림 센터 (`/spire`). ---
-PAGE_SPIRE = """<!doctype html><html lang="ko"><meta charset="utf-8">
-<title>Orc Citadel — Signal Spire · Alerts (알림 센터)</title>
-""" + CSS + """
-<body>
-<h1>🏰 Orc Citadel — Signal Spire · Alerts <span class="dim">(알림 센터)</span></h1>
-<div class="sub">결론·confidence 의 중요 변화 한정 알림 · fire-once (11 §4, ADR-1104) · read-only</div>
-""" + nav("/spire") + """
-
-<h2>🔔 5 종 트리거 카탈로그 <span class="dim">(정본 signal_spire.TRIGGER_TYPES)</span></h2>
+PAGE_SPIRE = shell(
+    "/spire",
+    """<h2>🔔 5 종 트리거 카탈로그 <span class="dim">(정본 signal_spire.TRIGGER_TYPES)</span></h2>
 <div class="card"><table id="triggers"></table></div>
 
 <h2>🕯️ 알림 피드 <span class="dim">(실 점화 없음 → 정직 빈 상태, §6.2)</span></h2>
@@ -302,20 +401,14 @@ function esc(s){const d=document.createElement('div');d.textContent=s;return d.i
   $('#feed').innerHTML='<p class="muted">'+esc(r.note)+'</p><p class="dim">'+esc(r.fire_once_rule)+'</p>';
 })();
 </script>
-</body></html>
-"""
+    """,
+    "Orc Citadel — Signal Spire · Alerts (알림 센터)")
 
 
 # --- Grand Archive — 문서 탐색 (`/archive`). ---
-PAGE_ARCHIVE = """<!doctype html><html lang="ko"><meta charset="utf-8">
-<title>Orc Citadel — Grand Archive (문서 탐색)</title>
-""" + CSS + """
-<body>
-<h1>🏰 Orc Citadel — Grand Archive <span class="dim">(문서 탐색)</span></h1>
-<div class="sub">normalized documents · raw source 목록 · dedup lineage · read-only</div>
-""" + nav("/archive") + """
-
-<h2>📚 Normalized Documents <span class="dim">(oc.duckdb · read-only · segment 수 포함)</span></h2>
+PAGE_ARCHIVE = shell(
+    "/archive",
+    """<h2>📚 Normalized Documents <span class="dim">(oc.duckdb · read-only · segment 수 포함)</span></h2>
 <div class="card"><table id="docs"></table></div>
 
 <h2>📦 Raw 존 <span class="dim">(source × 문서 수 — Atom meta/전체 page 두 형식 공존)</span></h2>
@@ -341,20 +434,14 @@ function esc(s){const d=document.createElement('div');d.textContent=s;return d.i
   $('#clusters').innerHTML='<p>dedup clusters <b>'+r.dedup_clusters+'</b></p><p class="dim">'+esc(r.format_note)+'</p>';
 })();
 </script>
-</body></html>
-"""
+    """,
+    "Orc Citadel — Grand Archive (문서 탐색)")
 
 
 # --- Chronicle Vault — 시간 탐색 (`/chronicle`). ---
-PAGE_CHRONICLE = """<!doctype html><html lang="ko"><meta charset="utf-8">
-<title>Orc Citadel — Chronicle Vault (시간 탐색)</title>
-""" + CSS + """
-<body>
-<h1>🏰 Orc Citadel — Chronicle Vault <span class="dim">(시간 탐색 · bitemporal)</span></h1>
-<div class="sub">assertion valid/tx 축 · supersedes 체인 · graph-replay 상태 · read-only</div>
-""" + nav("/chronicle") + """
-
-<h2>⏳ AS-OF 조회 <span class="dim">(valid_at · tx_at ISO datetime — 선택, 기본 현재 tx)</span></h2>
+PAGE_CHRONICLE = shell(
+    "/chronicle",
+    """<h2>⏳ AS-OF 조회 <span class="dim">(valid_at · tx_at ISO datetime — 선택, 기본 현재 tx)</span></h2>
 <div class="card">
   <form id="asof">
     <label>valid_at <input id="v" name="valid_at" placeholder="2026-08-01T00:00:00"></label>
@@ -400,5 +487,5 @@ $('#asof').onsubmit=e=>{
   load('?'+p.toString());
 };
 </script>
-</body></html>
-"""
+    """,
+    "Orc Citadel — Chronicle Vault (시간 탐색)")
