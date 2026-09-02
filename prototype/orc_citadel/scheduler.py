@@ -29,16 +29,29 @@ JOB_SCHEDULES: dict[str, dict] = {
     SLO06_JOB_ID: {"hour": 7, "minute": 37},    # 수집 후, 7d 누적 append
 }
 
+# 슬립 보충: APScheduler misfire_grace_time (초). 상시 로컬에서 맥이 슬립으로
+# 아침 07:07/07:37 을 놓치면, 스케줄러가 살아있는 동안 **grace 내부면 당일 job 을
+# 보충 실행**한다. 기본값 1 초는 놓친 작업을 다음날로 미루는 문제(배포 사례)가
+# 있어 하루(86400) 로 넉넉히 — 깨어난 뒤에도 당일 수집·SLO-06 을 놓치지 않는다
+# (§6.2 — 슬립 시간 자체가 지나 수집 불가한 시점은 물리 한계, 보충은 '깨어난 뒤'
+# 까지 보장).
+MISFIRE_GRACE_SECONDS = 86400
+GRACE_KEY = "misfire_grace_seconds"
+
 
 def build_scheduler_jobs() -> list[dict]:
-    """nightly job 정의 (결정적·정렬) — {"id", "func", "schedule"} 목록.
+    """nightly job 정의 (결정적·정렬) — {"id", "func", "schedule", GRACE_KEY} 목록.
 
     `func` 는 드라이버가 주입하는 태스크 함수 이름. `schedule`(CronTrigger kwargs)
     는 순수 dict — 단일 스케줄러에서 발화 슬롯이 유일해 중복 발화가 없다.
+    `GRACE_KEY`(misfire_grace_seconds) 는 슬립 보충 정책 — 드라이버가
+    `misfire_grace_time` 으로 전달한다.
     """
     jobs = [
-        {"id": job_id, "func": "run_collect" if job_id == COLLECT_JOB_ID
-         else "run_slo06", "schedule": dict(sch)}
+        {"id": job_id,
+         "func": "run_collect" if job_id == COLLECT_JOB_ID else "run_slo06",
+         "schedule": dict(sch),
+         GRACE_KEY: MISFIRE_GRACE_SECONDS}
         for job_id, sch in JOB_SCHEDULES.items()
     ]
     return sorted(jobs, key=lambda j: j["id"])

@@ -62,3 +62,33 @@ def test_job_defs_are_deterministic_and_sorted():
     b = build_scheduler_jobs()
     assert [j["func"] for j in a] == [j["func"] for j in b]
     assert [j["id"] for j in a] == [COLLECT_JOB_ID, SLO06_JOB_ID]  # 정렬
+
+
+GRACE_SECONDS = 86400  # 슬립 보충: 하루(당일치) — 상시 로컬 §6.2
+
+
+def test_each_job_has_graceful_sleep_backfill():
+    """각 job 은 슬립 보충 정책(misfire_grace_seconds) 을 정의로 갖는다.
+
+    상시 로컬에서 맥이 슬립으로 아침 07:07/07:37 을 놓치면, APScheduler 가
+    스케줄러 살아있을 때 **grace 내부면 당일 job 을 보충 실행**한다 (기본
+    misfire_grace=1 초는 다음날로 미루는 문제). 보충은 정의 차원에서 하루 이상
+    보장해야 당일치가 깨어난 뒤에도 놓치지 않는다.
+    """
+    jobs = build_scheduler_jobs()
+    assert len(jobs) == 2
+    for j in jobs:
+        grace = j.get("misfire_grace_seconds")
+        assert grace is not None, f"{j['id']} 에 보충(grace) 정책 없음"
+        assert grace >= GRACE_SECONDS, f"{j['id']} 보충이 하루 미만"
+
+
+def test_misfire_grace_passed_to_apscheduler_job():
+    """드라이버 배선 — 보충 정책(grace) 이 APScheduler add_job 의
+    misfire_grace_time 으로 전달된다 (슬립으로 놓친 당일 보충 실행)."""
+    from scripts.scheduler_runner import _TASKS, _misfire_grace
+
+    jobs = build_scheduler_jobs()
+    for j in jobs:
+        assert _misfire_grace(j) == j.get("misfire_grace_seconds")
+        assert _TASKS[j["func"]]  # 태스크 함수 바인딩 존재

@@ -43,6 +43,17 @@ def run_slo06() -> None:
 _TASKS = {"run_collect": run_collect, "run_slo06": run_slo06}
 
 
+def _misfire_grace(job: dict) -> int:
+    """job 정의의 슬립 보충 정책(misfire_grace_seconds) 반환 (기본 하루).
+
+    상시 로컬에서 맥이 슬립으로 아침 스케줄을 놓치면, APScheduler 가 grace 내부면
+    당일 job 을 보충 실행한다. 명시값 우선, 부재 시 기본 하루(86400) — misfire
+    로 인한 작업 누락 방지 (§6.2). 순수(결정적) — dispatch 정책은 정의에서 분리 유지.
+    """
+    from orc_citadel.scheduler import GRACE_KEY, MISFIRE_GRACE_SECONDS
+    return int(job.get(GRACE_KEY, MISFIRE_GRACE_SECONDS))
+
+
 def build_scheduler() -> BackgroundScheduler:
     """job 정의를 등록한 BackgroundScheduler (영속 sqlite store)."""
     JOB_STORE_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -54,6 +65,7 @@ def build_scheduler() -> BackgroundScheduler:
             trigger=CronTrigger(**job["schedule"]),
             id=job["id"],
             replace_existing=True,
+            misfire_grace_time=_misfire_grace(job),
         )
     return sched
 
