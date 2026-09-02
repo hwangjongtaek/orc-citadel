@@ -411,7 +411,7 @@ function renderGraph(){
     if(!a||!b) return '';
     const col=edgeColor(rl.type);
     return '<line x1="'+a[0]+'" y1="'+a[1]+'" x2="'+b[0]+'" y2="'+b[1]+'" stroke="'+col+'" stroke-width="1.5"/>'
-      +'<text class="edge-label" x="'+(a[0]+b[0])/2+'" y="'+(a[1]+b[1])/2-4+'" text-anchor="middle">'+esc(rl.type)+'</text>';
+      +'<text class="edge-label" x="'+((a[0]+b[0])/2)+'" y="'+((a[1]+b[1])/2-4)+'" text-anchor="middle">'+esc(rl.type)+'</text>';
   }).join('');
   const nd=nodes.map(n=>{
     const p=pos[n.id]||[cx,cy];
@@ -1096,3 +1096,45 @@ $('#asof').onsubmit=e=>{
 </script>
     """,
     "Orc Citadel — Chronicle Vault (시간 탐색)")
+
+
+# --- remaining-gaps Wave 2 병합 -----------------------------------------------
+# 각 *_ext 모듈은 자기 완결(JS 는 이 페이지 전역 헬퍼를 읽기만 하고 재정의하지 않음).
+# 삽입 규칙: CSS 조각은 <body> 직전, 본문 조각은 <script> 직전(페이지 본문 끝),
+# JS 문 블록은 </script> 직전(페이지 부트스트랩 이후) — 페이지마다 앵커 1회 존재를
+# test_viewer_ext_merge 가 봉인한다. ext 모듈은 viewer_pages 를 import 하지 않는다.
+from orc_citadel import aux_ext as _aux_ext, council_ext as _council_ext
+from orc_citadel import table_ext as _table_ext, witnesses_ext as _witnesses_ext
+
+# aux 스크립트는 api()/empty() 를 전역으로 기대하나 gate/watchtower/archive/
+# chronicle 페이지는 두 헬퍼가 없다 — 보강 정의(기존 정의 절대 덮어쓰지 않음).
+_EXT_PRELUDE = (
+    "window.api=window.api||function(p){return fetch(p).then(function(r){return r.json();});};\n"
+    "window.empty=window.empty||function(t,m){return '<div class=\"empty-state\"><div class=\"trig\">'"
+    "+esc(t)+'</div><p>'+esc(m)+'</p></div>';};\n"
+)
+
+
+def _inject(page: str, body: str, js: str, css: str = "", prelude: str = "") -> str:
+    assert page.count("<script>") == 1 and page.count("</script>") == 1, "병합 앵커 붕괴"
+    if css:
+        page = page.replace("<body>", css + "<body>", 1)
+    page = page.replace("<script>", body + "<script>", 1)
+    return page.replace("</script>", "\n" + prelude + js + "\n</script>", 1)
+
+
+PAGE_TABLE = _inject(PAGE_TABLE, *_table_ext.build(), css=_table_ext.PAGE_TABLE_EXT_CSS)
+_wb, _wj = _witnesses_ext.build()
+PAGE_WITNESSES = _inject(PAGE_WITNESSES, _wb, _wj)
+_cb, _cj = _council_ext.build()
+PAGE_COUNCIL = _inject(PAGE_COUNCIL, _cb, _cj)
+
+_ab, _as_ = _aux_ext.build()
+_SEARCH_JS, _GATE_JS, _WT_JS, _AR_JS, _CH_JS = _as_
+PAGE_GATE = _inject(PAGE_GATE, _ab[0], _SEARCH_JS + _GATE_JS, prelude=_EXT_PRELUDE)
+PAGE_WATCHTOWER = _inject(PAGE_WATCHTOWER, _ab[1], _WT_JS, prelude=_EXT_PRELUDE)
+PAGE_ARCHIVE = _inject(PAGE_ARCHIVE, _ab[2], _AR_JS, prelude=_EXT_PRELUDE)
+PAGE_CHRONICLE = _inject(PAGE_CHRONICLE, _ab[3], _CH_JS, prelude=_EXT_PRELUDE)
+# Spire 는 alert 영속 부재로 확장 없음 (honest-gap 유지). SEARCH_JS 는 헤더
+# search input 자기발견 — 미탑재 페이지에서도 무해하나 일관성 있게 gate 만 탑재.
+

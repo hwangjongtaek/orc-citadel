@@ -52,6 +52,89 @@ def _count_raw(raw_dir: str) -> tuple[list[dict], int]:
     return out, sum(s["doc_count"] for s in out)
 
 
+def _fetch_records(raw_dir: str) -> list[dict]:
+    """raw 존 fetch.json 전수 스캔 (1회·클래스 레벨 캐시 — 렌더마다 재스캔 금지).
+
+    각 문서 디렉터리의 fetch.json 에서 실측된 키만 담는다 (fetched_at·http_status·
+    robots_allowed). 파싱 실패·미존재는 정직 스킵. 캐시 키는 절대경로 문자열.
+    """
+    cache = Handler._FETCH_CACHE
+    key = str(pathlib.Path(raw_dir).resolve()) if raw_dir else ""
+    hit = cache.get(key)
+    if hit is not None:
+        return hit
+    out: list[dict] = []
+    root = pathlib.Path(raw_dir) if raw_dir else None
+    if root is not None and root.is_dir():
+        for source in sorted(p.name for p in root.iterdir() if p.is_dir()):
+            doc_dir = root / source / "doc"
+            if not doc_dir.is_dir():
+                continue
+            for doc in sorted(p.name for p in doc_dir.iterdir() if p.is_dir()):
+                fj = doc_dir / doc / "fetch.json"
+                try:
+                    meta = json.loads(fj.read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    continue
+                if not isinstance(meta, dict):
+                    continue
+                out.append({
+                    "source_id": source,
+                    "doc_id": meta.get("doc_id") or doc,
+                    "url": meta.get("url"),
+                    "fetched_at": meta.get("fetched_at"),
+                    "http_status": meta.get("http_status"),
+                    "robots_allowed": meta.get("robots_allowed"),
+                })
+    cache[key] = out
+    return out
+
+
+def _intake_panel(raw_dir: str, window_hours: int = 24) -> dict:
+    """Watchtower intake — fetch.json 실측 도착 계측 (read-only·결정적).
+
+    최근 fetched_at 기준 window_hours 시간 버킷(1시간 간격) 도착 수. fetched_at
+    이 하나도 없으면 measured=False 정직 (honest-gap §6.2). 버킷 라벨은 UTC ISO.
+    """
+    import datetime as _dt
+    recs = [r for r in _fetch_records(raw_dir) if r["fetched_at"]]
+    parsed = []
+    for r in recs:
+        try:
+            t = _dt.datetime.fromisoformat(r["fetched_at"])
+        except ValueError:
+            continue
+        if t.tzinfo is None:
+            t = t.replace(tzinfo=_dt.timezone.utc)
+        parsed.append((t, r))
+    per_source: dict[str, tuple[object, str]] = {}
+    for t, r in parsed:
+        prev = per_source.get(r["source_id"])
+        if prev is None or t > prev[0]:
+            per_source[r["source_id"]] = (t, r["fetched_at"])
+    last_fetch_by_source = [
+        {"source_id": s, "fetched_at": v[1]}
+        for s, v in sorted(per_source.items())]
+    if not parsed:
+        return {"measured": False, "window_hours": window_hours,
+                "arrivals_per_hour": [], "last_fetch_by_source": [],
+                "note": "fetch.json 에 fetched_at 없음 → intake 미측정 (honest-gap §6.2)"}
+    latest = max(t for t, _ in parsed)
+    start = latest.replace(minute=0, second=0, microsecond=0) - \
+        _dt.timedelta(hours=window_hours - 1)
+    buckets = {}
+    for t, _ in parsed:
+        b = t.replace(minute=0, second=0, microsecond=0)
+        if start <= b <= latest:
+            buckets[b] = buckets.get(b, 0) + 1
+    arrivals = [{"bucket": (start + _dt.timedelta(hours=i)).isoformat(),
+                 "count": buckets.get(start + _dt.timedelta(hours=i), 0)}
+                for i in range(window_hours)]
+    return {"measured": True, "window_hours": window_hours,
+            "arrivals_per_hour": arrivals,
+            "last_fetch_by_source": last_fetch_by_source}
+
+
 def _count_normalized(norm_db: str) -> dict:
     """normalized zone 문서·segment 수 (read-only 연결 — 잠금 충돌 회피).
 
@@ -196,6 +279,51 @@ def _archive_normalized(norm_db: str) -> tuple[list[dict], dict]:
     return docs, {"documents": len(docs), "segments": segs}
 
 
+def _archive_facets(norm_db: str) -> tuple[dict, list[dict]]:
+    """Archive facet 실측 — segment kinds GROUP BY count·동일 URL 그룹(≥2, ≤20).
+
+    normalized 존 read_only DuckDB (잠금 회피). DB 미가동/미존재는 정직 빈.
+    """
+    import duckdb
+    kinds: dict[str, int] = {}
+    groups: list[dict] = []
+    try:
+        c = duckdb.connect(str(norm_db), read_only=True)
+    except Exception:
+        return kinds, groups
+    try:
+        kinds = {k: n for k, n in c.execute(
+            "SELECT kind, COUNT(*) FROM segments GROUP BY kind").fetchall()}
+        for url, n, ids in c.execute(
+                "SELECT url, COUNT(*), LIST(doc_id) FROM documents "
+                "GROUP BY url HAVING COUNT(*) >= 2 ORDER BY url LIMIT 20").fetchall():
+            groups.append({"url": url, "count": n, "doc_ids": list(ids)[:5]})
+    except Exception:
+        pass
+    finally:
+        c.close()
+    return kinds, groups
+
+
+def _search_documents(norm_db: str, q: str) -> list[dict]:
+    """normalized 존 documents 제목·URL ILIKE 검색 (read-only). 미가동은 정직 빈."""
+    import duckdb
+    try:
+        c = duckdb.connect(str(norm_db), read_only=True)
+    except Exception:
+        return []
+    try:
+        rows = c.execute(
+            "SELECT doc_id, title, source_id FROM documents "
+            "WHERE title ILIKE ? OR url ILIKE ? ORDER BY doc_id",
+            [f"%{q}%", f"%{q}%"]).fetchall()
+    except Exception:
+        rows = []
+    finally:
+        c.close()
+    return [{"doc_id": d, "title": t, "source_id": s} for d, t, s in rows]
+
+
 def _parse_dt(s: str | None):
     """ISO datetime 문자열 → datetime. 미지정/오류는 None (결정적)."""
     from datetime import datetime
@@ -255,6 +383,8 @@ def _build():
 
 class Handler(BaseHTTPRequestHandler):
     facade = None  # class-level (한 번 로드)
+    # raw fetch.json 전수 스캔은 1회만 (경로 → 레코드 목록). 렌더마다 재스캔 금지.
+    _FETCH_CACHE: dict[str, list[dict]] = {}
 
     def log_message(self, *a):  # 출력 간소화 (404 등만 남김)
         if self.path.startswith("/api/"):
@@ -265,6 +395,57 @@ class Handler(BaseHTTPRequestHandler):
     def _api_report(self, qs):
         subj = unquote(qs.get("subject", ""))
         return self.facade.get_investigation_report(subj) or {"error": "not_found"}
+
+    @_j
+    def _api_search(self, qs):
+        """Cross-zone search — entities·claims 인메모리 substring, documents ILIKE. 각 ≤10."""
+        q = unquote(qs.get("q", "")).strip().lower()
+        out = {"query": q, "entities": [], "claims": [], "documents": [],
+               "counts": {"entities": 0, "claims": 0, "documents": 0}}
+        if not q:
+            return out
+        for e in self.facade.zone.entities():
+            name = (e.get("canonical_name") or "")
+            if q in name.lower():
+                out["entities"].append({"entity_id": e["entity_id"],
+                                        "name": name,
+                                        "mention_type": e.get("mention_type")})
+        for cid, r in self.facade._claims_rows.items():
+            hay = " ".join(str(r.get(k) or "") for k in
+                           ("predicate", "object_literal", "subject_id",
+                            "surface_fragment")).lower()
+            if q in hay:
+                out["claims"].append({"claim_id": cid,
+                                      "predicate": r.get("predicate"),
+                                      "object_literal": r.get("object_literal"),
+                                      "subject_id": r.get("subject_id")})
+        docs = _search_documents(getattr(self, "normalized_db", NORM_DB), q)
+        out["counts"] = {"entities": len(out["entities"]),
+                         "claims": len(out["claims"]),
+                         "documents": len(docs)}
+        # 고정 정렬 축: id. 결정적.
+        out["entities"].sort(key=lambda x: x["entity_id"])
+        out["claims"].sort(key=lambda x: x["claim_id"])
+        out["entities"] = out["entities"][:10]
+        out["claims"] = out["claims"][:10]
+        out["documents"] = docs[:10]
+        return out
+
+    @_j
+    def _api_claim(self, qs):
+        """단일 claim 상세 — 파사드 get_claim + zone claims 행(surface_fragment 등) 병합."""
+        claim = unquote(qs.get("claim", ""))
+        base = self.facade.get_claim(claim)
+        if base is None:
+            return {"error": "not_found"}
+        row = self.facade._claims_rows.get(claim) or {}
+        merged = dict(base)
+        for k in ("surface_fragment", "predicate", "object_literal",
+                  "modality", "doc_id"):
+            if k in row:
+                merged[k] = row[k]
+        merged["claim_id"] = claim
+        return merged
 
     @_j
     def _api_evidence(self, qs):
@@ -344,16 +525,20 @@ class Handler(BaseHTTPRequestHandler):
             elapsed_ms=0)
         return {
             "subject_id": subj,
+            "computed": "on-request, non-persistent",
             "planned_subclaims": planned_view,
             "coverage": inv.coverage,
+            "iterations": inv.iterations,
             "terminated_by": inv.terminated_by,
             "gaps": inv.gaps,
-            "counter_evidence": len(inv.counter_evidence),
-            "retrieved": inv.retrieved,
+            # 확장: 반증 배열 그대로 (hypotheses·negative_queries) + 검색 결과 ≤10.
+            "counter_evidence": list(inv.counter_evidence),
+            "retrieved": list(inv.retrieved)[:10],
             "conclusion": rep.conclusion,
             "statements": rep.statements,
             "open_questions": rep.open_questions,
             "audit": rep.audit,
+            # 확장: audit_trace {trace,blocked_statements,verifiable,linked,linkage_ratio}.
             "audit_trace": audit_trace,
             "dashboard": dashboard,
             "subgraph": graph_view["subgraph"],
@@ -392,17 +577,37 @@ class Handler(BaseHTTPRequestHandler):
 
     @_j
     def _api_watchtower(self, qs):
-        """Watchtower — source 수집 사실(실측) + 실측 freshness + SLO 판정표(honest-gap)."""
+        """Watchtower — source 수집 사실(실측) + 실측 freshness + SLO 판정표(honest-gap).
+
+        확장: intake(fetch.json 전수 스캔 1회·클래스 캐시)·sources[].last_fetch·
+        sources[].governance(fetch.json 표본 실측 — http_status·robots_allowed).
+        """
         raw_dir = getattr(self, "raw_dir", RAW_DIR)
         norm_db = getattr(self, "normalized_db", NORM_DB)
         raw_sources, _ = _count_raw(raw_dir)
-        sources = [{
-            "source_id": s["source_id"],
-            "source_type": _source_type(s["source_id"]),
-            "doc_count": s["doc_count"],
-        } for s in raw_sources]
+        recs = _fetch_records(raw_dir)
+        intake = _intake_panel(raw_dir)
+        per_source: dict[str, list[dict]] = {}
+        for r in recs:
+            per_source.setdefault(r["source_id"], []).append(r)
+        sources = []
+        for s in raw_sources:
+            rows = per_source.get(s["source_id"], [])
+            fetched = [r["fetched_at"] for r in rows if r["fetched_at"]]
+            statuses = [r["http_status"] for r in rows if r["http_status"] is not None]
+            robots = [r["robots_allowed"] for r in rows if r["robots_allowed"] is not None]
+            sources.append({
+                "source_id": s["source_id"],
+                "source_type": _source_type(s["source_id"]),
+                "doc_count": s["doc_count"],
+                "last_fetch": max(fetched) if fetched else None,
+                "governance": {
+                    "http_status": (statuses[0] if statuses else None),
+                    "robots_allowed": (robots[0] if robots else None),
+                },
+            })
         return {"sources": sources, "freshness": _freshness(norm_db),
-                "slo": _slo_panel()}
+                "intake": intake, "slo": _slo_panel()}
 
     @_j
     def _api_spire(self, qs):
@@ -417,20 +622,39 @@ class Handler(BaseHTTPRequestHandler):
 
     @_j
     def _api_archive(self, qs):
-        """Grand Archive — normalized documents·raw source 목록·dedup cluster 수."""
+        """Grand Archive — normalized documents·raw source 목록·dedup cluster 수.
+
+        확장: documents[].cluster_role(root|derived|independent|null, dup_clusters
+        매핑)·language·publication_time·revision_time·parser_version(기존 조회에 포함)
+        + segment_kinds GROUP BY·url_groups(≥2 그룹 ≤20).
+        """
         norm_db = getattr(self, "normalized_db", NORM_DB)
         raw_dir = getattr(self, "raw_dir", RAW_DIR)
         docs, counts = _archive_normalized(norm_db)
         raw_sources, raw_total = _count_raw(raw_dir)
         clusters = getattr(self, "curated_clusters", None)
+        cluster_rows = []
         if clusters is None:
-            clusters = len(self.facade.zone.clusters())
+            cluster_rows = self.facade.zone.clusters()
+            clusters = len(cluster_rows)
+        # 계보 역할: root > independent(추가 소속) > derived(클러스터 멤버) > null.
+        role: dict[str, str] = {}
+        for c in cluster_rows:
+            indep = set(c.get("independent_addition_doc_ids") or [])
+            for d in c.get("member_doc_ids") or []:
+                role.setdefault(d, "independent" if d in indep else "derived")
+            role[c["root_doc_id"]] = "root"
+        for d in docs:
+            d["cluster_role"] = role.get(d.get("doc_id"))
+        segment_kinds, url_groups = _archive_facets(norm_db)
         return {
             "normalized_documents": docs,
             "normalized_counts": counts,
             "raw_sources": raw_sources,
             "raw_doc_count": raw_total,
             "dedup_clusters": clusters,
+            "segment_kinds": segment_kinds,
+            "url_groups": url_groups,
             "format_note": "raw 존은 Atom meta/전체 page 두 형식이 공존(04 §2.2) — 서로 다른 "
                            "형식일 뿐 '중복'이 아님.",
         }
@@ -448,10 +672,37 @@ class Handler(BaseHTTPRequestHandler):
                   {"available": avail,
                    "note": ("postgres SoT" if avail else
                             "postgres SoT 미가동 (honest-gap §6.2)")})
+        # 확장: bitemporal bounds + 이벤트 타임라인 (tx_from→asserted,
+        # tx_to→closed, supersedes_id→superseded). 전체 assertions 축 (as-of 아님).
+        all_rows = zone.assertions()
+        def _ts(v):
+            return v.isoformat() if hasattr(v, "isoformat") else (None if v is None else str(v))
+        def _bounds(lo_key, hi_key):
+            los = [r[lo_key] for r in all_rows if r.get(lo_key) is not None]
+            his = [r[hi_key] if r.get(hi_key) is not None else r[lo_key]
+                   for r in all_rows if r.get(lo_key) is not None or r.get(hi_key) is not None]
+            return (_ts(min(los)) if los else None, _ts(max(his)) if his else None)
+        vmin, vmax = _bounds("valid_from", "valid_to")
+        tmin, tmax = _bounds("tx_from", "tx_to")
+        bounds = {"valid_min": vmin, "valid_max": vmax,
+                  "tx_min": tmin, "tx_max": tmax}
+        events: list[dict] = []
+        for a in all_rows:
+            base = {"assertion_id": a["assertion_id"], "claim_id": a["claim_id"],
+                    "predicate": a["predicate"]}
+            if a.get("tx_from") is not None:
+                events.append(base | {"kind": "asserted", "at": a["tx_from"]})
+            if a.get("tx_to") is not None:
+                events.append(base | {"kind": "closed", "at": a["tx_to"]})
+            if a.get("supersedes_id"):
+                events.append(base | {"kind": "superseded", "at": a.get("tx_from")})
+        events.sort(key=lambda e: (str(e["at"] or ""), e["assertion_id"], e["kind"]))
         return {
             "assertions": rows,
             "supersedes_chain": superseded,
             "graph_replay": replay,
+            "bounds": bounds,
+            "events": events,
             "as_of": {"valid_at": valid_at.isoformat() if valid_at else None,
                       "tx_at": tx_at.isoformat() if tx_at else None},
         }
@@ -476,6 +727,14 @@ class Handler(BaseHTTPRequestHandler):
             types[label] = types.get(label, 0) + 1
         entity_types = [{"label": k, "count": n} for k, n in sorted(types.items())]
         entity_types.append({"label": "Claim", "count": len(self.facade.zone.claims())})
+        entities = sorted(
+            [{"entity_id": e["entity_id"],
+              "name": e.get("canonical_name") or "",
+              "mention_type": e.get("mention_type")}
+             for e in self.facade.zone.entities()],
+            key=lambda x: x["entity_id"])[:200]
+        quarantined = sum(1 for r in self.facade.zone.claims()
+                          if r.get("status") == "quarantined")
         q = 0
         graph = getattr(self.facade, "graph", None)
         if graph is not None and hasattr(graph, "quarantined_edges"):
@@ -484,6 +743,8 @@ class Handler(BaseHTTPRequestHandler):
         return {
             "subjects": subjects,
             "entity_types": entity_types,
+            "entities": entities,
+            "quarantined": quarantined,
             "notes": {
                 "contradicts": "contradicts 근거는 파사드 미확장 (honest-gap §6.2)",
                 "seer": "Seer LLM inference 미영속 (honest-gap §6.2)",
@@ -492,9 +753,31 @@ class Handler(BaseHTTPRequestHandler):
 
     @_j
     def _api_graph(self, qs):
-        """War Table subgraph seed — get_investigation_graph (09 §2.2). read-only."""
+        """War Table subgraph seed — get_investigation_graph (09 §2.2). read-only.
+
+        확장: 서브그래프 nodes[].label — entity는 /api/table.entities와 동일
+        canonical_name, claim은 predicate (없으면 정직 빈 문자열).
+        """
         subj = unquote(qs.get("subject", ""))
-        return self.facade.get_investigation_graph(subj, hops=1)
+        view = self.facade.get_investigation_graph(subj, hops=1)
+        sg = view.get("subgraph") or {}
+        names = {e["entity_id"]: (e.get("canonical_name") or "")
+                 for e in self.facade.zone.entities()}
+        rows = getattr(self.facade, "_claims_rows", None) or {}
+        nodes = []
+        for ent in sg.get("entities", []):
+            label = names.get(ent.get("id"), "")
+            ent["label"] = label
+            nodes.append({"id": ent.get("id"), "label": label})
+        for cl in sg.get("claims", []):
+            row = rows.get(cl.get("id")) or {}
+            label = row.get("predicate") or ""
+            cl["label"] = label
+            nodes.append({"id": cl.get("id"), "label": label})
+        nodes.sort(key=lambda n: str(n["id"]))
+        sg["nodes"] = nodes
+        view["subgraph"] = sg
+        return view
 
     @_j
     def _api_graph_node(self, qs):
@@ -585,6 +868,14 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body); return
         if parsed.path == "/api/investigate":
             body = self._api_investigate(qs).encode()
+            self.send_response(200); self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body); return
+        if parsed.path == "/api/search":
+            body = self._api_search(qs).encode()
+            self.send_response(200); self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body); return
+        if parsed.path == "/api/claim":
+            body = self._api_claim(qs).encode()
             self.send_response(200); self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body); return
         if parsed.path == "/api/gate":

@@ -81,3 +81,40 @@
 **발견·수정 (라이브 스모크):** witnesses `||` 연산자 우선순위로 trail 컨테이너(`#prov-steps`) 소실 → 괄로 수정. chronicle `qs` 재선언 SyntaxError(as-of 필드와 이름 충돌) → `dlp` 리네임. 둘다 인라인 JS `node --check` 문법 가드(`test_viewer_aux.py`·8 페이지)로 봉인.
 
 **검증 (2026-09-02):** `test_viewer_witnesses.py` 4 + `test_viewer_aux.py` 8(+문법가드 8 parametrized)·`test_viewer_table.py` 6 Green. 전체 스위트 **1086 passed**, 22 skipped. 8 라우트 라이브 스모크 실데이터 렌더 확인. Spec 1.1.0 유지.
+
+---
+
+# Remaining-gaps 전수 소진 (2026-09-02 · workflowz)
+
+scout 4종 병렬 갭분석(war-table/witnesses-council/aux/backend-residual) → 58 feasible·39 blocked. Wave 1(백엔드 API) → Wave 2(프런트 4 워커 파일-배타 병렬) → 오케스트레이터 병합.
+
+## 구현됨 (실데이터)
+
+| 영역 | 블록 |
+| --- | --- |
+| API | `/api/search`(text contains)·`/api/claim` 신설 · table(entities/quarantined)·graph(label)·archive(cluster_role/segment_kinds/url_groups)·chronicle(bounds/events)·watchtower(intake/governance)·investigate(counter_evidence[]/audit_trace/iterations/terminated_by) 확장 |
+| War Table | subclaim known/gap 카드·entity chip 토글·SVG zoom/pan/fit/reset·edge 타입 색+incident 강조·expand more(opaque cursor)·claim 상세+excerpt 발췌·bitemporal dual-slider 레일·이벤트→loadClaim |
+| Witnesses | claim 카드 실문장+per-claim confidence·bitemporal join·독립성/clusters 정직·인용 char-span·trail 전개·toolbar 딥링크·legend·`?claim`/`?doc` 부트스트랩 |
+| Council | 8역할 executed/not-run(wire 필드 판정)·loop 결과 trace·subclaims 트리·retrieved≤10·반증(결정적 후보)·Stopping 실제 입력·audit 분모0 과장금지·딥링크 (버튼 클릭 시만 on-request) |
+| Aux | Gate mini-watchtower+전역 검색 드롭다운 · Watchtower 24h intake SVG+governance · Archive facet/stacks/contains+`?doc` · Chronicle bitemporal plane/preset/events rail |
+
+## 영구 blocked (honest-gap — 데이터·불변식 근거)
+
+- **subclaim 연속 coverage %** — per-subclaim 실측 없음 (known/gap 배지만)
+- **확정 CONTRADICTS·Seer inference** — conflict_candidates·canonical_llm_records 영속 0
+- **graph as-of 과거 스냅샷·과거 시점 confidence 봉투** — as-of는 `/api/chronicle` 뿐, evidence 프로젝터는 현재축
+- **ingest 이벤트 타입** — assertion tx之外 수집 타임스탬프 없음
+- **1차자료/당사자 라벨** — source 신뢰 메타 스키마 없음
+- **live agent 상태·turn 로그·tier·Cost/token/latency 영속** — 실행 이벤트 미저장 (on-request trace로 대체)
+- **Campaign 등록·조사 실행·Spire alert/subscription/ack** — read-only 불변식 (§2-1)
+- **Watchtower schedule 분모·stage backlog·DLQ·retry** — queue/registry/attempt 저장소 없음
+- **BM25 전문 검색** — FTS 인덱스·오프라인 확장 설치 불가 (text contains로 대체·UI에 명시)
+- **Quarantine/POSSIBLY_SAME_AS 그래프 상세** — authoritative_edges 0
+
+## 병합 봉인 (오케스트레이터)
+
+- `viewer_pages.py` 하단 `_inject`: CSS/본문/JS 3조각 주입, `<script>` 앵커 1회 assert. ext 모듈은 viewer_pages 를 import 하지 않아 사이클 0.
+- base **edge-label `NaN` 우선순위 버그**(`(a[1]+b[1])/2-4` 문자열화) 수정 — table_ext 의 ensureEdgeLayer 구제 불필요화, 이중렌더 자동 해제 경로로 무력화.
+- `test_viewer_ext_merge.py` 13: 앵커 병합·헬퍼(esc/empty/api/$) 재정의 금지·node --check 8페이지·NaN 회귀 봉인·Spire 정직 유지.
+
+**검증 (2026-09-02):** 전체 스위트 **1174 passed**, 22 skipped (pre-existing `test_claude_*` 2 무관). live 8791(기구현 curated 실데이터) 스모크: War Table edge 25·label 'NVIDIA/announces'·subclaim 카드·claim 상세 conf 0.92·chronicle 레일 30이벤트 / Witnesses 29 claim 카드·trail·`?claim` 미스 정직·`?doc` hl 1 / Council trace executed·audit 분모0 과장없음 / Gate 검색 'nvidia' entity1+doc3 / Watchtower intake 24버킷+governance 200·ALLOW / Archive facet en·6+stacks 정직 0+preset as-of 29. Spec 1.1.0 유지.
