@@ -20,8 +20,9 @@ from urllib.parse import unquote, urlparse
 from orc_citadel.api_facade import ApiFacade
 from orc_citadel.curated_zone import CuratedZone
 from orc_citadel.graph_service import GraphService
-from orc_citadel.viewer_pages import (PAGE_ARCHIVE, PAGE_CHRONICLE, PAGE_GATE,
-                                      PAGE_SPIRE, PAGE_TABLE, PAGE_WATCHTOWER)
+from orc_citadel.viewer_pages import (PAGE_ARCHIVE, PAGE_CHRONICLE, PAGE_COUNCIL,
+                                      PAGE_GATE, PAGE_SPIRE, PAGE_TABLE,
+                                      PAGE_WATCHTOWER, PAGE_WITNESSES)
 
 # 컨테이너에서는 VIEWER_HOST=0.0.0.0 으로 외부 바인딩 (docker-compose.yml).
 HOST, PORT = os.environ.get("VIEWER_HOST", "127.0.0.1"), 8791
@@ -80,6 +81,43 @@ def _source_type(source_id: str) -> str:
     """source_id 의 접두사 → source_type. 미인식은 'source'(정직)."""
     head = source_id.split("-", 1)[0]
     return head if head in _SOURCE_TYPE_TOKENS else "source"
+
+
+def _freshness(norm_db: str) -> dict:
+    """normalized 문서 publication_time 기준 실측 신선도 (분) — 없으면 not-measured.
+
+    가짜 지연을 채우지 않는다: publication_time 이 하나도 없으면 measured=False.
+    """
+    import datetime as _dt
+    import duckdb
+    try:
+        c = duckdb.connect(str(norm_db), read_only=True)
+    except Exception:
+        return {"measured": False, "note": "normalized DuckDB 미가동 (honest-gap §6.2)"}
+    try:
+        rows = c.execute(
+            "SELECT publication_time FROM documents "
+            "WHERE publication_time IS NOT NULL").fetchall()
+    except Exception:
+        rows = []
+    finally:
+        c.close()
+    times = [r[0] for r in rows if r[0]]
+    if not times:
+        return {"measured": False, "note": "publication_time 없음 → 지연 미측정 (honest-gap §6.2)"}
+    now = _dt.datetime.now(_dt.timezone.utc)
+    ages = []
+    for t in times:
+        if t.tzinfo is None:
+            t = t.replace(tzinfo=_dt.timezone.utc)
+        ages.append((now - t).total_seconds() / 60.0)
+    ages.sort()
+    return {
+        "measured": True, "n": len(ages),
+        "min_age_min": round(ages[0], 1),
+        "median_age_min": round(ages[len(ages) // 2], 1),
+        "max_age_min": round(ages[-1], 1),
+    }
 
 
 def _slo_panel() -> dict:
@@ -354,15 +392,17 @@ class Handler(BaseHTTPRequestHandler):
 
     @_j
     def _api_watchtower(self, qs):
-        """Watchtower — source 수집 사실(실측) + SLO 판정표(honest-gap)."""
+        """Watchtower — source 수집 사실(실측) + 실측 freshness + SLO 판정표(honest-gap)."""
         raw_dir = getattr(self, "raw_dir", RAW_DIR)
+        norm_db = getattr(self, "normalized_db", NORM_DB)
         raw_sources, _ = _count_raw(raw_dir)
         sources = [{
             "source_id": s["source_id"],
             "source_type": _source_type(s["source_id"]),
             "doc_count": s["doc_count"],
         } for s in raw_sources]
-        return {"sources": sources, "slo": _slo_panel()}
+        return {"sources": sources, "freshness": _freshness(norm_db),
+                "slo": _slo_panel()}
 
     @_j
     def _api_spire(self, qs):
@@ -416,6 +456,111 @@ class Handler(BaseHTTPRequestHandler):
                       "tx_at": tx_at.isoformat() if tx_at else None},
         }
 
+    @_j
+    def _api_table(self, qs):
+        """War Table seed — Campaign Map(subjects) + entity type chips. read-only."""
+        subjects = []
+        for r in self.facade._ranking.ranked():
+            d = r.confidence.get("dimensions") or {}
+            subjects.append({
+                "subject_id": r.subject_id, "rank": r.rank, "signal": r.signal,
+                "value": r.confidence["value"],
+                "evidence_count": r.confidence["evidence_count"],
+                "independent_source_count": r.confidence["independent_source_count"],
+                "coverage": d.get("coverage", 0),
+                "predicates": {k: v["count"] for k, v in r.predicates.items()},
+            })
+        types: dict[str, int] = {}
+        for e in self.facade.zone.entities():
+            label = e.get("mention_type") or "Entity"
+            types[label] = types.get(label, 0) + 1
+        entity_types = [{"label": k, "count": n} for k, n in sorted(types.items())]
+        entity_types.append({"label": "Claim", "count": len(self.facade.zone.claims())})
+        q = 0
+        graph = getattr(self.facade, "graph", None)
+        if graph is not None and hasattr(graph, "quarantined_edges"):
+            q = len(graph.quarantined_edges())
+        entity_types.append({"label": "Quarantine", "count": q})
+        return {
+            "subjects": subjects,
+            "entity_types": entity_types,
+            "notes": {
+                "contradicts": "contradicts 근거는 파사드 미확장 (honest-gap §6.2)",
+                "seer": "Seer LLM inference 미영속 (honest-gap §6.2)",
+            },
+        }
+
+    @_j
+    def _api_graph(self, qs):
+        """War Table subgraph seed — get_investigation_graph (09 §2.2). read-only."""
+        subj = unquote(qs.get("subject", ""))
+        return self.facade.get_investigation_graph(subj, hops=1)
+
+    @_j
+    def _api_graph_node(self, qs):
+        """단일 노드 상세 (09 §2.2). 미존재는 not_found."""
+        nid = unquote(qs.get("id", ""))
+        return self.facade.get_graph_node(nid) or {"error": "not_found"}
+
+    @_j
+    def _api_graph_expand(self, qs):
+        """인접 확장 + opaque cursor (09 §1.4·§2.2). 클라이언트 미파싱."""
+        nid = unquote(qs.get("id", ""))
+        raw = qs.get("cursor")
+        cursor = unquote(raw) if raw else None
+        return self.facade.get_graph_expand(nid, cursor=cursor)
+
+    @_j
+    def _api_provenance(self, qs):
+        """Evidence provenance trail (09 §2.3). 미존재는 not_found."""
+        evid = unquote(qs.get("evidence", ""))
+        return self.facade.get_evidence_provenance(evid) or {"error": "not_found"}
+
+    @_j
+    def _api_document(self, qs):
+        """normalized 존 세그먼트 read-only — 원문 왕복(§3-2). DB 미가동/미존재는 정직 빈."""
+        doc_id = unquote(qs.get("doc", ""))
+        import duckdb
+        db = getattr(self, "normalized_db", NORM_DB)
+        try:
+            c = duckdb.connect(str(db), read_only=True)
+        except Exception:
+            return {"doc_id": doc_id, "available": False, "segments": [],
+                    "note": "normalized DuckDB 미가동 (honest-gap §6.2)"}
+        try:
+            drows = c.execute(
+                "SELECT doc_id, source_id, url, title, language, publication_time, "
+                "parser_version FROM documents WHERE doc_id=?", [doc_id]).fetchall()
+            srows = c.execute(
+                "SELECT segment_id, ord, kind, text, char_start, char_end "
+                "FROM segments WHERE doc_id=? ORDER BY ord", [doc_id]).fetchall()
+        except Exception:
+            drows, srows = [], []
+        finally:
+            c.close()
+        dcols = ["doc_id", "source_id", "url", "title", "language",
+                 "publication_time", "parser_version"]
+        scols = ["segment_id", "ord", "kind", "text", "char_start", "char_end"]
+        return {"doc_id": doc_id, "available": True,
+                "documents": [dict(zip(dcols, r)) for r in drows],
+                "segments": [dict(zip(scols, r)) for r in srows]}
+
+    @_j
+    def _api_council(self, qs):
+        """Council — 기존 조사 보고서 조회만. 실행(쓰기)은 범위 밖 정직 노출."""
+        subj = unquote(qs.get("subject", ""))
+        rep = self.facade.get_investigation_report(subj)
+        if rep is None:
+            return {"error": "not_found"}
+        rep["execution"] = {
+            "available": False,
+            "note": "조사 실행(Planner+Runner 쓰기 루프)은 read-only 범위 밖 — "
+                    "기존 결론·predicate·open_questions 조회만 (honest-gap §6.2)",
+        }
+        return rep
+
+
+
     def do_GET(self):
         if Handler.facade is None:
             Handler.facade = _build()
@@ -462,6 +607,35 @@ class Handler(BaseHTTPRequestHandler):
             body = self._api_chronicle(qs).encode()
             self.send_response(200); self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body); return
+        if parsed.path == "/api/table":
+            body = self._api_table(qs).encode()
+            self.send_response(200); self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body); return
+        if parsed.path == "/api/graph":
+            body = self._api_graph(qs).encode()
+            self.send_response(200); self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body); return
+        if parsed.path == "/api/graph_node":
+            body = self._api_graph_node(qs).encode()
+            self.send_response(200); self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body); return
+        if parsed.path == "/api/graph_expand":
+            body = self._api_graph_expand(qs).encode()
+            self.send_response(200); self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body); return
+        if parsed.path == "/api/provenance":
+            body = self._api_provenance(qs).encode()
+            self.send_response(200); self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body); return
+        if parsed.path == "/api/document":
+            body = self._api_document(qs).encode()
+            self.send_response(200); self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body); return
+        if parsed.path == "/api/council":
+            body = self._api_council(qs).encode()
+            self.send_response(200); self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body); return
+
 
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -473,7 +647,9 @@ class Handler(BaseHTTPRequestHandler):
 
 _PAGES = {
     "/": PAGE_GATE,           # Citadel Gate (진입 대시보드)
-    "/table": PAGE_TABLE,     # 기존 개발 화면 (랭킹·보고서·조사·근거)
+    "/table": PAGE_TABLE,     # War Table 3+1 (Campaign Map · 캔버스 · Inspector · Chronicle)
+    "/witnesses": PAGE_WITNESSES,  # 증거 검사 · 원문 왕복
+    "/council": PAGE_COUNCIL,      # 조사 보고서 조회
     "/watchtower": PAGE_WATCHTOWER,  # 수집 관제
     "/spire": PAGE_SPIRE,            # 알림 센터
     "/archive": PAGE_ARCHIVE,        # 문서 탐색
