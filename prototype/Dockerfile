@@ -5,6 +5,7 @@ WORKDIR /app
 
 COPY pyproject.toml ./
 COPY orc_citadel/ orc_citadel/
+COPY scripts/ scripts/
 COPY tests/ tests/
 
 RUN pip install --no-cache-dir ".[dev]"

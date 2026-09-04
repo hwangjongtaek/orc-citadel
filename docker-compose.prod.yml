@@ -1,0 +1,77 @@
+# 원격지(운영) 배포 오버레이 — design 01 §6.1 초기 토폴로지의 prod 실행 형태.
+# 사용: docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile prototype --env-file .env up -d
+#
+# base(docker-compose.yml) 대비 차이:
+# - 인프라 스토어(pg/minio/neo4j/opensearch)의 호스트 publish 를 완전 제거 (!override []).
+#   컨테이너 간 통신은 compose 브리지 DNS(service name)로 충분 — 호스트 포트 바인딩은
+#   OrbStack 포트 포워더의 간헐적 EADDRINUSE race 의 원인이며 외부 노출 표면이기도 하다.
+#   접근이 필요하면 `docker compose exec` 또는 orb SSH 로.
+# - viewer: 애플리케이션 프로세스 (compose `prototype` 서비스 재사용).
+# - scheduler: APScheduler 상주 dispatch (§6.2 단일 발화 주체 — prod 에선 이 컨테이너 하나).
+# - 커넥터 환경변수는 컨테이너 DNS 주입 (code default 는 localhost — 로컬 네이티브 개발 유지).
+# - data 는 named volume (orc-citadel-proddata, 정적 이름) — 배포 코드 갱신과
+#   무관하게 원본 데이터 보존, compose project 이동에도 유지.
+
+services:
+  postgres:
+    ports: !override []
+
+  minio:
+    ports: !override []
+
+  neo4j:
+    ports: !override []
+
+  opensearch:
+    ports: !override []
+
+  prototype:
+    # viewer — prod 포트 바인딩도 loopback 기본. 외부 공개는 VIEWER_BIND=0.0.0.0
+    image: orc-citadel-prototype:latest
+    ports:
+      - "${VIEWER_BIND:-127.0.0.1}:8791:8791"
+    volumes:
+      - proddata:/app/data
+    environment:
+      VIEWER_HOST: 0.0.0.0
+      POSTGRES_HOST: postgres
+      MINIO_HOST: minio
+      NEO4J_URI: bolt://neo4j:7687
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+    restart: unless-stopped
+
+  scheduler:
+    # nightly dispatch 상주 프로세스 (07:07 수집 / 07:37 SLO-06).
+    # viewer 와 동일 image 태그 — build 재실행은 layer cache 로 사실상 무비용.
+    build: ./prototype
+    image: orc-citadel-prototype:latest
+    command: ["python", "scripts/scheduler_runner.py"]
+    working_dir: /app
+    volumes:
+      - proddata:/app/data
+    environment:
+      # nightly 발화 시각(07:07/07:37)은 운영 타임존 기준 — 컨테이너 기본 UTC 봉인.
+      TZ: ${TZ:-Asia/Seoul}
+      # nightly_slo06._load_env() 은 repo-root .env 를 읽으려 하나 컨테이너엔 없음 →
+      # compose 환경 주입이 사실상 경로. setdefault 는 이미 있는 키를 건드리지 않는다.
+      POSTGRES_HOST: postgres
+      MINIO_HOST: minio
+      NEO4J_URI: bolt://neo4j:7687
+      LLM_PROVIDER: ${LLM_PROVIDER:-anthropic}
+      LLM_MODEL: ${LLM_MODEL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+    depends_on:
+      prototype:
+        condition: service_started
+    restart: unless-stopped
+
+volumes:
+  proddata:
+    name: orc-citadel-proddata

@@ -88,24 +88,26 @@ class OpenAICompatibleClient:
 def build_llm_client():
     """LLM_PROVIDER/LLM_MODEL/LLM_API_KEY/LLM_BASE_URL 환경 config 로 client 생성.
 
-    인식 불가 provider 또는 SDK 부재 → None (오프라인 → ClaudeJudge stub 폴백).
-    반환 객체는 `provider`·`model` 속성을 지녀 version tuple 산출(07 §6.1) 과 호환.
+    인식 불가 provider, SDK/HTTP 클라이언트 부재 → None (오프라인 → ClaudeJudge
+    stub 폴백). 반환 객체는 `provider`·`model` 속성을 지녀 version tuple 산출
+    (07 §6.1) 과 호환.
     """
     provider = (_env("LLM_PROVIDER") or "anthropic").strip().lower()
     model = _env("LLM_MODEL")
     api_key = _env("LLM_API_KEY")
     base_url = _env("LLM_BASE_URL")
 
-    if provider == "openrouter":
-        return OpenAICompatibleClient(
-            base_url=base_url or "https://openrouter.ai/api/v1",
-            api_key=api_key or "", model=model or "", provider="openrouter",
-        )
-    if provider == "litellm":
-        return OpenAICompatibleClient(
-            base_url=base_url or "http://localhost:4000",
-            api_key=api_key or "", model=model or "", provider="litellm",
-        )
+    if provider in ("openrouter", "litellm"):
+        default_url = ("https://openrouter.ai/api/v1" if provider == "openrouter"
+                       else "http://localhost:4000")
+        try:
+            return OpenAICompatibleClient(
+                base_url=base_url or default_url,
+                api_key=api_key or "", model=model or "", provider=provider,
+            )
+        except ImportError:
+            # httpx 미설치 → stub 폴백 (SDK 부재와 동일한 안전 경로).
+            return None
     if provider == "anthropic":
         try:
             import anthropic  # noqa: F401  지연 import — SDK 부재 시 None(stub 폴백).

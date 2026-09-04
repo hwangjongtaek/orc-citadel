@@ -69,16 +69,16 @@ services:
       retries: 20
 
   # 선택 실행: docker compose --profile prototype up -d --build
+  # 호스트 publish는 docker-compose.prod.yml 가 소유 — 이중 바인딩은
+  # OrbStack 포트 포워더를 교착시킨다 (0.0.0.0 + 127.0.0.1 병존 시 dead 포트).
+  # 로컬 실행은 http://localhost:8791 대신 컨테이너 IP 로 접속하거나 prod 오버레이 사용.
   prototype:
     profiles: ["prototype"]
     build: ./prototype
     environment:
       VIEWER_HOST: 0.0.0.0
-    ports:
-      - "8791:8791"
     volumes:
       - ./prototype/data:/app/data
-
 volumes:
   pgdata:
   minio-data:
