@@ -14,6 +14,10 @@
 - 배포 통로: **SSH** (`scripts/deploy.sh`). git clone/pull 없이 rsync 코드 전송 → 원격 빌드·기동.
 - 데이터: named volume `orc-citadel-proddata` (viewer/scheduler의 `/app/data`) +
   스토어 볼륨 (pgdata/minio-data/neo4j-data/opensearch-data). 코드 재배포와 무관하게 보존.
+- **데이터 정책 (확정 · 2026-09-05): 원격 prod 는 신규 수집분만 누적한다** — 로컬
+  corpus(raw ~105k·curated·slo06 누적)는 이관하지 않는다. rsync 도 `prototype/data`
+  를 제외한다. 따라서 원격 viewer 의 curated 존·SLO-06 7d 누적은 **0에서 새로 시작**
+  하며, 로컬 실측 이력(ROADMAP §5)과 원격 운영 지표는 서로 다른 모집단이다.
 - **단일 발화 주체 이전**: 운영 nightly(07:07 수집 / 07:37 SLO-06)는 원격 `scheduler`
   컨테이너가 소유한다. 원격 기동 후 로컬 launchd 는 반드시 정지 (§3.4) — 이중 발화 금지.
 
@@ -47,6 +51,12 @@ scripts/deploy.sh orchwang-macbookpro          # → 빌드 & 기동
 > 프로비저닝 실측 (2026-09-03): 대상엔 brew도 Docker도 없었고, OrbStack를 비-brew 방식으로 설치했다 —
 > dmg를 `curl`로 내려받아 `cp -R`로 `/Applications`에 배치하고, `~/.orbstack/bin`의
 > `docker`/`docker-compose` 심볼릭링크를 PATH에 등록 (`.zprofile`).
+>
+> 자동 기동 (2026-09-05 추가): OrbStack 는 GUI 앱이라 프로세스가 죽으면 docker 데몬도
+> 함께 죽는다 — 실제로 배포 다음날 OrbStack 종료로 스택 전체가 다운된 사례 발생.
+> `~/Library/LaunchAgents/com.orbstack.autostart.plist`(RunAtLoad, `open -a OrbStack
+> --background`) 를 등록해 재로그인·재부팅 시 자동 기동한다. (osascript 로그인 아이템
+> 방식은 SSH 에서 TCC 권한 프롬프트에 걸려 hang — LaunchAgent 로 대체.)
 
 `.env` 규칙: 원격 호스트의 리포 최상위에만 존재, `chmod 600`, **git/전송 대상 절대 제외**
 (`deploy.sh`의 rsync 필터와 `.gitignore`가 이중 봉인). 템플릿은 `.env.production.example`.
@@ -99,6 +109,14 @@ docker compose ... exec prototype python -c "print(open('/app/data/slo06_accum.j
 
 > **전제 — 대상은 노트북**: `orchwang-macbookpro`의 물리 전원이 켜져 있어야 스케줄러가 발화한다.
 > 슬립·전원차단 구간은 §6.2의 grace 하루 정책이 당일만 보충하며, 이틀 이상 끊기면 그날은 결측으로 남는다.
+>
+> **알려진 한계 (2026-09-05 실측)**: grace 보충은 **스케줄러 프로세스가 살아있는 동안의
+> 슬립**만 커버한다. 컨테이너/데몬 재시작 시 `scheduler_runner` 가
+> `add_job(replace_existing=True)` 로 job 을 재생성해 영속 store 의 미발화 시각이
+> 리셋되므로, **재시작을 가로지르는 놓친 발화는 보충되지 않는다** (09-05 07:07 실측 —
+> 데몬 다운 중 놓친 당일 발화가 재기동 후 next_run=익일로 스킵). 코드 수정 전까지
+> 데몬 재기동 후에는 당일치 수동 보충을 검토: `... exec scheduler python
+> scripts/nightly_collect.py`.
 
 ## 5. 백업
 
