@@ -201,3 +201,45 @@ def test_judge_version_tuple_reflects_openrouter(monkeypatch):
     import json
     body = json.loads(tr.requests[0].content)
     assert body["model"] == "anthropic/claude-sonnet"
+
+
+# --- parse_json_content: reasoning 모델 관용 파싱 (A30) -------------------------
+
+def test_parse_json_content_plain():
+    """순수 JSON — 기존 경로 그대로."""
+    assert LP.parse_json_content('{"a": 1}') == {"a": 1}
+
+
+def test_parse_json_content_markdown_fence():
+    """```json fence 제거 — glm-4.7-flash 등 reasoning 모델 실측 사례 (A29)."""
+    text = '```json\n{"verdict": "not_conflict"}\n```'
+    assert LP.parse_json_content(text) == {"verdict": "not_conflict"}
+
+
+def test_parse_json_content_prose_wrapped():
+    """전후 설명 문장에 감싸인 JSON — 첫 '{'~마지막 '}' 구간 재시도."""
+    text = '판정 결과는 다음과 같다.\n{"relation": "equivalent"}\n이상.'
+    assert LP.parse_json_content(text)["relation"] == "equivalent"
+
+
+def test_parse_json_content_truncated_returns_empty():
+    """잘린 JSON(max_tokens 소진) → {} — 관용 파싱이 내용을 지어내지 않는다."""
+    assert LP.parse_json_content('```json\n{"verdict": "real_conf') == {}
+    assert LP.parse_json_content("") == {}
+    assert LP.parse_json_content(None) == {}
+
+
+def test_parse_json_content_non_dict_returns_empty():
+    """dict 가 아닌 JSON(배열·스칼라) → {} (판정 계약은 dict)."""
+    assert LP.parse_json_content("[1, 2]") == {}
+    assert LP.parse_json_content('```json\n[1]\n```') == {}
+
+
+def test_openai_compatible_fenced_json_parsed():
+    """어댑터가 fence 응답을 판정 dict 로 파싱 — ADR-704 검증은 그대로 후속."""
+    tr = _TransportRecorder(payload={"choices": [{"message": {
+        "content": '```json\n{"relation": "equivalent"}\n```'}}]})
+    c = _client(tr)
+    out = c.messages_create(model="m", system="s", user="u",
+                            max_tokens=10, temperature=0)
+    assert out == {"relation": "equivalent"}

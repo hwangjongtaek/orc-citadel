@@ -174,6 +174,8 @@ SLO-02/03/04는 **실측으로 확정**했다(2026-08-12, `neo4j_q4_harness` 가
 > 2. **#4 contradiction·lineage 실데이터 골든:** A25 독립 언론 소스 `press-tomshardware`(194건) ↔ `official-nvidia-news`(114건) 총 308건 전체 결정적 파이프라인 실측 런. 동일 사건 기사쌍(SpaceXAI Vera CPU `doc-9a2a8e33...` ↔ `doc-7a5d5472...`, Nvidia Financial Q2 `doc-5d5c99fc...` ↔ `doc-314c66f3...`, Groq 3 LPX `doc-df1dcfce...` ↔ `doc-eb6c94f8...`) 투입 결과 **자연발생 모순 0건 검출**(전체 332 claims, 983 conflict candidates 검출되었으나 100% NVIDIA 소스 내부 candidate 이며 교차 소스 모순 0건). 원인: L1 gazetteer(`extract.py`)가 대문자 `NVIDIA`만 인식해 TH 본문의 `Nvidia` 추출 제한(TH claim 3건), 동일 사건 보도 팩트 일치, 추출 규칙 긍정문 편향. **미검출을 있는 그대로 기록**(가짜 골든 제작 금지, honest-gap §6.2).
 > 3. **SLO-07 (quarantine dwell-time):** 착수 조건(real quarantine 모집단 > 0) 미충족 확인 — DuckDB 전 존 및 파이프라인 실행에서 `quarantine=0` 유지 (비해소 subject 는 추출 단계 폐기). `not-measured(모집단 0)` 유지.
 > 4. **1M 물리 부하 실측 (#9):** 착수 조건(1M corpus 또는 부하 인프라) 미충족 확인 — 현 raw 105,150건(포화). 기존 104,677건 병렬 실측 분모(3.191ms/doc, k=10) 기반 1M 투영(병렬 ≈53.2min·순차 ≈4.5h) `measured=False` 투영 유지 (honest-gap §6.2).
+>
+> **결함 수정 (A30, 2026-09-05):** 위 1 의 SLO-06 validation fail 근본 원인 2건 해소 — ① 판정 max_tokens 512→기본 2048(`LLM_MAX_TOKENS` 환경 조정, reasoning 토큰 1200+ 수용) ② 응답 관용 파싱 `parse_json_content`(markdown fence·전후 설명 제거 — 내용 변형·지어내기 없음, 잘린 JSON 은 그대로 fail). 스키마 검증 자체는 무변경 — 파싱 관용은 측정 대상(스키마 준수)이 아닌 전달 계층 정비. 7d 누적 모집단은 원격 prod 신규 시작(`docs/operating/deployment.md` 데이터 정책).
 
 ---
 

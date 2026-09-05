@@ -92,3 +92,56 @@ def test_misfire_grace_passed_to_apscheduler_job():
     for j in jobs:
         assert _misfire_grace(j) == j.get("misfire_grace_seconds")
         assert _TASKS[j["func"]]  # 태스크 함수 바인딩 존재
+
+
+# --- 재시작 보존: grace 보충이 프로세스 재시작을 가로지른다 (A30) ------------------
+
+def test_restart_preserves_missed_next_run(tmp_path):
+    """재시작이 영속 store 의 next_run_time(놓친 발화 시각)을 리셋하지 않는다.
+
+    2026-09-05 실측: add_job(replace_existing=True) 재등록이 미발화 시각을
+    지워 **재시작을 가로지르는 grace 보충이 불가**했다 (데몬 다운 중 놓친
+    당일 발화가 재기동 후 next_run=익일로 스킵). 재기동 후 next_run 이
+    보존되어야 resume 시 misfire 판정(grace 내부 → 당일 보충)이 가능하다.
+    """
+    from datetime import datetime, timedelta, timezone
+    from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
+    from scripts.scheduler_runner import build_scheduler, register_jobs
+
+    store = tmp_path / "jobs.sqlite"
+    s1 = build_scheduler(store)
+    s1.start(paused=True)
+    register_jobs(s1)
+    s1.shutdown()
+
+    # 놓친 발화 시뮬레이션 — store 를 직접 과거로 되돌린다. (스케줄러 modify 로
+    # 만들면 shutdown 시 APScheduler 가 due job 을 STOPPED 상태에서 처리해
+    # next_run 을 전진시키는 자체 레이스가 있어, 오프라인 store 조작이 결정적.)
+    past = datetime.now(timezone.utc) - timedelta(hours=3)
+    off = SQLAlchemyJobStore(url=f"sqlite:///{store}")
+    missed = off.lookup_job(COLLECT_JOB_ID)
+    missed.next_run_time = past
+    off.update_job(missed)
+    off.shutdown()
+
+    s2 = build_scheduler(store)
+    s2.start(paused=True)
+    register_jobs(s2)
+    j = s2.get_job(COLLECT_JOB_ID)
+    preserved = j.next_run_time if j is not None else None
+    s2.shutdown()
+    assert preserved is not None
+    assert abs((preserved - past).total_seconds()) < 1  # 보존 — grace 보충 대상
+
+
+def test_register_jobs_is_idempotent(tmp_path):
+    """register_jobs 재호출이 job 을 중복 생성하지 않는다 (단일 발화 주체)."""
+    from scripts.scheduler_runner import build_scheduler, register_jobs
+
+    s = build_scheduler(tmp_path / "jobs.sqlite")
+    s.start(paused=True)
+    register_jobs(s)
+    register_jobs(s)
+    jobs = s.get_jobs()
+    s.shutdown()
+    assert sorted(j.id for j in jobs) == [COLLECT_JOB_ID, SLO06_JOB_ID]

@@ -12,7 +12,7 @@ Anthropic Claude로 Canonicalization 7라벨·Contradiction verdict를 강제 JS
 from __future__ import annotations
 
 import hashlib
-import json
+import os
 from dataclasses import asdict
 
 from orc_citadel.llm_judge import (
@@ -20,11 +20,25 @@ from orc_citadel.llm_judge import (
     validate_canonical_verdict,
     validate_contradiction_verdict,
 )
+from orc_citadel.llm_providers import parse_json_content
 
 # ADR-701: L4 판정 모델 alias (버전 전환 지점 — 여기만 교체).
 MODEL_ID = "claude-opus-4-8"
 OUTPUT_SCHEMA_VERSION = "0.1.0"
 ONTOLOGY_VERSION = "1.0.0"
+
+# 판정 호출 completion 예산 기본값. reasoning 모델(glm-4.7-flash 등)은 completion
+# 예산에서 reasoning 토큰(1200+ 실측, A29)을 소비해 512 로는 본문이 잘렸다 —
+# SLO-06 validation fail 근본 원인. LLM_MAX_TOKENS 환경으로 배포별 조정.
+DEFAULT_MAX_TOKENS = 2048
+
+
+def _judge_max_tokens() -> int:
+    """판정 max_tokens — LLM_MAX_TOKENS 우선, 비정수/부재 시 기본 2048."""
+    try:
+        return int(os.environ.get("LLM_MAX_TOKENS", "") or DEFAULT_MAX_TOKENS)
+    except ValueError:
+        return DEFAULT_MAX_TOKENS
 
 # §4.2 canonicalization 출력 schema (강제 JSON).
 _CANONICAL_SCHEMA_INSTRUCTION = """\
@@ -87,12 +101,8 @@ class _AnthropicClient:
             "output_tokens": getattr(usage, "output_tokens", 0) or 0,
         }
         text = resp.content[0].text if resp.content else ""
-        try:
-            parsed = json.loads(text)
-        except (json.JSONDecodeError, TypeError):
-            # ADR-704·07 §7: 구조화 실패는 후보 유지 — None 유도.
-            parsed = {}
-        return parsed if isinstance(parsed, dict) else {}
+        # 관용 파싱 (fence·전후 설명, A30) — 구조화 실패는 {} → 판정 None (ADR-704).
+        return parse_json_content(text)
 
 
 def _build_default_client():
@@ -187,7 +197,7 @@ class ClaudeJudge:
             system, user = self._build_canonical_prompt(pair)
             raw = self._client.messages_create(
                 model=MODEL_ID, system=system, user=user,
-                max_tokens=512, temperature=0,
+                max_tokens=_judge_max_tokens(), temperature=0,
             )
             self._accumulate_usage()  # S42: 성공 LLM 호출 토큰 누적.
         except Exception:
@@ -220,7 +230,7 @@ class ClaudeJudge:
             system, user = self._build_contradiction_prompt(pair)
             raw = self._client.messages_create(
                 model=MODEL_ID, system=system, user=user,
-                max_tokens=512, temperature=0,
+                max_tokens=_judge_max_tokens(), temperature=0,
             )
             self._accumulate_usage()  # S42: 성공 LLM 호출 토큰 누적.
         except Exception:

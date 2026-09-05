@@ -198,11 +198,18 @@ docker compose:
 - `.env` / `.envrc`로 시크릿·엔드포인트 주입 (이미 리포에 존재). MCP는 `.mcp.json`.
 - 단일 호스트에서 Prototype(1만)·MVP(10만) 규모를 목표로 한다.
 
-### 6.2 상시 로컬 네이티브 운용 (Phase 6·현행)
+### 6.2 상시 운용 (Phase 6·현행 — 원격 단일 호스트 compose)
 
-"일정 수준 완성 후 **상시 운영 로컬 환경**에 배포" 의 **현행 배포 프로세스** —
-추가 인프라(스토어 컨테이너) 없이 로컬 네이티브(venv + launchd + 파일/DuckDB)
-로 지속 수집·SLO 축적을 상시 운용한다 (Phase 6 DoD ② 운용 루프).
+**현행 prod (2026-09-04~)** 는 **원격 단일 호스트**(`orchwang-macbookpro`, Tailscale)
+의 §6.1 Docker Compose 스택(viewer + scheduler)이다 — 배포 통로는 SSH rsync
+(`scripts/deploy.sh`), 절차 정본은 운영 runbook(`docs/operating/deployment.md`).
+원격 prod 데이터는 **신규 수집분만 누적**(로컬 corpus 이관 없음 — runbook 데이터
+정책). nightly 발화 주체는 원격 `scheduler` 컨테이너 정확히 1개 — 로컬 launchd
+는 정지(이중 발화 금지).
+
+아래 **로컬 네이티브 구성**은 2026-08-24~09-03 의 이전 현행이었고, 지금은 로컬
+**개발·테스트** 및 원격 불가 시의 폴백 토폴로지로 유지한다 (venv + launchd +
+파일/DuckDB — 추가 인프라 없는 지속 수집·SLO 축적, Phase 6 DoD ② 운용 루프).
 
 ```text
 로컬 네이티브 상시 운용 (단일 호스트):
@@ -220,9 +227,12 @@ docker compose:
   §3-3 read-only). future 복제는 공유 잠금(Postgres/MinIO) 승격 지점 (§6.3).
 - **슬립 보충 (상시):** `misfire_grace_seconds=86400`(하루) — 맥이 슬립으로 아침
   스케줄을 놓치면, 스케줄러가 살아있는 동안 grace 내부면 **당일 job 을 보충
-  실행** (기본 1 초 는 놓친 작업을 다음날로 미루는 문제). **정직 한계 (§6.2):
-  슬립 중엔 어떤 스케줄러도 실행 불가** — 보충은 '깨어난 뒤 당일치' 까지만 보장,
-  슬립 시간 자체가 지나 수집 불가한 시점은 놓친다. '상시'는 물리 Mac 켜짐이 전제.
+  실행** (기본 1 초 는 놓친 작업을 다음날로 미루는 문제). **재시작 보충 (A30):**
+  드라이버가 영속 store 를 대사(reconcile)해 기존 job 의 next_run(놓친 발화 시각)
+  을 보존 — 프로세스/데몬 재시작을 가로질러도 grace 내부면 당일 보충된다 (이전
+  `replace_existing` 재등록은 이를 리셋 — 2026-09-05 실측 후 수정). **정직 한계
+  (§6.2): 슬립·다운 중엔 어떤 스케줄러도 실행 불가** — 보충은 '깨어난 뒤 당일치'
+  까지만 보장, 이틀 이상 끊긴 구간은 결측으로 남는다. '상시'는 물리 켜짐이 전제.
 - **환경·시크릿**: repo root `.env`(LLM credential·docker 인프라) — gitignore.
   MCP `.mcp.json`. 데이터 전부 `data/` gitignore — 커밋은 코드·문서만.
 - **운영 절차(설치·기동·점검·백업·복원)는 운영 runbook** (`docs/operating/`) 이
@@ -258,7 +268,7 @@ docker compose:
 | `local` | 개발·TDD | 샘플 수백~수천 문서 |
 | `prototype` | 온톨로지·provenance 검증 | 1만 문서 |
 | `staging` | end-to-end·회귀 | 골든 데이터셋 + 10만 서브셋 |
-| `prod` | **상시 로컬 네이티브 운용** (§6.2) — 지속 수집·SLO 축적·조사 | 전체 corpus (현행 로컬 단일 호스트) |
+| `prod` | **원격 단일 호스트 compose 상시 운용** (§6.2) — 지속 수집·SLO 축적·조사 | 신규 수집분만 누적 (원격 `orchwang-macbookpro`, 로컬 corpus 이관 없음) |
 
 ## 8. 의사결정 로그
 

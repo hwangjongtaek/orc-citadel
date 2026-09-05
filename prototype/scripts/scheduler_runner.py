@@ -54,25 +54,45 @@ def _misfire_grace(job: dict) -> int:
     return int(job.get(GRACE_KEY, MISFIRE_GRACE_SECONDS))
 
 
-def build_scheduler() -> BackgroundScheduler:
-    """job 정의를 등록한 BackgroundScheduler (영속 sqlite store)."""
-    JOB_STORE_PATH.parent.mkdir(parents=True, exist_ok=True)
+def build_scheduler(store_path: Path = JOB_STORE_PATH) -> BackgroundScheduler:
+    """영속 sqlite store 를 붙인 BackgroundScheduler (job 은 register_jobs 몫)."""
+    store_path.parent.mkdir(parents=True, exist_ok=True)
     sched = BackgroundScheduler()
-    sched.add_jobstore("sqlalchemy", url=f"sqlite:///{JOB_STORE_PATH}")
-    for job in build_scheduler_jobs():
-        sched.add_job(
-            _TASKS[job["func"]],
-            trigger=CronTrigger(**job["schedule"]),
-            id=job["id"],
-            replace_existing=True,
-            misfire_grace_time=_misfire_grace(job),
-        )
+    sched.add_jobstore("sqlalchemy", url=f"sqlite:///{store_path}")
     return sched
+
+
+def register_jobs(sched: BackgroundScheduler) -> None:
+    """job 정의를 영속 store 와 대사(reconcile) — 기존 job 의 next_run_time 보존.
+
+    이전 구현의 `add_job(replace_existing=True)` 는 재시작마다 job 을 재생성해
+    store 의 미발화 시각을 리셋했다 — **재시작을 가로지르는 grace 보충 불가**
+    (2026-09-05 실측: 데몬 다운 중 놓친 당일 발화가 재기동 후 next_run=익일로
+    스킵). 기존 job 은 보존하고 정의 변경(trigger/grace)만 반영한다. store 조회가
+    유효하려면 `start(paused=True)` 후 호출해야 한다.
+    """
+    for job in build_scheduler_jobs():
+        trigger = CronTrigger(**job["schedule"])
+        grace = _misfire_grace(job)
+        existing = sched.get_job(job["id"])
+        if existing is None:
+            sched.add_job(_TASKS[job["func"]], trigger=trigger, id=job["id"],
+                          misfire_grace_time=grace)
+            continue
+        if str(existing.trigger) != str(trigger):
+            # 스케줄 정의가 바뀐 경우만 next_run 재계산 (의도된 변경).
+            sched.reschedule_job(job["id"], trigger=trigger)
+        if existing.misfire_grace_time != grace:
+            sched.modify_job(job["id"], misfire_grace_time=grace)
 
 
 def main() -> None:
     sched = build_scheduler()
-    sched.start()
+    # paused 기동 → store 대사 → resume: 놓친 발화가 보존된 채 misfire 판정에
+    # 들어가 grace(하루) 내부면 당일 보충 실행된다.
+    sched.start(paused=True)
+    register_jobs(sched)
+    sched.resume()
     jobs = sched.get_jobs()
     print("== nightly 스케줄러 시작 (단일 발화 주체) ==", flush=True)
     for j in jobs:

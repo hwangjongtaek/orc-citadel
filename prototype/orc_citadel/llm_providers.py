@@ -30,6 +30,36 @@ def _env(name: str, default: str | None = None) -> str | None:
     return v if v not in (None, "") else default
 
 
+def parse_json_content(text) -> dict:
+    """LLM 응답 본문 → 판정 dict. 구조화 실패는 {} (검증이 None 유도, ADR-704).
+
+    reasoning 모델이 markdown fence(```json)·전후 설명 문장을 붙이는 실측 사례
+    (A29, glm-4.7-flash)를 수용하는 **관용 파싱**: fence 제거 → 실패 시 첫
+    '{'~마지막 '}' 구간 재시도. 내용은 변형하지 않는다 — 잘린/비-dict JSON 은
+    그대로 {} (지어내기 금지, honest-gap §6.2). 스키마 검증은 후속 단계 그대로.
+    """
+    if not isinstance(text, str) or not text.strip():
+        return {}
+    t = text.strip()
+    if t.startswith("```"):
+        t = t.split("\n", 1)[1] if "\n" in t else ""
+        if t.rstrip().endswith("```"):
+            t = t.rstrip()[:-3]
+    try:
+        parsed = json.loads(t)
+        return parsed if isinstance(parsed, dict) else {}
+    except (json.JSONDecodeError, TypeError):
+        pass
+    start, end = t.find("{"), t.rfind("}")
+    if 0 <= start < end:
+        try:
+            parsed = json.loads(t[start:end + 1])
+            return parsed if isinstance(parsed, dict) else {}
+        except (json.JSONDecodeError, TypeError):
+            return {}
+    return {}
+
+
 class OpenAICompatibleClient:
     """OpenRouter·LiteLLM 공용 — OpenAI-compatible `/chat/completions` 어댑터.
 
@@ -77,12 +107,8 @@ class OpenAICompatibleClient:
             content = data["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError):
             return {}
-        try:
-            parsed = json.loads(content)
-        except (json.JSONDecodeError, TypeError):
-            # ADR-704·07 §7: 구조화 실패는 후보 유지 — None 유도.
-            return {}
-        return parsed if isinstance(parsed, dict) else {}
+        # 관용 파싱 (fence·전후 설명) — 구조화 실패는 {} → 판정 None 유도 (ADR-704).
+        return parse_json_content(content)
 
 
 def build_llm_client():

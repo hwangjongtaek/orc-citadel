@@ -163,3 +163,48 @@ def test_contradiction_prompt_specifies_dict_evidence_spans():
     assert 'evidence_spans' in p
     # "dict 객체" 요구가 명시되어야 한다.
     assert 'dict 객체' in p
+
+
+# --- max_tokens: reasoning 모델 수용 (A30) --------------------------------------
+
+class _CaptureMaxTokens(_FakeClient):
+    """max_tokens 캡처 — judge 호출 예산 검증."""
+
+    def messages_create(self, model, system, user, max_tokens, temperature):
+        self.max_tokens = max_tokens
+        return super().messages_create(model, system, user, max_tokens, temperature)
+
+
+_VALID_CANONICAL = {"relation": "equivalent", "canonical_text": "t",
+                    "confidence": 0.9, "rationale": "r"}
+
+
+def test_judge_max_tokens_default_covers_reasoning(monkeypatch):
+    """기본 max_tokens ≥ 2048 — reasoning 토큰(1200+) 소비 수용 (A29 실측).
+
+    glm-4.7-flash 등 reasoning 모델은 completion 예산에서 reasoning 토큰을
+    소비해 512 로는 본문이 잘렸다 (SLO-06 validation fail 근본 원인 중 하나).
+    """
+    monkeypatch.delenv("LLM_MAX_TOKENS", raising=False)
+    client = _CaptureMaxTokens([_VALID_CANONICAL])
+    j = ClaudeJudge(client=client)
+    j.judge_canonicalization(("clm-a", "clm-b"))
+    assert client.max_tokens >= 2048
+
+
+def test_judge_max_tokens_env_override(monkeypatch):
+    """LLM_MAX_TOKENS 환경으로 판정 예산 조정 (배포 환경별 모델 소유)."""
+    monkeypatch.setenv("LLM_MAX_TOKENS", "4096")
+    client = _CaptureMaxTokens([_VALID_CANONICAL])
+    j = ClaudeJudge(client=client)
+    j.judge_canonicalization(("clm-a", "clm-b"))
+    assert client.max_tokens == 4096
+
+
+def test_judge_max_tokens_bad_env_falls_back(monkeypatch):
+    """비정수 LLM_MAX_TOKENS → 기본값 폴백 (설정 오류가 판정을 죽이지 않는다)."""
+    monkeypatch.setenv("LLM_MAX_TOKENS", "many")
+    client = _CaptureMaxTokens([_VALID_CANONICAL])
+    j = ClaudeJudge(client=client)
+    j.judge_canonicalization(("clm-a", "clm-b"))
+    assert client.max_tokens >= 2048
