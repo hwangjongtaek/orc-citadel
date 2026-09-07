@@ -67,6 +67,10 @@ services:
       LLM_MODEL: ${LLM_MODEL:-}
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_BASE_URL: ${LLM_BASE_URL:-}
+      # 판정 completion 예산 (A30) — reasoning 모델은 reasoning 토큰을 여기서
+      # 소비. glm-4.7-flash 실측: 2048 도 잘림(평균 2031/30건 pass 2) → 8192 권장.
+      # 예산은 상한일 뿐 과금은 실사용 토큰 기준.
+      LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-}
     depends_on:
       prototype:
         condition: service_started
