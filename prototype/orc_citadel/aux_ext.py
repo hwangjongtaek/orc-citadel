@@ -85,7 +85,7 @@ async function gsRun(sb,dd){
 
 # --- Citadel Gate: mini-watchtower 카드 ----------------------------------------
 # quarantined(/api/table 실측 count) + source 별 last_fetch(/api/watchtower intake).
-GATE_EXT_BODY = """<h2>🛰️ Watchtower · 수집 관제 요약 <span class="dim">(mini — last_fetch · quarantine 현황 /api 실측)</span></h2>
+GATE_EXT_BODY = """<h2>Watchtower · 수집 관제 요약 <span class="dim">(mini — last_fetch · quarantine 현황 /api 실측)</span></h2>
 <div class="card"><table id="gate-mini-watchtower"></table></div>
 """
 
@@ -118,10 +118,10 @@ GATE_EXT_JS = r"""
 
 # --- Watchtower: intake 시계열 + sources 확장 테이블 ---------------------------
 # arrivals_per_hour 버킷 → 인라인 SVG 막대 (외부 lib 금지). measured=False 정직 빈.
-WT_EXT_BODY = """<h2>📥 Intake · 도착 시계열 <span class="dim">(fetch.json fetched_at 실측 1h 버킷 — 인라인 SVG · 외부 lib 없음)</span></h2>
+WT_EXT_BODY = """<h2>Intake · 도착 시계열 <span class="dim">(fetch.json fetched_at 실측 1h 버킷 — 인라인 SVG · 외부 lib 없음)</span></h2>
 <div class="grid" id="wt-intake"></div>
 
-<h2>🗂️ Sources 확장 <span class="dim">(last_fetch · governance — fetch.json 표본 실측)</span></h2>
+<h2>Sources 확장 <span class="dim">(last_fetch · governance — fetch.json 표본 실측)</span></h2>
 <div class="card"><table id="wt-sources-ext"></table></div>
 """
 
@@ -175,7 +175,7 @@ function wtBarPath(max,b,i){
 # --- Grand Archive: facet·Stacks·contains 검색·Codex 메타·?doc= 부트스트랩 ------
 # /api/archive 확장(cluster_role·language·publication_time·segment_kinds·url_groups)
 # 과 /api/search documents join. `codex` 래퍼로 기존 상세 패널에 메타+딥링크 appended.
-AR_EXT_BODY = """<h2>🧮 Archive Ext <span class="dim">(language · dedup role · publication 정렬 · 본문 contains)</span></h2>
+AR_EXT_BODY = """<h2>Archive Ext <span class="dim">(language · dedup role · publication 정렬 · 본문 contains)</span></h2>
 <div class="card"><div class="body">
   <div class="search" style="width:100%;max-width:560px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M20 20 L16.5 16.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
     <input id="ar-q" placeholder="본문 contains 검색 (title · url · doc_id — /api search join)" /></div>
@@ -185,10 +185,10 @@ AR_EXT_BODY = """<h2>🧮 Archive Ext <span class="dim">(language · dedup role 
   <div class="card" id="ar-table" style="margin-top:8px"></div>
 </div></div>
 
-<h2>🗃️ Stacks · 동일 URL 문서군 <span class="dim">(url_groups ≥2 · ≤20)</span></h2>
+<h2>Stacks · 동일 URL 문서군 <span class="dim">(url_groups ≥2 · ≤20)</span></h2>
 <div class="card" id="ar-stacks"></div>
 
-<h2>🧩 Segment kinds 현황 <span class="dim">(normalized segments GROUP BY)</span></h2>
+<h2>Segment kinds 현황 <span class="dim">(normalized segments GROUP BY)</span></h2>
 <div class="card" id="ar-kinds"></div>
 """
 
@@ -344,16 +344,16 @@ AR_EXT_JS = r"""
 # bounds(/api/chronicle) 로 valid·tx 레일 스케일을 그리고, preset 질문 3 종은
 # 실재 assertion 에서 파생 — 재료 없으면 그 preset 은 비활성(chip.disabled).
 # /archive?doc= 부트스트랩과 달리 여기서는 URL as-of 파라미터로 타임슬라이더 복원.
-CH_BODY = """<h2>📐 Bitemporal Plane · 타임 슬라이더 <span class="dim">(valid × tx — /api/chronicle bounds 실측)</span></h2>
+CH_BODY = """<h2>Bitemporal Plane · 타임 슬라이더 <span class="dim">(valid × tx — /api/chronicle bounds 실측)</span></h2>
 <div class="card"><div class="body" id="ch-plane"></div></div>
 
-<h2>🧭 Preset 질문 <span class="dim">(실재 assertion 파생 — 재료 없으면 비활성)</span></h2>
+<h2>Preset 질문 <span class="dim">(실재 assertion 파생 — 재료 없으면 비활성)</span></h2>
 <div class="card"><div class="body" id="ch-presets"></div></div>
 
-<h2>🛤️ Events rail <span class="dim">(asserted · closed · superseded)</span></h2>
+<h2>Events rail <span class="dim">(asserted · closed · superseded)</span></h2>
 <div class="card"><div class="body" id="ch-events-rail"></div></div>
 
-<h2>🔖 As-of assertion 상세</h2>
+<h2>As-of assertion 상세</h2>
 <div class="card" id="ch-assertion-detail"><span class="muted">assertion 테이블 행을 선택하세요.</span></div>
 """
 

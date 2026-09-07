@@ -136,12 +136,24 @@ def test_pages_without_hero_use_flat_band(pages: dict[str, str], name: str) -> N
 
 def test_masthead_has_explicit_width(pages: dict[str, str]) -> None:
     """LayoutHeader 의 flex 자식이라 width 를 안 주면 폭이 접히고,
-    그러면 aspect-ratio 가 접힌 폭 기준으로 계산돼 히어로가 조각으로 나온다."""
+    그러면 aspect-ratio 가 접힌 폭 기준으로 계산돼 히어로가 조각으로 나온다.
+
+    문서형은 본문 폭(CONTENT_WIDTH)에 맞춰 `calc(100% - 48px)` 로 좁힌다 —
+    넓을수록 8:3 상한에 더 많이 걸려 세로가 잘리므로 좁히는 쪽이 그림이 더 보인다.
+    """
     for name in HERO_CAP:
         mast = re.search(r'style="[^"]*aspect-ratio:8 / 3[^"]*"', pages[name])
-        assert mast and "width:100%" in mast.group(0), name
+        assert mast, name
+        assert re.search(r"width:(100%|calc\(100% - 48px\))", mast.group(0)), name
         # `height:'fill'` 인 앱셸에서 헤더가 눌려 히어로가 더 잘리는 것을 막는다.
         assert "flex-shrink:0" in mast.group(0), name
+
+
+def test_document_pages_align_banner_with_content(pages: dict[str, str]) -> None:
+    """문서형 배너는 본문 폭(1200px)에 정렬된다 — 뷰어와 같은 규칙."""
+    for name in ("citadel-gate", "watchtower"):
+        mast = re.search(r'style="[^"]*aspect-ratio:8 / 3[^"]*"', pages[name])
+        assert mast and "max-width:1200px" in mast.group(0), name
 
 
 def test_scope_root_is_html_not_body(pages: dict[str, str]) -> None:

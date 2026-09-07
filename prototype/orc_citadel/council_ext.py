@@ -36,7 +36,8 @@ def build() -> tuple[str, str]:
     return PAGE_COUNCIL_EXT_BODY, PAGE_COUNCIL_EXT_JS
 
 
-PAGE_COUNCIL_EXT_BODY = """<div class="cncl-grid" id="council-ext">
+PAGE_COUNCIL_EXT_BODY = """<h2>조사 Trace <span class="dim">(on-request — 위 요약과 달리 실행 시점 실측값)</span></h2>
+<div class="cncl-grid" id="council-ext">
   <section class="panel">
     <div class="panel-head"><h2>Agent Catalog</h2><span class="sub" id="ce-agents-sub">not-run · trace 미실행</span></div>
     <div class="panel-body" id="ce-agents"></div>
@@ -52,7 +53,7 @@ PAGE_COUNCIL_EXT_BODY = """<div class="cncl-grid" id="council-ext">
     </div>
   </section>
   <section class="panel">
-    <div class="panel-head"><h2>Stopping · Audit</h2><button class="btn primary" id="ce-trace-btn" type="button">조사 trace</button></div>
+    <div class="panel-head"><h2>Stopping · Audit 실측</h2><button class="btn primary" id="ce-trace-btn" type="button">조사 trace</button></div>
     <div class="panel-body">
       <div id="ce-stop"></div>
       <div id="ce-audit"></div>

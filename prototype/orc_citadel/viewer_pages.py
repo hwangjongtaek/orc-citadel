@@ -58,6 +58,20 @@ CSS = """
  .grow{flex:1 1 auto}
  .search{display:flex;align-items:center;gap:8px;background:var(--surface-variant);border-radius:var(--r-md);padding:8px 12px;width:300px;max-width:32vw;color:var(--on-surface-muted)}
  .search svg{flex:none}
+ /* DESIGN.md components.input — surface-variant 배경·경계, rounded md.
+    브라우저 기본 위젯이 다크 표면 위에서 흰 상자로 튀는 것을 막는다. */
+ main input,main select,main textarea{background:var(--surface-variant);
+   border:1px solid var(--surface-variant);border-radius:var(--r-md);
+   color:var(--on-surface);font-family:var(--font-body);font-size:13px;
+   padding:8px 10px;outline:none}
+ main input:focus,main select:focus,main textarea:focus{border-color:var(--secondary)}
+ main input[type=range]{padding:0;background:none;border:none}
+ main button{background:var(--surface);border:1px solid var(--surface-variant);
+   border-radius:var(--r-md);color:var(--on-surface);font-family:var(--font-head);
+   font-size:12px;font-weight:600;padding:8px 14px;cursor:pointer}
+ main button:hover{border-color:var(--on-surface-muted)}
+ main button.primary{background:var(--primary);border-color:var(--primary);
+   color:var(--citadel-void)}
  .search input{background:none;border:none;outline:none;color:var(--on-surface);font-family:var(--font-body);font-size:13px;width:100%}
  .search input::placeholder{color:var(--on-surface-muted)}
  .spire{position:relative;display:flex;align-items:center;gap:8px;font-family:var(--font-head);font-size:12px;font-weight:600;color:var(--signal-amber);background:rgba(255,177,59,.08);border:1px solid rgba(255,177,59,.3);padding:8px 12px;border-radius:var(--r-md);cursor:pointer;white-space:nowrap}
@@ -77,13 +91,23 @@ CSS = """
  .spaces a:hover{color:var(--on-surface);background:var(--surface-variant)}
  .spaces a.active{color:var(--primary);background:rgba(69,224,111,.08)}
  .panel,.card{background:var(--surface);border:1px solid var(--surface-variant);border-radius:var(--r-lg);overflow:hidden}
- .card{margin-bottom:var(--sp-md)}
+ /* 패딩은 카드 자체에 준다 — `.card>.body` 래퍼를 쓰는 곳이 35개 중 5개뿐이라
+    나머지는 내용이 테두리에 붙어 있었다. 표는 카드 끝까지 흘러야 하므로 제외. */
+ .card{margin-bottom:var(--sp-md);padding:var(--sp-md)}
+ .card:has(>table){padding:0}
  .card>.body,.panel-body{padding:var(--sp-md)}
+ .card>.body{padding:0}  /* 카드가 이미 패딩을 가지므로 중복 제거 */
  .panel-head{display:flex;align-items:center;justify-content:space-between;padding:12px var(--sp-md);border-bottom:1px solid var(--surface-variant)}
  .panel-head h2{font-family:var(--font-head);font-size:12px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--on-surface)}
  .panel-head .sub{font-family:var(--font-head);font-size:10px;letter-spacing:.08em;color:var(--on-surface-muted);text-transform:uppercase}
- h2.h{font-family:var(--font-head);font-size:12px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--on-surface);margin:var(--sp-md) 0 10px;display:flex;align-items:center;gap:8px}
- h2.h::after{content:"";flex:1;height:1px;background:var(--surface-variant)}
+ /* 목업의 section label 조판 — 작은 대문자 라벨 + 헤어라인.
+    페이지들이 맨 <h2> 를 쓰므로 클래스 없이도 걸리게 한다. */
+ main h2,h2.h{font-family:var(--font-head);font-size:12px;font-weight:600;
+   letter-spacing:.1em;text-transform:uppercase;color:var(--on-surface);
+   margin:var(--sp-lg) 0 10px;display:flex;align-items:center;gap:8px}
+ main h2::after,h2.h::after{content:"";flex:1;height:1px;background:var(--surface-variant)}
+ /* 헤딩 옆 보조 설명은 대문자화에서 빼고 라벨 톤으로 */
+ main h2 .dim{text-transform:none;letter-spacing:0;font-size:11px;font-weight:400;flex:none}
  table{border-collapse:collapse;width:100%;font-size:13px}
  th{font-family:var(--font-head);font-size:9.5px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--on-surface-muted);text-align:left;padding:8px 10px;border-bottom:1px solid var(--surface-variant);white-space:nowrap}
  td{padding:11px 10px;border-bottom:1px solid rgba(38,49,58,.5);vertical-align:middle}
@@ -117,6 +141,8 @@ CSS = """
  .btn.primary{border-color:var(--primary);color:var(--primary);background:rgba(69,224,111,.06)}
  .btn.run{border:none;color:var(--citadel-void);background:var(--primary);box-shadow:0 0 0 1px rgba(69,224,111,.4),0 6px 18px -6px rgba(69,224,111,.5)}
  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:var(--sp-md);margin-bottom:var(--sp-md)}
+ /* 그리드는 gap 이 간격을 준다 — 카드의 margin-bottom 이 겹쳐 행 간격만 넓어졌다. */
+ .grid>.card{margin-bottom:0}
  .bar{background:var(--surface-variant);border-radius:6px;height:10px;width:140px;display:inline-block;vertical-align:middle;margin-right:8px;overflow:hidden}
  .bar>i{display:block;height:100%;background:var(--primary)}
  .dim{font-size:12px;color:var(--on-surface-muted)} .muted{color:var(--on-surface-muted)}
@@ -888,16 +914,16 @@ load();
 # --- Citadel Gate — 홈/진입 대시보드 (`/`). ---
 PAGE_GATE = shell(
     "/",
-    """<h2>🗄️ 시스템 존 요약 <span class="dim">(raw / normalized / curated — 실측)</span></h2>
+    """<h2>시스템 존 요약 <span class="dim">(raw / normalized / curated — 실측)</span></h2>
 <div class="grid" id="zones"></div>
 
-<h2>🏰 Citadel Spaces <span class="dim">(공간 quick-enter)</span></h2>
+<h2>Citadel Spaces <span class="dim">(공간 quick-enter)</span></h2>
 <div class="grid" id="gate-spaces"></div>
 
-<h2>🎯 Campaign · Subject 랭킹 <span class="dim">(S31 · coverage + value + 독립출처 봉투)</span></h2>
+<h2>Campaign · Subject 랭킹 <span class="dim">(S31 · coverage + value + 독립출처 봉투)</span></h2>
 <div class="grid" id="gate-cards"></div>
 
-<h2>🚦 신호 분포 <span class="dim">(contradicted · low_evidence · high_confidence · normal)</span></h2>
+<h2>신호 분포 <span class="dim">(contradicted · low_evidence · high_confidence · normal)</span></h2>
 <div class="card" id="signals"></div>
 
 <script>
@@ -949,16 +975,16 @@ function esc(s){const d=document.createElement('div');d.textContent=s;return d.i
 # --- Watchtower — 수집 관제 (`/watchtower`). ---
 PAGE_WATCHTOWER = shell(
     "/watchtower",
-    """<h2>🛰️ 수집 관제 요약 <span class="dim">(raw 실측 + normalized publication_time 기준 신선도)</span></h2>
+    """<h2>수집 관제 요약 <span class="dim">(raw 실측 + normalized publication_time 기준 신선도)</span></h2>
 <div class="grid" id="wt-tiles"></div>
 
-<h2>📡 Source 상태 <span class="dim">(raw 존 · source × 문서 수 · source_type)</span></h2>
+<h2>Source 상태 <span class="dim">(raw 존 · source × 문서 수 · source_type)</span></h2>
 <div class="card"><table id="sources"></table></div>
 
-<h2>🛎️ SLO 판정표 <span class="dim">(nightly 5 — 관측 미누적 → 전항 not-measured, 정직)</span></h2>
+<h2>SLO 판정표 <span class="dim">(nightly 5 — 관측 미누적 → 전항 not-measured, 정직)</span></h2>
 <div class="card"><table id="slo"></table></div>
 
-<h2>📈 Error Budget <span class="dim">(위반/측정 — 측정 없음이면 ratio None)</span></h2>
+<h2>Error Budget <span class="dim">(위반/측정 — 측정 없음이면 ratio None)</span></h2>
 <div class="card" id="budget"></div>
 
 <script>
@@ -997,10 +1023,10 @@ function esc(s){const d=document.createElement('div');d.textContent=s;return d.i
 # --- Signal Spire — 알림 센터 (`/spire`). ---
 PAGE_SPIRE = shell(
     "/spire",
-    """<h2>🔔 5 종 트리거 카탈로그 <span class="dim">(정본 signal_spire.TRIGGER_TYPES)</span></h2>
+    """<h2>5 종 트리거 카탈로그 <span class="dim">(정본 signal_spire.TRIGGER_TYPES)</span></h2>
 <div class="card"><table id="spire-triggers"></table></div>
 
-<h2>🕯️ 알림 피드 <span class="dim">(실 점화 없음 → 정직 빈 상태, §6.2)</span></h2>
+<h2>알림 피드 <span class="dim">(실 점화 없음 → 정직 빈 상태, §6.2)</span></h2>
 <div class="card" id="feed"></div>
 
 <script>
@@ -1025,19 +1051,19 @@ function esc(s){const d=document.createElement('div');d.textContent=s;return d.i
 # --- Grand Archive — 문서 탐색 (`/archive`). ---
 PAGE_ARCHIVE = shell(
     "/archive",
-    """<h2>🔎 Sifter <span class="dim">(source_type facet — source_id 접두사 결정적 파생)</span></h2>
+    """<h2>Sifter <span class="dim">(source_type facet — source_id 접두사 결정적 파생)</span></h2>
 <div class="card" id="archive-facets"></div>
 
-<h2>📚 Normalized Documents <span class="dim">(oc.duckdb · read-only · segment 수 포함)</span></h2>
+<h2>Normalized Documents <span class="dim">(oc.duckdb · read-only · segment 수 포함)</span></h2>
 <div class="card"><table id="docs"></table></div>
 
-<h2>📖 Codex · 문서 상세</h2>
+<h2>Codex · 문서 상세</h2>
 <div class="card" id="archive-codex"><span class="muted">문서 행을 선택하세요.</span></div>
 
-<h2>📦 Raw 존 <span class="dim">(source × 문서 수 — Atom meta/전체 page 두 형식 공존)</span></h2>
+<h2>Raw 존 <span class="dim">(source × 문서 수 — Atom meta/전체 page 두 형식 공존)</span></h2>
 <div class="card"><table id="raw"></table></div>
 
-<h2>♻️ Dedup Cluster <span class="dim">(curated clusters)</span></h2>
+<h2>Dedup Cluster <span class="dim">(curated clusters)</span></h2>
 <div class="card" id="clusters"></div>
 
 <script>
@@ -1092,7 +1118,7 @@ function codex(docId){
 # --- Chronicle Vault — 시간 탐색 (`/chronicle`). ---
 PAGE_CHRONICLE = shell(
     "/chronicle",
-    """<h2>⏳ AS-OF 조회 <span class="dim">(valid_at · tx_at ISO datetime — 선택, 기본 현재 tx)</span></h2>
+    """<h2>AS-OF 조회 <span class="dim">(valid_at · tx_at ISO datetime — 선택, 기본 현재 tx)</span></h2>
 <div class="card">
   <form id="asof">
     <label>valid_at <input id="v" name="valid_at" placeholder="2026-08-01T00:00:00"></label>
@@ -1101,19 +1127,19 @@ PAGE_CHRONICLE = shell(
   </form>
 </div>
 
-<h2>🗂️ AS-OF 상태 분해 <span class="dim">(현재 믿음 vs 해당 tx 시점 믿음)</span></h2>
+<h2>AS-OF 상태 분해 <span class="dim">(현재 믿음 vs 해당 tx 시점 믿음)</span></h2>
 <div class="card" id="chron-state"></div>
 
-<h2>📜 Assertions <span class="dim">(bitemporal 범위 + supersedes)</span></h2>
+<h2>Assertions <span class="dim">(bitemporal 범위 + supersedes)</span></h2>
 <div class="card"><table id="assertions"></table></div>
 
-<h2>🧭 War Table 딥링크</h2>
+<h2>War Table 딥링크</h2>
 <div class="card" id="chron-deeplink"></div>
 
-<h2>🔗 Supersedes 체인</h2>
+<h2>Supersedes 체인</h2>
 <div class="card" id="chain"></div>
 
-<h2>⏪ Graph Replay <span class="dim">(postgres `graph_mutations` SoT — ADR-304)</span></h2>
+<h2>Graph Replay <span class="dim">(postgres `graph_mutations` SoT — ADR-304)</span></h2>
 <div class="card" id="replay"></div>
 
 <script>

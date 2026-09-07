@@ -13,6 +13,9 @@ import {Text} from '@astryxdesign/core/Text';
 
 const h = React.createElement;
 
+/** 문서형 페이지의 본문·배너 최대 폭. 뷰어(`main{max-width:1200px}`)와 같은 값. */
+export const CONTENT_WIDTH = 1200;
+
 /** 공간 목록 — (경로, 세계관 명칭, 기술 용어). blueprint L244 병기 규약. */
 export const SPACES = [
   ['citadel-gate', 'Citadel Gate', '본부 · Home'],
@@ -78,6 +81,11 @@ const S = {
   mast: {position: 'relative', display: 'flex', alignItems: 'flex-end', width: '100%',
     padding: '0 24px 20px', overflow: 'hidden',
     borderBottom: '1px solid var(--color-border)'},
+  // 문서형 — 본문(CONTENT_WIDTH)과 폭을 맞춘다. 넓을수록 8:3 상한에 더 많이 걸려
+  // 세로가 잘리므로, 좁히는 쪽이 오히려 그림이 더 보인다.
+  mastNarrow: {maxWidth: CONTENT_WIDTH, width: 'calc(100% - 48px)', margin: '16px auto 0',
+    border: '1px solid var(--color-border)', borderRadius: 'var(--radius-container)',
+    borderBottom: '1px solid var(--color-border)'},
   // 모든 히어로가 1920×720(8:3)이라 고정 높이 밴드로는 세로 23% 만 보인다.
   // 두 유형 모두 8:3 을 지키되 상한을 달리한다 — 상한이 없으면 2560px 뷰포트에서
   // 960px 를 먹는다. 잘리는 곳은 천장 창살·바닥 카펫으로 정보량이 가장 적다.
@@ -109,6 +117,8 @@ const S = {
 function masthead({title, subtitle, hero, fit}) {
   const full = fit === 'full';
   const shape = !hero ? S.mastFlat : full ? S.mastFull : S.mastBand;
+  // 문서형은 본문이 좁으므로 배너도 같이 좁힌다. 앱셸은 패널이 화면 끝까지 가므로 전폭.
+  const narrow = full ? S.mastNarrow : null;
   // 히어로가 있으면 아래에서 위로 걷히는 스크림 — 글자만 덮고 그림 본체는 살린다.
   // 히어로가 없으면 좌→우 (원본 밴드 조판).
   const scrim = hero
@@ -120,7 +130,7 @@ function masthead({title, subtitle, hero, fit}) {
     'var(--color-background-surface)',
   ].filter(Boolean).join(', ');
   return h('div', {
-    style: {...S.mast, ...shape, background: layers},
+    style: {...S.mast, ...shape, ...narrow, background: layers},
   },
     h('div', {},
       h('h1', {style: S.mastH1}, title),
@@ -173,7 +183,12 @@ export function shell({route, eyebrow, context, title, subtitle, hero, alerts = 
    * 문서형 페이지는 `auto` 로 두어 자연 스크롤에 맡긴다. 앱셸 페이지는 패널이
    * 독립 스크롤해야 하므로 `fill` 을 유지한다.
    */
-  return h(Layout, {height: fit === 'full' ? 'auto' : 'fill', header, ...slots});
+  return h(Layout, {
+    height: fit === 'full' ? 'auto' : 'fill',
+    // 문서형만 본문 폭을 제한한다 — 배너와 정렬된다. 앱셸 패널은 전폭 유지.
+    ...(fit === 'full' ? {contentWidth: CONTENT_WIDTH} : null),
+    header, ...slots,
+  });
 }
 
 /** 섹션 소제목 — 원본 목업 `.panel-head` 의 라벨 조판. */

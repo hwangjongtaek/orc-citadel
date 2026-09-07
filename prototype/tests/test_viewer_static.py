@@ -266,3 +266,51 @@ def test_masthead_matches_content_width(shells):
     mast = mast[:mast.index("}")]
     assert "max-width:1200px" in mast, mast
     assert "margin:var(--sp-md) auto 0" in mast, mast
+
+
+# --- 목업 시각 언어 이식 (카드 패딩·섹션 헤딩·입력 조판) --------------------
+
+def test_cards_have_padding(shells):
+    """`.card>.body` 래퍼를 쓰는 곳이 35개 중 5개뿐이라 나머지는 내용이
+    테두리에 붙어 있었다 — 패딩은 카드 자체가 가진다."""
+    css = shells["/"]
+    assert ".card{margin-bottom:var(--sp-md);padding:var(--sp-md)}" in css
+    # 표는 카드 끝까지 흘러야 한다.
+    assert ".card:has(>table){padding:0}" in css
+    # 그리드는 gap 이 간격을 준다 — 카드 margin 과 겹치면 행 간격만 넓어진다.
+    assert ".grid>.card{margin-bottom:0}" in css
+
+
+def test_section_headings_use_mockup_label_type(shells):
+    """페이지들이 맨 <h2> 를 써서 브라우저 기본(큰 볼드)으로 나오고 있었다.
+    목업의 section label 조판(작은 대문자 + 헤어라인)을 클래스 없이도 건다."""
+    css = shells["/"]
+    assert "main h2,h2.h{" in css
+    assert "main h2::after,h2.h::after" in css
+
+
+def test_form_controls_are_themed(shells):
+    """브라우저 기본 위젯이 다크 표면 위에서 흰 상자로 튄다 (DESIGN.md input)."""
+    css = shells["/"]
+    assert "main input,main select,main textarea{" in css
+    assert "main button{" in css
+
+
+def test_no_emoji_in_section_headings(shells):
+    """목업에는 이모지 헤딩이 없다 — 조판으로 위계를 만든다."""
+    import re
+    for route, page in shells.items():
+        for m in re.finditer(r"<h2[^>]*>(.{0,3})", page):
+            head = m.group(1)
+            assert not any(ord(c) > 0x2000 and not ("가" <= c <= "힣")
+                           for c in head), (route, head)
+
+
+def test_council_has_no_duplicate_stopping_heading(shells):
+    """base 요약 그리드와 ext trace 그리드가 나란히 쌓이며 'Stopping' 이 두 번
+    나오던 것 — 두 번째는 on-request 실측 섹션으로 분리한다."""
+    page = shells["/council"]
+    assert page.count("<h2>Stopping · Cost · Audit</h2>") == 1
+    assert page.count("<h2>Stopping · Audit</h2>") == 0
+    assert "Stopping · Audit 실측" in page
+    assert "조사 Trace" in page
