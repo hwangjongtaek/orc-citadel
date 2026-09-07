@@ -72,7 +72,7 @@
 
 > 산출: 저작 소스 `design-system/mockups/src/` → 출력 `docs/mockups/`(정본 승격). 10페이지(8공간 + index + empty-states) 328KB.
 > 회귀 가드: `prototype/tests/test_mockups_build.py` 42개(테마 스코프·클라이언트 JS 0·핵심 블록·Astryx 컴포넌트 흔적·자산 참조 실재·토큰 하드코딩 금지). 전체 스위트 **1252 passed**(pre-existing `test_claude_*` 2건 무관).
-> 브라우저 실렌더 8공간 전부 확인. **히어로 크기 정책** — 원본이 전 페이지 132px 고정 밴드였는데 히어로가 전부 1920×720(8:3)이라 세로 23% 만 보였다. 문서형 페이지(패널 없음)는 `aspect-ratio: 8/3` + `Layout height:'auto'` 로 그림 전체를, 앱셸 페이지는 압축 밴드를 쓰도록 슬롯 구성에서 자동 분기한다.
+> 브라우저 실렌더 8공간 전부 확인. **히어로 크기 정책** — 원본이 전 페이지 132px 고정 밴드였는데 히어로가 전부 1920×720(8:3)이라 세로 23% 만 보였다. 히어로가 있는 페이지는 전부 `aspect-ratio: 8/3` 을 지키고 상한으로 본문 공간을 지킨다 — 문서형 360px, 앱셸 240px. 상한이 없으면 2560px 뷰포트에서 960px 를 먹는다. 히어로가 없는 index·empty-states 는 평평한 밴드.
 > **폰트 vendoring 동반 완료** — `design-system/fonts/`(12 faces·217KB·SIL OFL-1.1 동봉)로 A3 해소. 목업이 로컬 woff2 를 물어 Cinzel 워드마크·Space Grotesk·Inter 가 실제 적용된다(한글은 여전히 시스템 폴백 — 라틴 4서체에 한글 글리프 없음, 원본 동일).
 
 **왜 여기가 먼저인가 (2026-09-07 실측으로 순서 변경).** Astryx 컴포넌트를 `renderToStaticMarkup` 으로 **정적 HTML 로 뽑을 수 있음을 실증**했다 — 번들러·SPA·클라이언트 JS 없이 산출물은 HTML 한 장 + CSS 3장(`reset.css`·`astryx.css`·`theme-citadel/theme.css`). React 는 빌드 시점 도구일 뿐이라 `theme-citadel` 빌드와 같은 지위다.

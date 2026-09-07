@@ -78,8 +78,17 @@ const S = {
   mast: {position: 'relative', display: 'flex', alignItems: 'flex-end', width: '100%',
     padding: '0 24px 20px', overflow: 'hidden',
     borderBottom: '1px solid var(--color-border)'},
-  mastFull: {aspectRatio: '8 / 3', minHeight: 200},
-  mastBand: {height: 132, alignItems: 'center', padding: '0 24px'},
+  // 모든 히어로가 1920×720(8:3)이라 고정 높이 밴드로는 세로 23% 만 보인다.
+  // 두 유형 모두 8:3 을 지키되 상한을 달리한다 — 상한이 없으면 2560px 뷰포트에서
+  // 960px 를 먹는다. 잘리는 곳은 천장 창살·바닥 카펫으로 정보량이 가장 적다.
+  //   full 360px — 문서형. 폭 960px 이하에서는 이미지 전체가 보인다.
+  //   band 240px — 앱셸. 3열 본문에 세로를 남겨야 하지만 원본 132px(23%)보다
+  //                장면이 훨씬 잘 읽힌다.
+  // `flexShrink: 0` 없으면 `height:'fill'` 인 앱셸에서 헤더가 눌려 더 잘린다.
+  mastFull: {aspectRatio: '8 / 3', maxHeight: 360, minHeight: 200, flexShrink: 0},
+  mastBand: {aspectRatio: '8 / 3', maxHeight: 240, minHeight: 150, flexShrink: 0},
+  // 히어로 이미지가 없으면 8:3 이 빈 그라데이션 덩어리가 된다 (index·empty-states).
+  mastFlat: {height: 132, alignItems: 'center', padding: '0 24px', flexShrink: 0},
   mastH1: {fontFamily: 'var(--font-family-heading)', fontSize: 22, fontWeight: 600,
     color: 'var(--color-text-primary)', textShadow: '0 2px 14px rgba(7,17,28,.9)', margin: 0},
   mastP: {fontFamily: 'var(--font-family-heading)', fontSize: 11, fontWeight: 500,
@@ -99,18 +108,19 @@ const S = {
  */
 function masthead({title, subtitle, hero, fit}) {
   const full = fit === 'full';
-  // full: 아래에서 위로 걷히는 스크림 — 글자만 덮고 그림 본체는 살린다.
-  // band: 좌→우 스크림 — 얇아서 세로로 가릴 여지가 없다.
-  const scrim = full
+  const shape = !hero ? S.mastFlat : full ? S.mastFull : S.mastBand;
+  // 히어로가 있으면 아래에서 위로 걷히는 스크림 — 글자만 덮고 그림 본체는 살린다.
+  // 히어로가 없으면 좌→우 (원본 밴드 조판).
+  const scrim = hero
     ? 'linear-gradient(0deg, rgba(7,17,28,.94) 0%, rgba(7,17,28,.55) 26%, rgba(7,17,28,.12) 55%, rgba(7,17,28,0) 80%)'
     : 'linear-gradient(90deg, rgba(7,17,28,.92) 0%, rgba(7,17,28,.6) 42%, rgba(7,17,28,.32) 100%)';
   const layers = [
     scrim,
-    hero ? `url('./assets/${hero}') center ${full ? 'center' : '42%'} / cover no-repeat` : null,
+    hero ? `url('./assets/${hero}') center center / cover no-repeat` : null,
     'var(--color-background-surface)',
   ].filter(Boolean).join(', ');
   return h('div', {
-    style: {...S.mast, ...(full ? S.mastFull : S.mastBand), background: layers},
+    style: {...S.mast, ...shape, background: layers},
   },
     h('div', {},
       h('h1', {style: S.mastH1}, title),
@@ -134,10 +144,12 @@ export function shell({route, eyebrow, context, title, subtitle, hero, alerts = 
   /**
    * 히어로 크기는 페이지 구조에서 자동으로 갈린다.
    * 좌·우 패널이 있는 앱셸 페이지는 세로가 귀하므로 압축 밴드,
-   * content 만 있는 문서형 페이지는 8:3 을 지켜 그림 전체를 보여준다.
+   * content 만 있는 문서형 페이지는 8:3(상한 360px)로 그림을 크게 보여준다.
+   * 히어로 이미지가 없으면 큰 밴드가 빈 그라데이션 덩어리가 되므로 밴드로 내린다.
    * `heroFit` 으로 명시 지정할 수 있다.
    */
-  const fit = heroFit || (slots.start || slots.end ? 'band' : 'full');
+  const fit = heroFit
+    || (!hero || slots.start || slots.end ? 'band' : 'full');
   const header = h(LayoutHeader, {padding: 0, hasDivider: false},
     h('div', {style: S.bar},
       h('a', {style: S.wordmark, href: './index.html'}, crest(), 'ORC CITADEL'),

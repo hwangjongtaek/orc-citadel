@@ -81,17 +81,16 @@ export const citadelTheme = defineTheme({
   radius: {base: 4, multiplier: 1},
 
   /**
-   * 색 — accent 시드로 accent 계열(muted·text·icon)을 파생시킨다.
-   * 표면이 청회색 석재라 neutralStyle 은 cool.
+   * `color:` 스케일 설정은 **쓰지 않는다.**
    *
-   * 단, 시드는 HCT 로 정규화되어 `#45E06F` → `#47E270` 로 미세하게 표류한다.
-   * DESIGN.md 가 정본이므로 `tokens` 에서 `--color-accent` 를 정확한 값으로
-   * 되돌리고, 대비 계산으로 구워지는 `--color-on-accent` 도 함께 명시한다
-   * (한쪽만 덮으면 둘이 어긋난다는 defineTheme 문서 경고에 대한 대응).
-   * `--color-accent-muted`·`--color-text-accent`·`--color-icon-accent` 는
-   * `var(--color-accent)` 참조라 자동으로 따라온다.
+   * HCT 팔레트 생성은 light/dark 두 벌을 만들고 `:root { color-scheme: light dark }`
+   * 를 발행한다. 그러면 DESIGN.md 에 없는 라이트 모드가 생겨 — 아래 `tokens` 로
+   * 덮지 않은 토큰이 OS 라이트 모드에서 전부 밝은 값으로 뒤집힌다.
+   * 다크 전용 선례(theme-gothic)도 `color:` 없이 단일 값 토큰만 쓴다.
+   *
+   * accent 는 `tokens` 에서 DESIGN.md 값으로 직접 고정한다. HCT 시드를 쓰면
+   * `#45E06F` → `#47E270` 로 표류하기도 한다.
    */
-  color: {neutralStyle: 'cool', contrast: 'standard'},
 
   syntax: citadelSyntax,
 

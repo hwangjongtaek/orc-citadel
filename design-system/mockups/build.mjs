@@ -47,7 +47,7 @@ const ASSETS = join(DIST, 'assets');
 
 function page(title, body) {
   return `<!doctype html>
-<html lang="ko">
+<html lang="ko" data-astryx-theme="citadel">
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>${title}</title>
@@ -56,7 +56,11 @@ function page(title, body) {
 <link rel="stylesheet" href="./astryx.css" />
 <link rel="stylesheet" href="./theme-citadel.css" />
 <style>
-  html, body { height: 100%; margin: 0; background: var(--color-background-body); }
+  /* 스코프 루트는 <html> 이다 — Astryx 기본 토큰이 :root 에 light-dark() 로 깔려
+     있어, <body> 를 루트로 잡으면 <html> 이 기본 라이트 팔레트를 써서 본문 아래가
+     흰색으로 남는다(문서가 body 보다 길 때 드러남). */
+  html { min-height: 100%; background: var(--color-background-body); }
+  body { margin: 0; background: var(--color-background-body); }
   a { color: inherit; }
   ::selection { background: rgba(69,224,111,.25); }
 
@@ -72,7 +76,7 @@ function page(title, body) {
   .box-sub    { font-family: var(--font-family-code); font-size: 10px; fill: var(--color-text-secondary); }
   .wt-graph, .plane-svg { width: 100%; height: 100%; display: block; }
 </style>
-<body data-astryx-theme="citadel">${body}</body>
+<body>${body}</body>
 </html>
 `;
 }

@@ -99,37 +99,61 @@ def test_assets_referenced_exist(pages: dict[str, str]) -> None:
     assert not missing, f"참조되지만 없는 자산: {missing}"
 
 
-# 히어로는 전부 1920×720 (8:3). 고정 높이 밴드에 cover 로 넣으면 세로 23% 만 보인다.
-# 문서형 페이지는 8:3 을 지켜 그림 전체를 보이고, 앱셸 페이지는 좌·우 패널이
-# 세로를 다투므로 압축 밴드를 쓴다.
-FULL_HERO = ["index", "citadel-gate", "watchtower", "empty-states"]
-BAND_HERO = ["war-table", "hall-of-witnesses", "council-chamber",
-             "grand-archive", "chronicle-vault", "signal-spire"]
+# 히어로는 전부 1920×720 (8:3). 원본처럼 132px 고정 밴드에 cover 로 넣으면
+# 세로 23% 만 보여 장면이 안 읽힌다. 히어로가 있는 페이지는 전부 8:3 을 지키되,
+# 상한으로 본문 공간을 지킨다 — 상한이 없으면 2560px 뷰포트에서 960px 를 먹는다.
+HERO_CAP = {
+    # 문서형 — 좌·우 패널이 없어 세로를 더 쓸 수 있다.
+    "citadel-gate": 360, "watchtower": 360,
+    # 앱셸 — 3열 본문에 세로를 남긴다. 그래도 원본 132px 보다 훨씬 잘 읽힌다.
+    "war-table": 240, "hall-of-witnesses": 240, "council-chamber": 240,
+    "grand-archive": 240, "chronicle-vault": 240, "signal-spire": 240,
+}
+# 히어로 이미지가 없는 페이지 — 8:3 이면 빈 그라데이션 덩어리가 된다.
+FLAT_BAND = ["index", "empty-states"]
 
 
-@pytest.mark.parametrize("name", FULL_HERO)
-def test_document_pages_show_full_hero(pages: dict[str, str], name: str) -> None:
+@pytest.mark.parametrize("name,cap", sorted(HERO_CAP.items()))
+def test_hero_keeps_aspect_and_is_capped(pages: dict[str, str], name: str, cap: int) -> None:
     html = pages[name]
     assert "aspect-ratio:8 / 3" in html, f"{name}: 히어로가 8:3 을 지키지 않는다"
-    assert "height:132px" not in html
-    # `height: fill` 이면 헤더가 뷰포트 안으로 눌려 8:3 이 도로 잘린다.
-    assert 'data-height="auto"' in html or "height:132px" not in html
+    assert f"max-height:{cap}px" in html, f"{name}: 히어로 상한 {cap}px 가 없다"
+    assert "height:132px" not in html, f"{name}: 원본 고정 밴드가 남아 있다"
 
 
-@pytest.mark.parametrize("name", BAND_HERO)
-def test_app_shell_pages_keep_compact_band(pages: dict[str, str], name: str) -> None:
-    """좌·우 패널이 있는 페이지에서 8:3 히어로를 쓰면 본문이 화면 밖으로 밀린다."""
+@pytest.mark.parametrize("name", FLAT_BAND)
+def test_pages_without_hero_use_flat_band(pages: dict[str, str], name: str) -> None:
+    """히어로 이미지가 없으면 8:3 은 빈 그라데이션 덩어리가 된다.
+
+    index 의 `crest-hero.png` 는 1024×1024(1:1)이라 8:3 에 넣으면 2.7배로 확대돼
+    화면을 뒤덮었다 — 히어로에서 빼고 본문에 마크로 두었다.
+    """
     html = pages[name]
-    assert "height:132px" in html, f"{name}: 압축 밴드가 아니다"
+    assert "height:132px" in html, f"{name}: 평평한 밴드가 아니다"
     assert "aspect-ratio:8 / 3" not in html
+    assert "crest-hero.png" not in html or name == "index"
 
 
 def test_masthead_has_explicit_width(pages: dict[str, str]) -> None:
     """LayoutHeader 의 flex 자식이라 width 를 안 주면 폭이 접히고,
     그러면 aspect-ratio 가 접힌 폭 기준으로 계산돼 히어로가 조각으로 나온다."""
-    for name in FULL_HERO:
+    for name in HERO_CAP:
         mast = re.search(r'style="[^"]*aspect-ratio:8 / 3[^"]*"', pages[name])
         assert mast and "width:100%" in mast.group(0), name
+        # `height:'fill'` 인 앱셸에서 헤더가 눌려 히어로가 더 잘리는 것을 막는다.
+        assert "flex-shrink:0" in mast.group(0), name
+
+
+def test_scope_root_is_html_not_body(pages: dict[str, str]) -> None:
+    """스코프 루트는 `<html>` 이어야 한다.
+
+    astryx.css 가 기본 토큰을 `:root` 에 `light-dark()` 로 깔아둔다. `<body>` 를
+    루트로 잡으면 `<html>` 이 Astryx 기본 **라이트** 팔레트를 그대로 써서,
+    문서가 body 보다 길 때 본문 아래가 흰색으로 남는다(다크 모드에선 안 드러남).
+    """
+    for name, html in pages.items():
+        assert '<html lang="ko" data-astryx-theme="citadel">' in html, name
+        assert "<body data-astryx-theme" not in html, name
 
 
 def test_design_tokens_not_hardcoded_in_shell(pages: dict[str, str]) -> None:

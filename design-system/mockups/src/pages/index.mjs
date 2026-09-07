@@ -19,9 +19,12 @@ const DETAIL = {
 };
 
 const body = h(LayoutContent, {padding: 4},
-  h(Text, {type: 'supporting'},
+  h('div', {style: {display: 'flex', alignItems: 'center', gap: 14, marginBottom: 16}},
+    h('img', {src: './assets/crest-hero.png', alt: 'Orc Citadel 문장',
+      width: 56, height: 56, style: {imageRendering: 'pixelated', flex: 'none'}}),
+    h(Text, {type: 'supporting'},
     'Astryx + theme-citadel 로 재작성한 8공간 정적 목업. '
-    + '컴포넌트는 빌드 시점에 정적 HTML 로 렌더되며 클라이언트 JS 는 없다.'),
+      + '컴포넌트는 빌드 시점에 정적 HTML 로 렌더되며 클라이언트 JS 는 없다.')),
   h('div', {style: {marginTop: 20}},
     grid(4, 16, ...SPACES.map(([slug, name, role]) => {
       const [desc, spec] = DETAIL[slug];
@@ -55,7 +58,6 @@ export const render = () => shell({
   context: '목업 인덱스',
   title: 'Orc Citadel · 목업 인덱스',
   subtitle: 'Citadel 8공간 · Astryx + theme-citadel',
-  hero: 'crest-hero.png',
   alerts: 3,
   slots: {content: body},
 });
