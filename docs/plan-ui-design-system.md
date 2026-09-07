@@ -167,7 +167,26 @@ L1 갭 전체를 소진한다. Phase 3 의 성패와 무관하게 **손실 없�
 - **확대:** 갭 순서(Council 중복 패널 → Archive → Watchtower → Chronicle → War Table → Witnesses → Gate)대로 이관. 이 시점에 `stdlib only` 불변식 개정과 3단계 기록 절차를 밟는다.
 - **축소:** 파일럿 폐기. Phase 2 토큰 위에서 L2 갭을 파이썬으로 구현. `theme-citadel` 은 그대로 남아 타 프로젝트 자산이 된다.
 
-## 7. 병행 트랙 — L3 데이터 (UI 아님, 그러나 선행에 가깝다)
+## 7. 병행 트랙 — L3 데이터 · ✅ 적재 완료 (2026-09-07)
+
+> **근본 원인은 데이터 부재가 아니라 드라이버 선택이었다.** `pipeline_full_smoke`(구 스모크)는
+> extraction record 를 영속하지 않아 claim 이 `missing_provenance_record`(ADR-305)로 전량
+> quarantine 된다 — 실측 722 claims 중 promoted **0**. 정식 진입점 `run_pipeline` 은 그 단계를
+>포함해 같은 입력에서 **722/722** 를 승격시킨다.
+>
+> 신설 `prototype/scripts/rebuild_zones.py` — 대량 적재 드라이버가 없었다. 정식 경로만 쓰고,
+> `.new` 로 만들어 성공 시에만 교체(직전은 `.bak`), 승격 0 이면 교체하지 않고 중단한다.
+>
+> 결과: normalized **6 → 105,252 docs / 823,629 segments** (전량, 실패 0) ·
+> curated **29 → 722 assertions**, entities **7 → 25**, dup_clusters **0 → 528**.
+> Hall of Witnesses 원문 왕복 **해소율 100%** (깨져 있던 핵심 기능 복구).
+>
+> **알려진 한계 — 파이프라인이 10만 규모에 안 선다.** `canonicalize_claims` 는 (subject,
+> predicate) 그룹 내 쌍별 비교, `find_conflict_candidates` 는 5단 중첩이라 O(n²)다. 전량
+> 105k 로 돌리면 2시간 넘게 100% CPU 로 산출물이 정지한다(실측 후 중단). curated 는 도메인
+> 소스 781건으로 적재했다 — arXiv cs-CR 104,471건은 공급망 도메인 관련도가 낮다. normalized 는
+> 선형이라 전량 유지. 2차 복잡도 해소는 별도 과제.
+
 
 curated 29 assertions / normalized 6 docs vs raw 105,252. **어느 경로를 택하든 이게 해결되지 않으면 화면은 계속 비어 보인다.** 특히 Hall of Witnesses 의 3-hop 원문 왕복은 curated evidence 의 `doc_id` 가 normalized 존에 없어 현재 기능 자체가 무효다. Phase 2 와 병행 착수를 권장한다.
 

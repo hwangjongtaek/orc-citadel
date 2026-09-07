@@ -11,6 +11,8 @@ raw zone은 파일로 유지(content.bin + fetch.json, 설계 §2.1)하고, 이 
 """
 from __future__ import annotations
 
+import threading
+
 import duckdb
 
 from .identity import doc_id_for
@@ -21,8 +23,24 @@ class NormalizedZone:
     """DuckDB 백드 정규화 zone."""
 
     def __init__(self, path: str = ":memory:") -> None:
-        self._conn = duckdb.connect(path)
+        self._root = duckdb.connect(path)
+        self._local = threading.local()
         self._path = path
+
+    @property
+    def _conn(self):
+        """스레드별 DuckDB 커서.
+
+        뷰어는 `ThreadingHTTPServer` 라 동시 요청이 같은 zone 객체를 공유한다.
+        DuckDB 커넥션은 스레드 안전하지 않아, 두 스레드가 한 커넥션에서
+        `execute` 를 교차하면 결과가 뒤섞인다 — 실제로 `extraction_records()` 의
+        `SELECT *` 와 `DESCRIBE` 가 어긋나 `KeyError: 'element_id'` 로 터졌다.
+        `cursor()` 는 같은 DB 를 공유하는 독립 커넥션이라 이 교차를 없앤다.
+        """
+        conn = getattr(self._local, "conn", None)
+        if conn is None:
+            conn = self._local.conn = self._root.cursor()
+        return conn
 
     def initialize(self) -> None:
         self._conn.execute(
@@ -142,4 +160,4 @@ class NormalizedZone:
         )
 
     def close(self) -> None:
-        self._conn.close()
+        self._root.close()
