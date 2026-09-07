@@ -70,9 +70,9 @@
 
 ## 3. Phase 1 — 목업 재작성 (Astryx SSG) · ✅ 완료 (2026-09-07)
 
-> 산출: `design-system/mockups/` — 10페이지(8공간 + index + empty-states) 327KB, `dist/` 커밋.
+> 산출: 저작 소스 `design-system/mockups/src/` → 출력 `docs/mockups/`(정본 승격). 10페이지(8공간 + index + empty-states) 328KB.
 > 회귀 가드: `prototype/tests/test_mockups_build.py` 42개(테마 스코프·클라이언트 JS 0·핵심 블록·Astryx 컴포넌트 흔적·자산 참조 실재·토큰 하드코딩 금지). 전체 스위트 **1252 passed**(pre-existing `test_claude_*` 2건 무관).
-> 브라우저 실렌더 8공간 전부 확인.
+> 브라우저 실렌더 8공간 전부 확인. **히어로 크기 정책** — 원본이 전 페이지 132px 고정 밴드였는데 히어로가 전부 1920×720(8:3)이라 세로 23% 만 보였다. 문서형 페이지(패널 없음)는 `aspect-ratio: 8/3` + `Layout height:'auto'` 로 그림 전체를, 앱셸 페이지는 압축 밴드를 쓰도록 슬롯 구성에서 자동 분기한다.
 > **폰트 vendoring 동반 완료** — `design-system/fonts/`(12 faces·217KB·SIL OFL-1.1 동봉)로 A3 해소. 목업이 로컬 woff2 를 물어 Cinzel 워드마크·Space Grotesk·Inter 가 실제 적용된다(한글은 여전히 시스템 폴백 — 라틴 4서체에 한글 글리프 없음, 원본 동일).
 
 **왜 여기가 먼저인가 (2026-09-07 실측으로 순서 변경).** Astryx 컴포넌트를 `renderToStaticMarkup` 으로 **정적 HTML 로 뽑을 수 있음을 실증**했다 — 번들러·SPA·클라이언트 JS 없이 산출물은 HTML 한 장 + CSS 3장(`reset.css`·`astryx.css`·`theme-citadel/theme.css`). React 는 빌드 시점 도구일 뿐이라 `theme-citadel` 빌드와 같은 지위다.
@@ -94,17 +94,22 @@
 ### 산출물
 
 ```
-design-system/mockups/
-├── build.mjs        SSG 드라이버 (렌더 → HTML + CSS·assets 복사)
-├── src/shell.mjs    공유 셸 (마스트헤드·공간 탭·푸터)
-├── src/data.mjs     목업 픽스처 데이터
-├── src/pages/*.mjs  8페이지 + index + empty-states
-└── dist/            생성물 (커밋)
+design-system/mockups/     저작 소스
+├── build.mjs              SSG 드라이버
+├── src/shell.mjs          공유 셸 (헤더·공간 탭·히어로)
+├── src/ui.mjs             Astryx 헬퍼 + 도메인 시각 요소
+├── src/svg/*.svg          원본에서 옮긴 도메인 SVG
+└── src/pages/*.mjs        8공간 + index + empty-states
+
+docs/mockups/              출력 (정본·커밋)
+├── *.html *.css fonts/    생성물
+├── assets/                히어로·초상·빈상태 PNG (생성물 아님)
+└── illustration-prompts.md (생성물 아님)
 ```
 
 JSX 를 쓰지 않고 `React.createElement` 로 저작한다 — 번들러 없음 성질을 끝까지 유지하기 위해서다. Phase 3 로 확대할 때 Vite/esbuild 도입은 게이트 ④·⑤에서 별도로 판단한다.
 
-**원본은 보존한다.** `docs/mockups/*.html` 은 갭 분석의 기준선이므로 덮어쓰지 않는다. `design-system/mockups/dist/` 에 생성해 나란히 비교한 뒤, 승인되면 승격한다.
+**출력은 `docs/mockups/` 정본을 덮어쓴다** (2026-09-07 승격 완료). 재작성 이전의 손으로 쓴 판본(2026-08-03)은 승격 직전 커밋에 남아 있고, 갭 분석의 기준선이 그 판본이다. `docs/mockups/` 에는 생성물이 아닌 것도 살므로(`illustration-prompts.md`·`assets/`) 빌드는 디렉터리를 통째로 지우지 않고 자기가 만드는 파일만 덮어쓴다.
 
 ### 범위 밖 (재작성해도 손으로 써야 하는 것)
 

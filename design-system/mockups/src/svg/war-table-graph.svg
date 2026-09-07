@@ -1,0 +1,100 @@
+<svg class="wt-graph" viewBox="0 0 900 560" preserveAspectRatio="xMidYMid meet">
+          <defs>
+            <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="#59636A"/>
+            </marker>
+            <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+              <feGaussianBlur stdDeviation="6" result="b"/>
+              <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+            </filter>
+          </defs>
+
+          <!-- Edges (drawn first, low contrast unless part of selected trail) -->
+          <!-- A사 -> Claim-123 (MADE_CLAIM) -->
+          <g opacity="0.85">
+            <line x1="250" y1="150" x2="430" y2="240" stroke="#59636A" stroke-width="1.4" marker-end="url(#arrow)"/>
+            <text class="edge-label" x="330" y="188">made_claim</text>
+          </g>
+          <!-- Claim-123 ABOUT B사 -->
+          <g opacity="0.85">
+            <line x1="470" y1="270" x2="250" y2="380" stroke="#59636A" stroke-width="1.4" marker-end="url(#arrow)"/>
+            <text class="edge-label" x="322" y="342">about</text>
+          </g>
+          <!-- Evidence-456 SUPPORTS Claim-123 (selected trail — bright) -->
+          <g filter="url(#glow)">
+            <line x1="690" y1="150" x2="510" y2="238" stroke="#45E06F" stroke-width="2.4"/>
+            <text class="edge-label" x="590" y="182" fill="#45E06F">supports</text>
+          </g>
+          <!-- Evidence-789 CONTRADICTS Claim-123 (double line) -->
+          <g>
+            <line x1="700" y1="380" x2="512" y2="286" stroke="#E05252" stroke-width="1.5"/>
+            <line x1="697" y1="386" x2="509" y2="292" stroke="#E05252" stroke-width="1.5"/>
+            <text class="edge-label" x="588" y="352" fill="#E05252">contradicts</text>
+          </g>
+          <!-- Claim-201 SUPERSEDES Claim-123 (dotted, faded) -->
+          <g opacity="0.9">
+            <line x1="470" y1="430" x2="470" y2="300" stroke="#59636A" stroke-width="2" stroke-dasharray="1 4" marker-end="url(#arrow)"/>
+            <text class="edge-label" x="482" y="368">supersedes</text>
+          </g>
+          <!-- Event-C QUALIFIES Claim-201 (dashed amber) -->
+          <g>
+            <line x1="250" y1="470" x2="430" y2="452" stroke="#FFB13B" stroke-width="2" stroke-dasharray="5 3" marker-end="url(#arrow)"/>
+            <text class="edge-label" x="318" y="446" fill="#FFB13B">qualifies</text>
+          </g>
+          <!-- POSSIBLY_SAME_AS uncertain (dashed violet) -->
+          <g>
+            <line x1="700" y1="380" x2="700" y2="470" stroke="#A78BFA" stroke-width="2" stroke-dasharray="2 3"/>
+            <text class="edge-label" x="712" y="430" fill="#A78BFA">poss. same_as</text>
+          </g>
+
+          <!-- Nodes -->
+          <!-- A사 (Organization) -->
+          <g>
+            <circle cx="210" cy="150" r="40" fill="#111820" stroke="#26313A" stroke-width="1.5"/>
+            <text class="node-type" x="210" y="140" text-anchor="middle">Organization</text>
+            <text class="node-label" x="210" y="156" text-anchor="middle">A사</text>
+          </g>
+          <!-- B사 (Organization, 기존 공급자) -->
+          <g opacity="0.75">
+            <circle cx="210" cy="410" r="34" fill="#111820" stroke="#26313A" stroke-width="1.5"/>
+            <text class="node-type" x="210" y="402" text-anchor="middle">Org · 기존</text>
+            <text class="node-label" x="210" y="418" text-anchor="middle">B사</text>
+          </g>
+          <!-- Claim-123 (SELECTED) -->
+          <g filter="url(#glow)">
+            <circle cx="470" cy="262" r="48" fill="#111820" stroke="#45E06F" stroke-width="2.4"/>
+            <text class="node-type" x="470" y="246" text-anchor="middle" fill="#45E06F">Claim · asserted</text>
+            <text class="node-label" x="470" y="264" text-anchor="middle">B사 의존</text>
+            <text class="node-sub" x="470" y="281" text-anchor="middle">claim-123</text>
+          </g>
+          <!-- Claim-201 (신규 계약) -->
+          <g>
+            <circle cx="470" cy="462" r="38" fill="#111820" stroke="#26313A" stroke-width="1.5"/>
+            <text class="node-type" x="470" y="452" text-anchor="middle">Claim · 신규</text>
+            <text class="node-label" x="470" y="468" text-anchor="middle">C사 계약</text>
+          </g>
+          <!-- Evidence-456 (SUPPORTS) -->
+          <g>
+            <rect x="654" y="118" width="82" height="64" rx="8" fill="#111820" stroke="#45E06F" stroke-width="1.5"/>
+            <text class="node-type" x="695" y="142" text-anchor="middle" fill="#45E06F">Evidence</text>
+            <text class="node-sub" x="695" y="160" text-anchor="middle">공시 10-K</text>
+            <text class="node-sub" x="695" y="174" text-anchor="middle" style="fill:#59636A">ev-456</text>
+          </g>
+          <!-- Evidence-789 (CONTRADICTS) -->
+          <g>
+            <rect x="659" y="350" width="82" height="60" rx="8" fill="#111820" stroke="#E05252" stroke-width="1.5"/>
+            <text class="node-type" x="700" y="374" text-anchor="middle" fill="#E05252">Evidence</text>
+            <text class="node-sub" x="700" y="392" text-anchor="middle">보도자료</text>
+            <text class="node-sub" x="700" y="404" text-anchor="middle" style="fill:#59636A">ev-789</text>
+          </g>
+          <!-- Event-C (규제/발표) -->
+          <g opacity="0.9">
+            <polygon points="210,442 236,470 210,498 184,470" fill="#111820" stroke="#26313A" stroke-width="1.5"/>
+            <text class="node-sub" x="210" y="474" text-anchor="middle">Event</text>
+          </g>
+          <!-- quarantine candidate -->
+          <g opacity="0.8">
+            <circle cx="700" cy="500" r="24" fill="#111820" stroke="#A78BFA" stroke-width="1.5" stroke-dasharray="3 3"/>
+            <text class="node-sub" x="700" y="504" text-anchor="middle" style="fill:#A78BFA">C사?</text>
+          </g>
+        </svg>

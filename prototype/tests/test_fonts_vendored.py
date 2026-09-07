@@ -83,7 +83,7 @@ def test_ofl_licenses_bundled() -> None:
 
 def test_mockups_link_vendored_fonts() -> None:
     """목업이 vendoring 폰트를 실제로 건다 — 링크 누락은 조용히 폴백으로만 드러난다."""
-    mockups = DIST.parents[1] / "mockups" / "dist"
+    mockups = DIST.parents[2] / "docs" / "mockups"
     if not mockups.exists():  # pragma: no cover
         pytest.skip("mockups dist 없음")
     html = (mockups / "citadel-gate.html").read_text(encoding="utf-8")
