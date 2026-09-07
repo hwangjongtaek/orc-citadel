@@ -106,8 +106,8 @@ HERO_CAP = {
     # 문서형 — 좌·우 패널이 없어 세로를 더 쓸 수 있다.
     "citadel-gate": 360, "watchtower": 360,
     # 앱셸 — 3열 본문에 세로를 남긴다. 그래도 원본 132px 보다 훨씬 잘 읽힌다.
-    "war-table": 240, "hall-of-witnesses": 240, "council-chamber": 240,
-    "grand-archive": 240, "chronicle-vault": 240, "signal-spire": 240,
+    "war-table": 300, "hall-of-witnesses": 300, "council-chamber": 300,
+    "grand-archive": 300, "chronicle-vault": 300, "signal-spire": 300,
 }
 # 히어로 이미지가 없는 페이지 — 8:3 이면 빈 그라데이션 덩어리가 된다.
 FLAT_BAND = ["index", "empty-states"]

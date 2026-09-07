@@ -82,11 +82,11 @@ const S = {
   // 두 유형 모두 8:3 을 지키되 상한을 달리한다 — 상한이 없으면 2560px 뷰포트에서
   // 960px 를 먹는다. 잘리는 곳은 천장 창살·바닥 카펫으로 정보량이 가장 적다.
   //   full 360px — 문서형. 폭 960px 이하에서는 이미지 전체가 보인다.
-  //   band 240px — 앱셸. 3열 본문에 세로를 남겨야 하지만 원본 132px(23%)보다
+  //   band 300px — 앱셸. 3열 본문에 세로를 남겨야 하지만 원본 132px(23%)보다
   //                장면이 훨씬 잘 읽힌다.
   // `flexShrink: 0` 없으면 `height:'fill'` 인 앱셸에서 헤더가 눌려 더 잘린다.
   mastFull: {aspectRatio: '8 / 3', maxHeight: 360, minHeight: 200, flexShrink: 0},
-  mastBand: {aspectRatio: '8 / 3', maxHeight: 240, minHeight: 150, flexShrink: 0},
+  mastBand: {aspectRatio: '8 / 3', maxHeight: 300, minHeight: 150, flexShrink: 0},
   // 히어로 이미지가 없으면 8:3 이 빈 그라데이션 덩어리가 된다 (index·empty-states).
   mastFlat: {height: 132, alignItems: 'center', padding: '0 24px', flexShrink: 0},
   mastH1: {fontFamily: 'var(--font-family-heading)', fontSize: 22, fontWeight: 600,
