@@ -133,3 +133,17 @@ docker compose ... exec prototype python -c "print(open('/app/data/slo06_accum.j
 K8s·분리 worker 승격은 **측정된 병목**이 정당화할 때만 (blueprint §7.2). 본 compose
 구조는 그 때까지 정본이다. 승격 시 변경 대상: `docker-compose.prod.yml` 교체,
 `deploy.sh`는 유지(호스트 프로비저닝 스크립트로 축소).
+
+## 뷰어 정적 자산 (2026-09-07)
+
+viewer 는 `/assets/*` 로 테마·폰트·히어로 이미지를 서빙한다. 이미지에는
+`prototype/` 만 COPY 되므로(§prototype/Dockerfile) 자산은 compose 바인드 마운트로
+주입한다 — 히어로 PNG 19MB 를 이미지에 굽지 않기 위해서다.
+
+    ./docs/mockups/assets                       -> /app/static/img        (ro)
+    ./design-system/theme-citadel/dist/theme.css -> /app/static/theme-citadel.css (ro)
+    ./design-system/fonts/dist                   -> /app/static/fonts     (ro)
+
+rsync 가 `docs/`·`design-system/` 을 원격에 보내므로 원격에서도 그대로 물린다.
+경로를 바꾸려면 `VIEWER_ASSETS_IMG` · `VIEWER_ASSETS_THEME` · `VIEWER_ASSETS_FONTS`.
+자산이 없어도 뷰어는 뜬다 — 토큰 폴백 hex 로 화면은 서고 이미지만 빠진다(정직 갭).

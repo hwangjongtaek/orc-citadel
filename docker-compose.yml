@@ -79,6 +79,11 @@ services:
       VIEWER_HOST: 0.0.0.0
     volumes:
       - ./prototype/data:/app/data
+      # 정적 자산 — 이미지에는 prototype/ 만 들어간다. 히어로 PNG 19MB 를
+      # 이미지에 굽지 않으려고 원본을 read-only 로 물린다 (viewer_static.py).
+      - ./docs/mockups/assets:/app/static/img:ro
+      - ./design-system/theme-citadel/dist/theme.css:/app/static/theme-citadel.css:ro
+      - ./design-system/fonts/dist:/app/static/fonts:ro
 volumes:
   pgdata:
   minio-data:

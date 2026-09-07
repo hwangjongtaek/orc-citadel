@@ -13,15 +13,31 @@ import html
 # --font-* 의 로컬 fallback 스택으로 대체 (목업 자체가 fallback 병기).
 CSS = """
 <style>
+ /* 값의 정본은 design-system/theme-citadel (DESIGN.md 발행본)이다.
+    여기서는 뷰어가 오래 써 온 의미론적 이름을 Astryx 토큰에 얹는 얇은 별칭만 둔다.
+    폴백 hex 는 자산 서빙이 안 되는 환경(테마 CSS 미로드)에서도 화면이 서게 한다. */
  :root{
-   --citadel-void:#07111C; --citadel-night:#0D1B2A;
-   --surface:#111820; --surface-variant:#26313A;
-   --on-surface:#D6CCB8; --on-surface-muted:#59636A; --parchment:#C8B58E;
-   --primary:#45E06F; --secondary:#20B85A; --ember:#E97824; --signal-amber:#FFB13B;
-   --crimson:#7B2833; --error:#E05252; --uncertain:#A78BFA; --superseded:#59636A;
-   --font-display:"Cinzel",Georgia,serif; --font-head:"Space Grotesk",system-ui,sans-serif;
-   --font-body:"Inter",system-ui,sans-serif; --font-data:"JetBrains Mono",ui-monospace,monospace;
-   --r-sm:4px; --r-md:8px; --r-lg:12px; --r-full:9999px;
+   --citadel-void:var(--color-background-body,#07111C);
+   --citadel-night:var(--color-background-surface,#0D1B2A);
+   --surface:var(--color-background-card,#111820);
+   --surface-variant:var(--color-background-muted,#26313A);
+   --on-surface:var(--color-text-primary,#D6CCB8);
+   --on-surface-muted:var(--color-text-secondary,#59636A);
+   --parchment:var(--astryx-theme-citadel-parchment,#C8B58E);
+   --primary:var(--color-accent,#45E06F);
+   --secondary:var(--astryx-theme-citadel-seer-green,#20B85A);
+   --ember:var(--astryx-theme-citadel-ember,#E97824);
+   --signal-amber:var(--astryx-theme-citadel-signal-amber,#FFB13B);
+   --crimson:var(--astryx-theme-citadel-crimson,#7B2833);
+   --error:var(--color-error,#E05252);
+   --uncertain:var(--astryx-theme-citadel-uncertain,#A78BFA);
+   --superseded:var(--astryx-theme-citadel-superseded,#59636A);
+   --font-display:var(--astryx-theme-citadel-font-display,"Cinzel",Georgia,serif);
+   --font-head:var(--font-family-heading,"Space Grotesk",system-ui,sans-serif);
+   --font-body:var(--font-family-body,"Inter",system-ui,sans-serif);
+   --font-data:var(--font-family-code,"JetBrains Mono",ui-monospace,monospace);
+   --r-sm:var(--radius-inner,4px); --r-md:var(--radius-element,8px);
+   --r-lg:var(--radius-container,12px); --r-full:var(--radius-full,9999px);
    --sp-xs:4px; --sp-sm:8px; --sp-md:16px; --sp-lg:24px; --sp-xl:32px;
  }
  *{box-sizing:border-box;margin:0;padding:0}
@@ -46,7 +62,14 @@ CSS = """
  .search input::placeholder{color:var(--on-surface-muted)}
  .spire{position:relative;display:flex;align-items:center;gap:8px;font-family:var(--font-head);font-size:12px;font-weight:600;color:var(--signal-amber);background:rgba(255,177,59,.08);border:1px solid rgba(255,177,59,.3);padding:8px 12px;border-radius:var(--r-md);cursor:pointer;white-space:nowrap}
  .spire .dot{width:7px;height:7px;border-radius:var(--r-full);background:var(--signal-amber);box-shadow:0 0 8px 1px var(--signal-amber)}
- .masthead{position:relative;height:108px;overflow:hidden;border-bottom:1px solid var(--surface-variant);display:flex;align-items:center;padding:0 var(--sp-lg);background:linear-gradient(90deg,rgba(7,17,28,.95) 0%,rgba(7,17,28,.72) 55%,rgba(13,27,42,.42) 100%),var(--citadel-night)}
+ /* 크기는 shell() 이 인라인으로 준다 (공간별 히어로·상한). 스크림이 아래에서
+    위로 걷혀 글자만 덮고 그림 본체는 살린다.
+    폭은 본문(main)과 맞춘다 — 전폭이면 본문과 어긋나고, 넓을수록 8:3 상한에
+    걸려 세로가 더 잘린다(2560px 전폭 37% vs 1200px 80%). */
+ .masthead{position:relative;overflow:hidden;flex:none;
+   max-width:1200px;width:calc(100% - var(--sp-lg) * 2);margin:var(--sp-md) auto 0;
+   border:1px solid var(--surface-variant);border-radius:var(--r-lg);
+   display:flex;align-items:flex-end;padding:0 var(--sp-lg) 20px}
  .masthead h1{font-family:var(--font-head);font-size:22px;font-weight:600;color:var(--on-surface);letter-spacing:-.01em;text-shadow:0 2px 14px rgba(7,17,28,.9)}
  .masthead p{font-family:var(--font-head);font-size:11px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;color:var(--parchment);margin-top:5px;text-shadow:0 2px 14px rgba(7,17,28,.9)}
  .spaces{display:flex;flex-wrap:wrap;gap:2px;margin-bottom:var(--sp-lg)}
@@ -67,6 +90,7 @@ CSS = """
  tr:last-child td{border-bottom:none}
  tbody tr:hover td{background:rgba(38,49,58,.28)}
  td.num,th.num{text-align:right;font-family:var(--font-data)}
+ .empty-art{display:block;margin:0 auto 12px;width:132px;height:132px;image-rendering:pixelated;opacity:.9}
  .badge{display:inline-block;font-family:var(--font-head);font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;padding:3px 8px;border-radius:var(--r-sm);background:var(--surface-variant);color:var(--on-surface)}
  .badge.good{background:rgba(69,224,111,.14);color:var(--primary)}
  .badge.warn{background:rgba(255,177,59,.14);color:var(--signal-amber)}
@@ -254,15 +278,29 @@ def _search_icon() -> str:
 
 
 # 공간별 (라우트) 브레이드크럼 — (eyebrow EN·function, title KO).
+# 공간별 빈 상태 일러스트 (docs/mockups/empty-states.html 패턴).
+# Gate·Council 은 대응 아트가 없다 — 없으면 텍스트만 (정직 갭).
+_EMPTY_ART = {
+    "/table": "empty-wartable.png",
+    "/witnesses": "empty-witnesses.png",
+    "/watchtower": "empty-watchtower.png",
+    "/archive": "empty-archive.png",
+    "/chronicle": "empty-chronicle.png",
+    "/spire": "empty-spire.png",
+}
+
 _SPACE_META = {
-    "/":         ("Citadel Gate · Home", "본부 · Home"),
-    "/table":    ("War Table · Graph", "조사 · 그래프"),
-    "/witnesses": ("Hall of Witnesses · Evidence", "증거 검사"),
-    "/council":  ("Council Chamber · Investigation", "조사 보고서"),
-    "/watchtower": ("Watchtower · Ingestion", "수집 관제"),
-    "/archive":  ("Grand Archive · Documents", "문서 탐색"),
-    "/chronicle": ("Chronicle Vault · History", "시간 탐색"),
-    "/spire":    ("Signal Spire · Alerts", "알림 센터"),
+    "/":         ("Citadel Gate · Home", "본부 · Home", "gate-hero.png", 360),
+    "/table":    ("War Table · Graph", "조사 · 그래프", "war-table-hero.png", 300),
+    "/witnesses": ("Hall of Witnesses · Evidence", "증거 검사",
+                   "hall-of-witnesses-hero.png", 300),
+    "/council":  ("Council Chamber · Investigation", "조사 보고서",
+                  "council-chamber-hero.png", 300),
+    "/watchtower": ("Watchtower · Ingestion", "수집 관제", "watchtower-hero.png", 360),
+    "/archive":  ("Grand Archive · Documents", "문서 탐색", "grand-archive-hero.png", 300),
+    "/chronicle": ("Chronicle Vault · History", "시간 탐색",
+                   "chronicle-vault-hero.png", 300),
+    "/spire":    ("Signal Spire · Alerts", "알림 센터", "signal-spire-hero.png", 300),
 }
 
 
@@ -270,13 +308,36 @@ def shell(route: str, body: str, title: str) -> str:
     """목업 공유 셸로 페이지를 감싼 전체 HTML.
 
     header(워드마크+브레이드크럼+검색+Signal Spire 칩)·masthead 밴드·공간 탭을
-    포함하고, `body`(페이지 본문+JS)를 main 에 넣는다. 히어로 PNG 는 오프라인이므로
-    flat night 그라데이션으로 대체(목업 .masthead 의 fallback 조합).
+    포함하고, `body`(페이지 본문+JS)를 main 에 넣는다.
+
+    색·형태·폰트의 정본은 `design-system/theme-citadel` 이며 `/assets/*` 로 서빙된다
+    (viewer_static.py). 스코프 루트를 `<html>` 에 두는 이유는 astryx 기본 토큰이
+    `:root` 에 `light-dark()` 로 깔려 있어서다 — `<body>` 를 루트로 잡으면 `<html>`
+    이 라이트 팔레트를 써서 본문 아래가 흰색으로 남는다(다크 모드에선 안 드러남).
     """
-    eyebrow, app_title = _SPACE_META.get(route, _SPACE_META["/"])
+    eyebrow, app_title, hero, cap = _SPACE_META.get(route, _SPACE_META["/"])
+    # 히어로는 전부 1920×720 (8:3). 고정 높이 밴드에 cover 로 넣으면 세로 23% 만
+    # 보여 장면이 안 읽힌다 — 8:3 을 지키되 상한으로 본문 공간을 지킨다.
+    # 상한이 없으면 2560px 뷰포트에서 960px 를 먹는다.
+    mast_style = (
+        f"aspect-ratio:8/3;max-height:{cap}px;min-height:150px;"
+        "background:"
+        "linear-gradient(0deg,rgba(7,17,28,.94) 0%,rgba(7,17,28,.55) 26%,"
+        "rgba(7,17,28,.12) 55%,rgba(7,17,28,0) 80%),"
+        f"url('/assets/img/{hero}') center center / cover no-repeat,"
+        "var(--citadel-night)")
     return (
-        '<!doctype html><html lang="ko"><meta charset="utf-8">'
-        f"<title>{html.escape(title)}</title>" + CSS +
+        # 빈 상태 아트는 라우트에서 정해진다 — `window.empty()` 가 집어간다.
+        # script 태그가 아니라 data 속성인 이유: `_inject` 가 페이지당 <script> 를
+        # 정확히 하나로 유지하는 것을 병합 앵커 불변식으로 삼는다.
+        f'<!doctype html><html lang="ko" data-astryx-theme="citadel"'
+        f' data-empty-art="{_EMPTY_ART.get(route, "")}">'
+        '<meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width, initial-scale=1">'
+        f"<title>{html.escape(title)}</title>"
+        # 폰트 → 테마 → 뷰어 CSS 순. 뒤엣것이 앞을 덮는다.
+        '<link rel="stylesheet" href="/assets/fonts/fonts.css">'
+        '<link rel="stylesheet" href="/assets/theme-citadel.css">' + CSS +
         '<body><div class="app">'
         "<header>"
         f'<a class="wordmark" href="/">{_crest()}ORC&nbsp;CITADEL</a>'
@@ -288,7 +349,7 @@ def shell(route: str, body: str, title: str) -> str:
         '<a class="spire" href="/spire" title="Signal Spire · 결론·confidence 변화 알림">'
         '<span class="dot"></span> Signal Spire · 0</a>'
         "</header>"
-        '<div class="masthead"><div class="mh-txt">'
+        f'<div class="masthead" style="{mast_style}"><div class="mh-txt">'
         f"<h1>{html.escape(app_title)}</h1><p>{html.escape(eyebrow)}</p></div></div>"
         "<main>" + nav(route) + body + "</main>"
         "</div></body></html>"
@@ -940,7 +1001,7 @@ PAGE_SPIRE = shell(
 <div class="card"><table id="spire-triggers"></table></div>
 
 <h2>🕯️ 알림 피드 <span class="dim">(실 점화 없음 → 정직 빈 상태, §6.2)</span></h2>
-<div class="card" id="feed"><span class="muted">새 알림 없음 — 아직 점화된 알림이 없습니다.</span></div>
+<div class="card" id="feed"></div>
 
 <script>
 const $=s=>document.querySelector(s);
@@ -951,7 +1012,10 @@ function esc(s){const d=document.createElement('div');d.textContent=s;return d.i
   $('#spire-triggers').innerHTML='<tr><th>Trigger</th><th>의미</th><th>점화</th></tr>'+
     (r.trigger_catalog||[]).map(t=>`<tr><td><code>${esc(t.trigger)}</code></td><td>${esc(t.description)}</td>
       <td><span class="pill normal">0 · not-fired</span></td></tr>`).join('');
-  $('#feed').innerHTML='<p class="muted">'+esc(r.note)+'</p><p class="dim">'+esc(r.fire_once_rule)+'</p>';
+  $('#feed').innerHTML='<div class="empty-state">'
+    +'<img src="/assets/img/empty-spire.png" alt="" class="empty-art">'
+    +'<div class="trig">새 알림 없음</div>'
+    +'<p>'+esc(r.note)+'</p><p class="dim">'+esc(r.fire_once_rule)+'</p></div>';
 })();
 </script>
     """,
@@ -1110,8 +1174,10 @@ from orc_citadel import table_ext as _table_ext, witnesses_ext as _witnesses_ext
 # chronicle 페이지는 두 헬퍼가 없다 — 보강 정의(기존 정의 절대 덮어쓰지 않음).
 _EXT_PRELUDE = (
     "window.api=window.api||function(p){return fetch(p).then(function(r){return r.json();});};\n"
-    "window.empty=window.empty||function(t,m){return '<div class=\"empty-state\"><div class=\"trig\">'"
-    "+esc(t)+'</div><p>'+esc(m)+'</p></div>';};\n"
+    # 아트가 있으면 일러스트를 얹는다 (window.EMPTY_ART — shell 이 라우트별로 심는다).
+    "window.empty=window.empty||function(t,m){var a=document.documentElement.dataset.emptyArt;return '<div class=\"empty-state\">'"
+    "+(a?'<img src=\"/assets/img/'+a+'\" alt=\"\" class=\"empty-art\">':'')"
+    "+'<div class=\"trig\">'+esc(t)+'</div><p>'+esc(m)+'</p></div>';};\n"
 )
 
 
@@ -1135,6 +1201,11 @@ PAGE_GATE = _inject(PAGE_GATE, _ab[0], _SEARCH_JS + _GATE_JS, prelude=_EXT_PRELU
 PAGE_WATCHTOWER = _inject(PAGE_WATCHTOWER, _ab[1], _WT_JS, prelude=_EXT_PRELUDE)
 PAGE_ARCHIVE = _inject(PAGE_ARCHIVE, _ab[2], _AR_JS, prelude=_EXT_PRELUDE)
 PAGE_CHRONICLE = _inject(PAGE_CHRONICLE, _ab[3], _CH_JS, prelude=_EXT_PRELUDE)
-# Spire 는 alert 영속 부재로 확장 없음 (honest-gap 유지). SEARCH_JS 는 헤더
-# search input 자기발견 — 미탑재 페이지에서도 무해하나 일관성 있게 gate 만 탑재.
+# Spire 는 alert 영속 부재로 본문 확장 없음 (honest-gap 유지).
+#
+# 헤더 검색은 셸의 일부다 — 8페이지 중 2곳에서만 동작하던 것을 전부로 올린다(갭 A4).
+# SEARCH_JS 는 헤더 search input 을 스스로 찾으므로 페이지별 배선이 필요 없다.
+for _name in ("PAGE_TABLE", "PAGE_WITNESSES", "PAGE_COUNCIL",
+              "PAGE_WATCHTOWER", "PAGE_CHRONICLE", "PAGE_SPIRE"):
+    globals()[_name] = _inject(globals()[_name], "", _SEARCH_JS, prelude=_EXT_PRELUDE)
 

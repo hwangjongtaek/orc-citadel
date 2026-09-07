@@ -17,6 +17,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import unquote, urlparse
 
+from orc_citadel import viewer_static
 from orc_citadel.api_facade import ApiFacade
 from orc_citadel.curated_zone import CuratedZone
 from orc_citadel.graph_service import GraphService
@@ -383,6 +384,8 @@ def _build():
 
 class Handler(BaseHTTPRequestHandler):
     facade = None  # class-level (한 번 로드)
+    # 정적 자산 루트 — 없으면 자산 없이 동작한다 (정직 갭).
+    static_roots = viewer_static.default_roots()
     # raw fetch.json 전수 스캔은 1회만 (경로 → 레코드 목록). 렌더마다 재스캔 금지.
     _FETCH_CACHE: dict[str, list[dict]] = {}
 
@@ -928,12 +931,45 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body); return
 
 
+        if parsed.path.startswith("/assets/"):
+            self._serve_asset(parsed.path); return
+
+        page = _page_for(parsed.path)
+        if page is None:
+            # 미지정 경로가 Gate HTML 200 을 돌려주던 것을 바로잡는다 —
+            # 오타 링크·없는 자산이 조용히 성공하면 디버깅이 어렵다.
+            body = b"404 Not Found"
+            self.send_response(404)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers(); self.wfile.write(body); return
+
+        body = page.encode()
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
-        body = _page_for(parsed.path).encode()
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def _serve_asset(self, url_path: str) -> None:
+        """`/assets/*` — 리포의 자산을 참조 서빙한다 (복제하지 않음)."""
+        roots = Handler.static_roots
+        hit = roots.resolve(url_path) if roots else None
+        if hit is None:
+            body = b"404 Not Found"
+            self.send_response(404)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers(); self.wfile.write(body); return
+        path, mime = hit
+        data = path.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", mime)
+        self.send_header("Content-Length", str(len(data)))
+        # 생성물은 내용이 바뀌면 파일명이 아니라 내용이 바뀐다 — 짧게만 캐시한다.
+        self.send_header("Cache-Control", "public, max-age=3600")
+        self.end_headers()
+        self.wfile.write(data)
 
 
 _PAGES = {
@@ -948,9 +984,9 @@ _PAGES = {
 }
 
 
-def _page_for(path: str) -> str:
-    """라우트 → 페이지 HTML. 미지정 경로는 기본('/')을 사용한다."""
-    return _PAGES.get(path, _PAGES["/"])
+def _page_for(path: str) -> str | None:
+    """라우트 → 페이지 HTML. 미지정 경로는 None (호출자가 404)."""
+    return _PAGES.get(path)
 
 def main() -> None:
     Handler.facade = _build()
