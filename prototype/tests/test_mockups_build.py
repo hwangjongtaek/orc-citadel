@@ -128,10 +128,10 @@ def test_assets_referenced_exist(pages: dict[str, str]) -> None:
 # 히어로는 전부 1920×720 (8:3). 원본처럼 132px 고정 밴드에 cover 로 넣으면
 # 세로 23% 만 보여 장면이 안 읽힌다. 히어로가 있는 페이지는 전부 8:3 을 지키되,
 # 상한으로 본문 공간을 지킨다 — 상한이 없으면 2560px 뷰포트에서 960px 를 먹는다.
+# 8공간 동일 셸 — 문서형(액자 히어로·360px) 특례는 Gate·Watchtower 만 다르게
+# 보이는 문제로 폐지했다 (2026-09-08 사용자 피드백).
 HERO_CAP = {
-    # 문서형 — 좌·우 패널이 없어 세로를 더 쓸 수 있다.
-    "citadel-gate": 360, "watchtower": 360,
-    # 앱셸 — 3열 본문에 세로를 남긴다. 그래도 원본 132px 보다 훨씬 잘 읽힌다.
+    "citadel-gate": 300, "watchtower": 300,
     "war-table": 300, "hall-of-witnesses": 300, "council-chamber": 300,
     "grand-archive": 300, "chronicle-vault": 300, "signal-spire": 300,
 }
@@ -163,23 +163,25 @@ def test_pages_without_hero_use_flat_band(pages: dict[str, str], name: str) -> N
 def test_masthead_has_explicit_width(pages: dict[str, str]) -> None:
     """LayoutHeader 의 flex 자식이라 width 를 안 주면 폭이 접히고,
     그러면 aspect-ratio 가 접힌 폭 기준으로 계산돼 히어로가 조각으로 나온다.
-
-    문서형은 본문 폭(CONTENT_WIDTH)에 맞춰 `calc(100% - 48px)` 로 좁힌다 —
-    넓을수록 8:3 상한에 더 많이 걸려 세로가 잘리므로 좁히는 쪽이 그림이 더 보인다.
     """
     for name in HERO_CAP:
         mast = re.search(r'style="[^"]*aspect-ratio:8 / 3[^"]*"', pages[name])
         assert mast, name
-        assert re.search(r"width:(100%|calc\(100% - 48px\))", mast.group(0)), name
+        assert "width:100%" in mast.group(0), name
         # `height:'fill'` 인 앱셸에서 헤더가 눌려 히어로가 더 잘리는 것을 막는다.
         assert "flex-shrink:0" in mast.group(0), name
 
 
-def test_document_pages_align_banner_with_content(pages: dict[str, str]) -> None:
-    """문서형 배너는 본문 폭(1200px)에 정렬된다 — 뷰어와 같은 규칙."""
+def test_content_only_pages_keep_readable_width(pages: dict[str, str]) -> None:
+    """좌·우 패널이 없는 페이지(Gate·Watchtower)는 본문만 1200px 로 제한한다 —
+    셸(히어로·헤더)은 전폭으로 나머지 6공간과 동일하다."""
     for name in ("citadel-gate", "watchtower"):
-        mast = re.search(r'style="[^"]*aspect-ratio:8 / 3[^"]*"', pages[name])
-        assert mast and "max-width:1200px" in mast.group(0), name
+        html = pages[name]
+        # Layout contentWidth 는 CSS 변수로 발행된다. 본문 폭 제한은 남고,
+        # 마스트헤드 액자 프레임(max-width 정렬)은 사라진다.
+        assert "layout-content-width:1200px" in html, name
+        mast = re.search(r'style="[^"]*aspect-ratio:8 / 3[^"]*"', html)
+        assert mast and "max-width:1200px" not in mast.group(0), name
 
 
 def test_scope_root_is_html_not_body(pages: dict[str, str]) -> None:

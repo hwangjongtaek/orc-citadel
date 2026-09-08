@@ -98,26 +98,16 @@ const S = {
     padding: '2px 6px', border: '1px solid var(--color-border)',
     borderRadius: 'var(--radius-inner)', color: 'var(--color-text-secondary)'},
   // 히어로는 전부 1920×720 (8:3). 밴드 높이를 고정하면 세로 23% 만 보인다.
-  // `full` 은 8:3 을 그대로 지켜 이미지를 통째로 보여주고, `band` 는 좌우 패널이
-  // 세로를 다투는 앱셸 페이지용 압축 밴드다 (§heroFit).
   // `width: 100%` 필수 — LayoutHeader 의 flex 자식이라 폭이 콘텐츠로 접히고,
   // 그러면 aspect-ratio 가 접힌 폭 기준으로 계산돼 히어로가 조각으로 나온다.
   mast: {position: 'relative', display: 'flex', alignItems: 'flex-end', width: '100%',
     padding: '0 24px 20px', overflow: 'hidden',
     borderBottom: '1px solid var(--color-border)'},
-  // 문서형 — 본문(CONTENT_WIDTH)과 폭을 맞춘다. 넓을수록 8:3 상한에 더 많이 걸려
-  // 세로가 잘리므로, 좁히는 쪽이 오히려 그림이 더 보인다.
-  mastNarrow: {maxWidth: CONTENT_WIDTH, width: 'calc(100% - 48px)', margin: '16px auto 0',
-    border: '1px solid var(--color-border)', borderRadius: 'var(--radius-container)',
-    borderBottom: '1px solid var(--color-border)'},
-  // 모든 히어로가 1920×720(8:3)이라 고정 높이 밴드로는 세로 23% 만 보인다.
-  // 두 유형 모두 8:3 을 지키되 상한을 달리한다 — 상한이 없으면 2560px 뷰포트에서
+  // 8공간 동일 셸 — 전폭 밴드 하나만 쓴다. 문서형(Gate·Watchtower) 액자 히어로
+  // (1200px 정렬·상한 360px) 특례는 두 페이지만 다르게 보이는 문제로 폐지했다
+  // (2026-09-08). 8:3 을 지키되 상한 300px — 상한이 없으면 2560px 뷰포트에서
   // 960px 를 먹는다. 잘리는 곳은 천장 창살·바닥 카펫으로 정보량이 가장 적다.
-  //   full 360px — 문서형. 폭 960px 이하에서는 이미지 전체가 보인다.
-  //   band 300px — 앱셸. 3열 본문에 세로를 남겨야 하지만 원본 132px(23%)보다
-  //                장면이 훨씬 잘 읽힌다.
-  // `flexShrink: 0` 없으면 `height:'fill'` 인 앱셸에서 헤더가 눌려 더 잘린다.
-  mastFull: {aspectRatio: '8 / 3', maxHeight: 360, minHeight: 200, flexShrink: 0},
+  // `flexShrink: 0` 없으면 `height:'fill'` 에서 헤더가 눌려 더 잘린다.
   mastBand: {aspectRatio: '8 / 3', maxHeight: 300, minHeight: 150, flexShrink: 0},
   // 히어로 이미지가 없으면 8:3 이 빈 그라데이션 덩어리가 된다 (index·empty-states).
   mastFlat: {height: 132, alignItems: 'center', padding: '0 24px', flexShrink: 0},
@@ -138,11 +128,8 @@ const S = {
  * 히어로 밴드 — 원본 목업의 3중 배경(그라데이션 + 히어로 PNG + night).
  * `hero` 가 없으면 그라데이션만 (empty-states·index 처럼 공간이 아닌 페이지).
  */
-function masthead({title, subtitle, hero, fit}) {
-  const full = fit === 'full';
-  const shape = !hero ? S.mastFlat : full ? S.mastFull : S.mastBand;
-  // 문서형은 본문이 좁으므로 배너도 같이 좁힌다. 앱셸은 패널이 화면 끝까지 가므로 전폭.
-  const narrow = full ? S.mastNarrow : null;
+function masthead({title, subtitle, hero}) {
+  const shape = hero ? S.mastBand : S.mastFlat;
   // 히어로가 있으면 아래에서 위로 걷히는 스크림 — 글자만 덮고 그림 본체는 살린다.
   // 히어로가 없으면 좌→우 (원본 밴드 조판).
   const scrim = hero
@@ -154,7 +141,7 @@ function masthead({title, subtitle, hero, fit}) {
     'var(--color-background-surface)',
   ].filter(Boolean).join(', ');
   return h('div', {
-    style: {...S.mast, ...shape, ...narrow, background: layers},
+    style: {...S.mast, ...shape, background: layers},
   },
     h('div', {},
       h('h1', {style: S.mastH1}, title),
@@ -174,16 +161,7 @@ function masthead({title, subtitle, hero, fit}) {
  * @param slots    Layout 슬롯 { start, content, end, footer }
  */
 export function shell({route, eyebrow, context, title, subtitle, hero, alerts = 3,
-                       heroFit, slots}) {
-  /**
-   * 히어로 크기는 페이지 구조에서 자동으로 갈린다.
-   * 좌·우 패널이 있는 앱셸 페이지는 세로가 귀하므로 압축 밴드,
-   * content 만 있는 문서형 페이지는 8:3(상한 360px)로 그림을 크게 보여준다.
-   * 히어로 이미지가 없으면 큰 밴드가 빈 그라데이션 덩어리가 되므로 밴드로 내린다.
-   * `heroFit` 으로 명시 지정할 수 있다.
-   */
-  const fit = heroFit
-    || (!hero || slots.start || slots.end ? 'band' : 'full');
+                       slots}) {
   const header = h(LayoutHeader, {padding: 0, hasDivider: false},
     h('div', {style: S.bar},
       h('a', {style: S.wordmark, href: './index.html', 'aria-label': 'ORC CITADEL'},
@@ -209,17 +187,15 @@ export function shell({route, eyebrow, context, title, subtitle, hero, alerts = 
         h('a', {key: slug, href: `./${slug}.html`,
           style: slug === route
             ? {...S.tab, ...S.tab2, ...S.tabOn} : {...S.tab, ...S.tab2}}, name))),
-    masthead({title, subtitle, hero, fit}));
+    masthead({title, subtitle, hero}));
 
-  /**
-   * `height: 'fill'` 은 헤더를 뷰포트 안으로 눌러 8:3 히어로를 도로 잘라낸다.
-   * 문서형 페이지는 `auto` 로 두어 자연 스크롤에 맡긴다. 앱셸 페이지는 패널이
-   * 독립 스크롤해야 하므로 `fill` 을 유지한다.
-   */
+  // 8공간 동일 셸: 항상 `fill`(패널·본문 독립 스크롤). 좌·우 패널이 없는
+  // 페이지(Gate·Watchtower)는 본문 폭만 1200px 로 제한해 가독을 지킨다 —
+  // 셸(헤더·히어로)은 전폭으로 나머지 공간과 동일하다.
+  const contentOnly = !slots.start && !slots.end;
   return h(Layout, {
-    height: fit === 'full' ? 'auto' : 'fill',
-    // 문서형만 본문 폭을 제한한다 — 배너와 정렬된다. 앱셸 패널은 전폭 유지.
-    ...(fit === 'full' ? {contentWidth: CONTENT_WIDTH} : null),
+    height: 'fill',
+    ...(contentOnly ? {contentWidth: CONTENT_WIDTH} : null),
     header, ...slots,
   });
 }
