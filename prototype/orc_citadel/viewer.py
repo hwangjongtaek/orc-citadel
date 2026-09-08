@@ -1115,6 +1115,7 @@ _PAGES = {
     # 이관 기간 롤백 경로 (specs/ui-overhaul-astryx TS-1) — 이관 완료 시 일괄 제거.
     "/legacy/gate": PAGE_GATE,
     "/legacy/witnesses": PAGE_WITNESSES,
+    "/legacy/table": PAGE_TABLE,
 }
 
 # canonical 라우트 → frontend dist 엔트리. 공간을 이관할 때마다 추가한다.
@@ -1122,6 +1123,7 @@ _PAGES = {
 _MIGRATED = {
     "/": "gate.html",
     "/witnesses": "witnesses.html",
+    "/table": "table.html",
 }
 
 

@@ -18,10 +18,10 @@ REPO = Path(__file__).resolve().parents[2]
 DIST = REPO / "frontend" / "dist"
 
 # 이관된 엔트리 목록 — 공간을 이관할 때마다 여기 추가한다.
-ENTRIES = ["gate", "witnesses"]
+ENTRIES = ["gate", "witnesses", "table"]
 # canonical 라우트 ↔ dist 엔트리 (viewer._MIGRATED 와 동기).
-MIGRATED = [("/", "gate"), ("/witnesses", "witnesses")]
-LEGACY = ["/legacy/gate", "/legacy/witnesses"]
+MIGRATED = [("/", "gate"), ("/witnesses", "witnesses"), ("/table", "table")]
+LEGACY = ["/legacy/gate", "/legacy/witnesses", "/legacy/table"]
 
 
 @pytest.fixture(scope="module")
