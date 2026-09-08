@@ -115,12 +115,16 @@ def test_shell_nav_is_two_tiered(pages: dict[str, str]) -> None:
 def test_brand_logo_wired(pages: dict[str, str]) -> None:
     """신규 로고 반입(FR-4) — 셸 워드마크 mark+title 이미지 + head favicon."""
     html = pages["war-table"]  # 셸 공통 요소는 아무 공간 페이지에서나 보인다
-    assert "logo-mark.png" in html
+    # GNB 는 타이틀 레터링만 노출한다 — 오크 얼굴 mark 제외 (2026-09-08 확정).
     assert "logo-title.png" in html
+    assert "logo-mark.png" not in html
     assert 'rel="icon"' in html and "favicon-32.png" in html
     # 크기는 인라인 style 로 잡아야 한다 — reset.css `:where(img){height:auto}` 가
-    # height *속성*을 덮어써 로고가 자연 크기(621px)로 커지는 회귀 방지.
-    assert "height:30px" in html and "height:22px" in html
+    # height *속성*을 덮어써 로고가 자연 크기(1129px)로 커지는 회귀 방지.
+    # 글자 이미지라 mark+title 조합 때(22px)보다 키운다.
+    assert "height:30px" in html
+    # mark 는 Gate 브랜드 블록·index 에서만 계속 쓴다.
+    assert "logo-mark.png" in pages["citadel-gate"]
     # 교체 완료 후 구 crest-hero 참조는 남지 않는다 (파일은 이력 보존 차원에서 유지)
     for name, page in pages.items():
         assert "crest-hero.png" not in page, name

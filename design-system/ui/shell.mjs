@@ -191,8 +191,10 @@ export function shell({route, eyebrow, context, title, subtitle, hero, alerts = 
                        slots, urls = MOCKUP_URLS}) {
   const header = h(LayoutHeader, {padding: 0, hasDivider: false},
     h('div', {style: S.bar},
+      // GNB 는 타이틀 레터링만 — 오크 얼굴 mark 는 제외한다 (2026-09-08 확정).
+      // 글자 이미지라 mark+title 조합 때(22px)보다 키운다.
       h('a', {style: S.wordmark, href: urls.home, 'aria-label': 'ORC CITADEL'},
-        logoMark(30, urls), logoTitle(22, urls)),
+        logoTitle(30, urls)),
       h('div', {style: S.ctx},
         h('span', {style: S.eyebrow}, eyebrow),
         h('span', {style: S.ctxTitle}, context)),
