@@ -4,8 +4,9 @@ import {LayoutContent, LayoutPanel, LayoutFooter} from '@astryxdesign/core/Layou
 import {shell} from '../../../ui/shell.mjs';
 import {
   h, Card, Badge, VStack, HStack, Text, sectionLabel, confidence, coverage,
-  relationLegend, evidenceCard, rawSvg, id, panelHead,
+  relationLegend, evidenceCard, id, panelHead,
 } from '../../../ui/components.mjs';
+import {rawSvg} from '../../../ui/svg-node.mjs';
 
 export const title = 'War Table · 그래프 탐색 — Orc Citadel';
 

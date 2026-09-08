@@ -8,9 +8,6 @@
  */
 
 import React from 'react';
-import {readFileSync} from 'node:fs';
-import {dirname, join} from 'node:path';
-import {fileURLToPath} from 'node:url';
 
 import {Card} from '@astryxdesign/core/Card';
 import {Badge} from '@astryxdesign/core/Badge';
@@ -26,16 +23,15 @@ export const h = React.createElement;
 export {Card, Badge, HStack, VStack, Text, Heading, Button, EmptyState,
   Table, TableHeader, TableHeaderCell, TableBody, TableRow, TableCell, Divider};
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-
 /**
- * 원본 목업에서 옮긴 도메인 SVG 를 그대로 삽입한다.
+ * 도메인 SVG 마크업을 그대로 삽입한다. SVG **문자열**을 받는다 — 파일 로딩은
+ * 소비자 몫이다 (목업은 `svg-node.mjs` 의 readFileSync, 앱은 Vite `?raw` import).
+ * 이 모듈은 브라우저 번들에 들어가므로 node API 를 import 하지 않는다.
  *
  * `ratio` (viewBox 종횡비)를 주면 래퍼가 aspect-ratio 로 크기를 잡는다 —
  * flex 조상 체인의 확정 높이에 의존하지 않아 어느 슬롯에 넣어도 안정적이다.
  */
-export function rawSvg(name, {ratio, ...style} = {}) {
-  const svg = readFileSync(join(HERE, 'svg', `${name}.svg`), 'utf8');
+export function svgBlock(svg, {ratio, ...style} = {}) {
   return h('div', {
     style: {minWidth: 0, width: '100%', ...(ratio ? {aspectRatio: ratio} : null), ...style},
     dangerouslySetInnerHTML: {__html: svg},

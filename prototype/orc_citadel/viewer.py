@@ -1053,7 +1053,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body); return
 
 
-        if parsed.path.startswith("/assets/"):
+        if parsed.path.startswith("/assets/") or parsed.path.startswith("/app/"):
             self._serve_asset(parsed.path); return
 
         page = _page_for(parsed.path)

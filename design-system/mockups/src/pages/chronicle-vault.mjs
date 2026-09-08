@@ -3,8 +3,9 @@
 import {LayoutContent, LayoutPanel, LayoutFooter} from '@astryxdesign/core/Layout';
 import {shell} from '../../../ui/shell.mjs';
 import {
-  h, Card, Badge, Text, sectionLabel, confidence, rawSvg, id, panelHead, grid,
+  h, Card, Badge, Text, sectionLabel, confidence, id, panelHead, grid,
 } from '../../../ui/components.mjs';
+import {rawSvg} from '../../../ui/svg-node.mjs';
 
 export const title = 'Chronicle Vault · 시간 탐색 — Orc Citadel';
 
