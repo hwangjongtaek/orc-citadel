@@ -106,6 +106,9 @@ def test_brand_logo_wired(pages: dict[str, str]) -> None:
     assert "logo-mark.png" in html
     assert "logo-title.png" in html
     assert 'rel="icon"' in html and "favicon-32.png" in html
+    # 크기는 인라인 style 로 잡아야 한다 — reset.css `:where(img){height:auto}` 가
+    # height *속성*을 덮어써 로고가 자연 크기(621px)로 커지는 회귀 방지.
+    assert "height:30px" in html and "height:22px" in html
     # 교체 완료 후 구 crest-hero 참조는 남지 않는다 (파일은 이력 보존 차원에서 유지)
     for name, page in pages.items():
         assert "crest-hero.png" not in page, name

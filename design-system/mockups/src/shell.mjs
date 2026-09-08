@@ -42,12 +42,14 @@ export const SPACES = [...PRIMARY_SPACES, ...SECONDARY_SPACES];
  * 원본(621·1129px)보다 항상 작게 그리므로 `image-rendering: pixelated` 를 쓰지
  * 않는다 — pixelated 는 업스케일용이고 다운스케일에선 앨리어싱만 남긴다.
  */
+// height 는 반드시 인라인 style 로 준다 — reset.css 의 `:where(img){height:auto}` 가
+// height *속성*을 덮어써 자연 크기(621·1129px)로 커지는 함정.
 const logoMark = (height) =>
-  h('img', {src: './assets/logo-mark.png', alt: '', height,
-    style: {width: 'auto', flex: 'none', display: 'block'}});
+  h('img', {src: './assets/logo-mark.png', alt: '',
+    style: {height, width: 'auto', flex: 'none', display: 'block'}});
 const logoTitle = (height) =>
-  h('img', {src: './assets/logo-title.png', alt: 'ORC CITADEL', height,
-    style: {width: 'auto', flex: 'none', display: 'block'}});
+  h('img', {src: './assets/logo-title.png', alt: 'ORC CITADEL',
+    style: {height, width: 'auto', flex: 'none', display: 'block'}});
 export {logoMark, logoTitle};
 
 const searchIcon = () =>
