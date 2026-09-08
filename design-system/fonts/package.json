@@ -1,0 +1,14 @@
+{
+  "name": "@orc-citadel/fonts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DESIGN.md 4역할 폰트의 로컬 vendoring — CDN 금지 규약 하에서 오프라인 서빙용 woff2 + @font-face.",
+  "type": "module",
+  "scripts": {"build": "node build.mjs"},
+  "devDependencies": {
+    "@fontsource/cinzel": "5.3.0",
+    "@fontsource/inter": "5.3.0",
+    "@fontsource/jetbrains-mono": "5.3.0",
+    "@fontsource/space-grotesk": "5.3.0"
+  }
+}

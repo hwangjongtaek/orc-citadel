@@ -1,0 +1,16 @@
+{
+  "name": "@orc-citadel/mockups",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Orc Citadel 8공간 목업 — Astryx + theme-citadel 로 저작하고 정적 HTML 로 생성한다.",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "devDependencies": {
+    "@astryxdesign/core": "0.5.3",
+    "@stylexjs/stylex": "^0.19.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  }
+}

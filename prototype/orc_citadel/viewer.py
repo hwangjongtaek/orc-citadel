@@ -17,6 +17,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import unquote, urlparse
 
+from orc_citadel import viewer_static
 from orc_citadel.api_facade import ApiFacade
 from orc_citadel.curated_zone import CuratedZone
 from orc_citadel.graph_service import GraphService
@@ -41,7 +42,14 @@ def _count_raw(raw_dir: str) -> tuple[list[dict], int]:
     """raw 존 파일 트리(source/doc/<doc_id>)에서 source×문서 수를 센다 (read-only).
 
     디렉터리 수로만 세어 파일 I/O·파싱 없이 결정적·가볍게. 미존재 시 빈 목록.
+    10만+ 문서 디렉터리 stat 은 요청당 0.3s 라 `_fetch_records` 와 같은 클래스 레벨
+    캐시를 쓴다 (페이지 이동마다 재스캔 금지 — 수집이 돌면 뷰어 재시작으로 갱신).
     """
+    cache = Handler._RAW_COUNT_CACHE
+    key = str(pathlib.Path(raw_dir).resolve()) if raw_dir else ""
+    hit = cache.get(key)
+    if hit is not None:
+        return [dict(s) for s in hit[0]], hit[1]
     raw_dir = pathlib.Path(raw_dir)
     out: list[dict] = []
     if raw_dir.is_dir():
@@ -49,7 +57,9 @@ def _count_raw(raw_dir: str) -> tuple[list[dict], int]:
             doc_dir = raw_dir / source / "doc"
             n = sum(1 for d in doc_dir.iterdir() if d.is_dir()) if doc_dir.is_dir() else 0
             out.append({"source_id": source, "doc_count": n})
-    return out, sum(s["doc_count"] for s in out)
+    total = sum(s["doc_count"] for s in out)
+    cache[key] = (out, total)
+    return [dict(s) for s in out], total
 
 
 def _fetch_records(raw_dir: str) -> list[dict]:
@@ -249,34 +259,109 @@ def _spire_catalog() -> list[dict]:
     return out
 
 
-def _archive_normalized(norm_db: str) -> tuple[list[dict], dict]:
-    """normalized 존 documents(+segment 수) — read-only 연결 (잠금 회피).
+# Grand Archive — source_type 은 source_id 접두사에서 결정적 파생 (뷰어 표기와 동일 규칙).
+ARCHIVE_TYPE_TOKENS = ("official", "press", "gov", "research", "exchange")
+_STYPE_SQL = ("CASE WHEN split_part(source_id, '-', 1) IN ("
+              + ", ".join(f"'{t}'" for t in ARCHIVE_TYPE_TOKENS)
+              + ") THEN split_part(source_id, '-', 1) ELSE 'source' END")
+# 문서 전량(실측 10만+) 직렬화가 /archive 를 멈추게 했다 — 응답은 한 페이지로 제한한다.
+ARCHIVE_LIMIT_DEFAULT, ARCHIVE_LIMIT_MAX = 50, 500
+_ARCHIVE_SORTS = {"doc_id": "doc_id",
+                  "publication": "publication_time DESC NULLS LAST, doc_id"}
+
+
+def _qs_int(raw, default: int, lo: int, hi: int) -> int:
+    """쿼리 정수 파싱 — 비수치는 기본값, 범위 밖은 클램프 (결정적)."""
+    try:
+        v = int(str(raw))
+    except (TypeError, ValueError):
+        return default
+    return max(lo, min(hi, v))
+
+
+def _archive_filter(source_type: str | None = None, source: str | None = None,
+                    language: str | None = None, q: str | None = None,
+                    doc_ids: list[str] | None = None) -> tuple[str, list]:
+    """documents 필터 축 → (WHERE 절, 파라미터). 미지정 축은 절을 만들지 않는다."""
+    cl: list[str] = []
+    p: list = []
+    if source_type:
+        cl.append(f"{_STYPE_SQL} = ?"); p.append(source_type)
+    if source:
+        cl.append("source_id = ?"); p.append(source)
+    if language == "unknown":
+        cl.append("(language IS NULL OR language = '')")
+    elif language:
+        cl.append("language = ?"); p.append(language)
+    if q:
+        cl.append("(title ILIKE ? OR url ILIKE ? OR doc_id ILIKE ?)")
+        p += [f"%{q}%"] * 3
+    if doc_ids is not None:
+        if doc_ids:
+            cl.append("doc_id IN (" + ", ".join(["?"] * len(doc_ids)) + ")")
+            p += list(doc_ids)
+        else:
+            cl.append("1 = 0")   # 대상 doc_id 없음 → 정직 빈 (전량 반환 아님)
+    return (" WHERE " + " AND ".join(cl)) if cl else "", p
+
+
+def _archive_normalized(norm_db: str, *, limit: int = ARCHIVE_LIMIT_DEFAULT,
+                        offset: int = 0, source_type: str | None = None,
+                        source: str | None = None, language: str | None = None,
+                        q: str | None = None, doc_ids: list[str] | None = None,
+                        sort: str = "doc_id") -> tuple[list[dict], dict, dict, dict]:
+    """normalized 존 documents 한 *페이지*(+segment 수)·집계·facet — read-only 연결.
 
     `normalized_zone.documents()`/`segments()` 와 동일 스키마를 read_only DuckDB
-    로 직접 조회해, 수집 파이프라인과의 잠금 충돌을 피한다. DB 미존재 시 빈(정직).
+    로 직접 조회해, 수집 파이프라인과의 잠금 충돌을 피한다. 전량을 싣던 것을 SQL
+    LIMIT/OFFSET 한 페이지로 좁히고, segment 수는 그 페이지 doc_id 에 한해 GROUP BY
+    한다 (segments 전수 GROUP BY 금지). facet 카운트는 검색(q)·doc_ids 범위 안에서
+    GROUP BY 실측이라 페이지 밖 문서도 반영한다 — facet 선택 자체로는 좁히지 않아
+    선택 해제용 chip 이 사라지지 않는다. DB 미존재/오류는 빈(정직).
+
+    반환: (docs, counts{documents,segments}, page{limit,offset,total,sort},
+    facets{source_type,language}).
     """
     import duckdb
 
+    counts = {"documents": 0, "segments": 0}
+    page = {"limit": limit, "offset": offset, "total": 0, "sort": sort}
+    facets: dict[str, dict] = {"source_type": {}, "language": {}}
     try:
         c = duckdb.connect(str(norm_db), read_only=True)
     except Exception:
-        return [], {"documents": 0, "segments": 0}
+        return [], counts, page, facets
+    order = _ARCHIVE_SORTS.get(sort, _ARCHIVE_SORTS["doc_id"])
+    page["sort"] = sort if sort in _ARCHIVE_SORTS else "doc_id"
+    where, params = _archive_filter(source_type, source, language, q, doc_ids)
+    fwhere, fparams = _archive_filter(q=q, doc_ids=doc_ids)
     try:
+        counts["documents"] = c.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
+        counts["segments"] = c.execute("SELECT COUNT(*) FROM segments").fetchone()[0]
+        page["total"] = c.execute(
+            "SELECT COUNT(*) FROM documents" + where, params).fetchone()[0]
+        facets["source_type"] = {t: n for t, n in c.execute(
+            f"SELECT {_STYPE_SQL} AS t, COUNT(*) FROM documents{fwhere} "
+            "GROUP BY t ORDER BY t", fparams).fetchall()}
+        facets["language"] = {l: n for l, n in c.execute(
+            "SELECT COALESCE(NULLIF(language, ''), 'unknown') AS l, COUNT(*) "
+            f"FROM documents{fwhere} GROUP BY l ORDER BY l", fparams).fetchall()}
         rows = c.execute(
             "SELECT doc_id, source_id, url, title, language, publication_time, "
-            "revision_time, parser_version, char_len FROM documents"
-        ).fetchall()
-        segs = c.execute("SELECT COUNT(*) FROM segments").fetchone()[0]
+            f"revision_time, parser_version, char_len FROM documents{where} "
+            f"ORDER BY {order} LIMIT ? OFFSET ?", params + [limit, offset]).fetchall()
+        ids = [r[0] for r in rows]
         segmap = dict(c.execute(
-            "SELECT doc_id, COUNT(*) FROM segments GROUP BY doc_id").fetchall())
+            "SELECT doc_id, COUNT(*) FROM segments WHERE doc_id IN ("
+            + ", ".join(["?"] * len(ids)) + ") GROUP BY doc_id", ids).fetchall()) if ids else {}
     except Exception:
-        rows, segs, segmap = [], 0, {}
+        rows, segmap = [], {}
     finally:
         c.close()
     cols = ["doc_id", "source_id", "url", "title", "language",
             "publication_time", "revision_time", "parser_version", "char_len"]
     docs = [dict(zip(cols, r)) | {"segments": segmap.get(r[0], 0)} for r in rows]
-    return docs, {"documents": len(docs), "segments": segs}
+    return docs, counts, page, facets
 
 
 def _archive_facets(norm_db: str) -> tuple[dict, list[dict]]:
@@ -383,8 +468,12 @@ def _build():
 
 class Handler(BaseHTTPRequestHandler):
     facade = None  # class-level (한 번 로드)
+    # 정적 자산 루트 — 없으면 자산 없이 동작한다 (정직 갭).
+    static_roots = viewer_static.default_roots()
     # raw fetch.json 전수 스캔은 1회만 (경로 → 레코드 목록). 렌더마다 재스캔 금지.
     _FETCH_CACHE: dict[str, list[dict]] = {}
+    # raw 존 source×문서 수 디렉터리 스캔도 1회만 (경로 → (source 목록, 합계)).
+    _RAW_COUNT_CACHE: dict[str, tuple[list[dict], int]] = {}
 
     def log_message(self, *a):  # 출력 간소화 (404 등만 남김)
         if self.path.startswith("/api/"):
@@ -622,39 +711,75 @@ class Handler(BaseHTTPRequestHandler):
 
     @_j
     def _api_archive(self, qs):
-        """Grand Archive — normalized documents·raw source 목록·dedup cluster 수.
+        """Grand Archive — normalized documents 한 페이지·raw source 목록·dedup cluster 수.
+
+        페이지네이션(`limit`≤500 기본 50·`offset`)과 서버측 필터(`source_type`·
+        `source`·`language`·`role`·`q`·`doc_ids`)·정렬(`sort`=doc_id|publication).
+        전량 직렬화(실측 10만+ 문서)가 페이지를 멈추게 해 SQL 로 내렸다.
 
         확장: documents[].cluster_role(root|derived|independent|null, dup_clusters
         매핑)·language·publication_time·revision_time·parser_version(기존 조회에 포함)
-        + segment_kinds GROUP BY·url_groups(≥2 그룹 ≤20).
+        + segment_kinds GROUP BY·url_groups(≥2 그룹 ≤20). `facets` 는 검색 범위 실측
+        (source_type·language 는 normalized 존 GROUP BY, cluster_role 은 curated
+        dup_clusters 전역 — 정규화 존 밖 축이라 검색 범위로 좁히지 않는다).
         """
         norm_db = getattr(self, "normalized_db", NORM_DB)
         raw_dir = getattr(self, "raw_dir", RAW_DIR)
-        docs, counts = _archive_normalized(norm_db)
-        raw_sources, raw_total = _count_raw(raw_dir)
+        limit = _qs_int(qs.get("limit"), ARCHIVE_LIMIT_DEFAULT, 1, ARCHIVE_LIMIT_MAX)
+        offset = _qs_int(qs.get("offset"), 0, 0, 10 ** 9)
+        source_type = unquote(qs.get("source_type", "")) or None
+        source = unquote(qs.get("source", "")) or None
+        language = unquote(qs.get("language", "")) or None
+        role = unquote(qs.get("role", "")) or None
+        q = unquote(qs.get("q", "").replace("+", "%20")).strip() or None
+        sort = qs.get("sort", "doc_id")
+        want = [unquote(x) for x in qs.get("doc_ids", "").split(",") if x]
+
         clusters = getattr(self, "curated_clusters", None)
         cluster_rows = []
         if clusters is None:
             cluster_rows = self.facade.zone.clusters()
             clusters = len(cluster_rows)
         # 계보 역할: root > independent(추가 소속) > derived(클러스터 멤버) > null.
-        role: dict[str, str] = {}
+        role_map: dict[str, str] = {}
         for c in cluster_rows:
             indep = set(c.get("independent_addition_doc_ids") or [])
             for d in c.get("member_doc_ids") or []:
-                role.setdefault(d, "independent" if d in indep else "derived")
-            role[c["root_doc_id"]] = "root"
+                role_map.setdefault(d, "independent" if d in indep else "derived")
+            role_map[c["root_doc_id"]] = "root"
+        role_counts: dict[str, int] = {}
+        for r in role_map.values():
+            role_counts[r] = role_counts.get(r, 0) + 1
+        # role 은 curated 존 축이라 SQL 컬럼이 아니다 — doc_id 교집합으로 좁힌다.
+        doc_ids = want or None
+        if role:
+            keep = set(want) if want else None
+            doc_ids = [d for d, rr in sorted(role_map.items())
+                       if rr == role and (keep is None or d in keep)]
+        docs, counts, page, facets = _archive_normalized(
+            norm_db, limit=limit, offset=offset, source_type=source_type,
+            source=source, language=language, q=q, doc_ids=doc_ids, sort=sort)
         for d in docs:
-            d["cluster_role"] = role.get(d.get("doc_id"))
+            d["cluster_role"] = role_map.get(d.get("doc_id"))
+        facets["cluster_role"] = role_counts
+        page |= {"source_type": source_type or "", "source": source or "",
+                 "language": language or "", "role": role or "", "q": q or "",
+                 "doc_ids": ",".join(want)}
+        raw_sources, raw_total = _count_raw(raw_dir)
         segment_kinds, url_groups = _archive_facets(norm_db)
         return {
             "normalized_documents": docs,
             "normalized_counts": counts,
+            "normalized_page": page,
+            "facets": facets,
             "raw_sources": raw_sources,
             "raw_doc_count": raw_total,
             "dedup_clusters": clusters,
             "segment_kinds": segment_kinds,
             "url_groups": url_groups,
+            "page_note": "normalized_documents 는 한 페이지다 (limit/offset) — "
+                         "normalized_counts.documents 는 존 전체, normalized_page.total "
+                         "은 현재 필터 적중 수.",
             "format_note": "raw 존은 Atom meta/전체 page 두 형식이 공존(04 §2.2) — 서로 다른 "
                            "형식일 뿐 '중복'이 아님.",
         }
@@ -928,12 +1053,45 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body); return
 
 
+        if parsed.path.startswith("/assets/"):
+            self._serve_asset(parsed.path); return
+
+        page = _page_for(parsed.path)
+        if page is None:
+            # 미지정 경로가 Gate HTML 200 을 돌려주던 것을 바로잡는다 —
+            # 오타 링크·없는 자산이 조용히 성공하면 디버깅이 어렵다.
+            body = b"404 Not Found"
+            self.send_response(404)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers(); self.wfile.write(body); return
+
+        body = page.encode()
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
-        body = _page_for(parsed.path).encode()
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def _serve_asset(self, url_path: str) -> None:
+        """`/assets/*` — 리포의 자산을 참조 서빙한다 (복제하지 않음)."""
+        roots = Handler.static_roots
+        hit = roots.resolve(url_path) if roots else None
+        if hit is None:
+            body = b"404 Not Found"
+            self.send_response(404)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers(); self.wfile.write(body); return
+        path, mime = hit
+        data = path.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", mime)
+        self.send_header("Content-Length", str(len(data)))
+        # 생성물은 내용이 바뀌면 파일명이 아니라 내용이 바뀐다 — 짧게만 캐시한다.
+        self.send_header("Cache-Control", "public, max-age=3600")
+        self.end_headers()
+        self.wfile.write(data)
 
 
 _PAGES = {
@@ -948,9 +1106,9 @@ _PAGES = {
 }
 
 
-def _page_for(path: str) -> str:
-    """라우트 → 페이지 HTML. 미지정 경로는 기본('/')을 사용한다."""
-    return _PAGES.get(path, _PAGES["/"])
+def _page_for(path: str) -> str | None:
+    """라우트 → 페이지 HTML. 미지정 경로는 None (호출자가 404)."""
+    return _PAGES.get(path)
 
 def main() -> None:
     Handler.facade = _build()

@@ -24,3 +24,6 @@ __pycache__/
 
 # Collected sample data (04) — 커넥터로 수집한 원문은 커밋 제외
 prototype/data/
+
+# Node (design-system 테마 저작 도구 — 런타임 아님)
+node_modules/

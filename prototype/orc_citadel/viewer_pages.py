@@ -13,15 +13,31 @@ import html
 # --font-* 의 로컬 fallback 스택으로 대체 (목업 자체가 fallback 병기).
 CSS = """
 <style>
+ /* 값의 정본은 design-system/theme-citadel (DESIGN.md 발행본)이다.
+    여기서는 뷰어가 오래 써 온 의미론적 이름을 Astryx 토큰에 얹는 얇은 별칭만 둔다.
+    폴백 hex 는 자산 서빙이 안 되는 환경(테마 CSS 미로드)에서도 화면이 서게 한다. */
  :root{
-   --citadel-void:#07111C; --citadel-night:#0D1B2A;
-   --surface:#111820; --surface-variant:#26313A;
-   --on-surface:#D6CCB8; --on-surface-muted:#59636A; --parchment:#C8B58E;
-   --primary:#45E06F; --secondary:#20B85A; --ember:#E97824; --signal-amber:#FFB13B;
-   --crimson:#7B2833; --error:#E05252; --uncertain:#A78BFA; --superseded:#59636A;
-   --font-display:"Cinzel",Georgia,serif; --font-head:"Space Grotesk",system-ui,sans-serif;
-   --font-body:"Inter",system-ui,sans-serif; --font-data:"JetBrains Mono",ui-monospace,monospace;
-   --r-sm:4px; --r-md:8px; --r-lg:12px; --r-full:9999px;
+   --citadel-void:var(--color-background-body,#07111C);
+   --citadel-night:var(--color-background-surface,#0D1B2A);
+   --surface:var(--color-background-card,#111820);
+   --surface-variant:var(--color-background-muted,#26313A);
+   --on-surface:var(--color-text-primary,#D6CCB8);
+   --on-surface-muted:var(--color-text-secondary,#59636A);
+   --parchment:var(--astryx-theme-citadel-parchment,#C8B58E);
+   --primary:var(--color-accent,#45E06F);
+   --secondary:var(--astryx-theme-citadel-seer-green,#20B85A);
+   --ember:var(--astryx-theme-citadel-ember,#E97824);
+   --signal-amber:var(--astryx-theme-citadel-signal-amber,#FFB13B);
+   --crimson:var(--astryx-theme-citadel-crimson,#7B2833);
+   --error:var(--color-error,#E05252);
+   --uncertain:var(--astryx-theme-citadel-uncertain,#A78BFA);
+   --superseded:var(--astryx-theme-citadel-superseded,#59636A);
+   --font-display:var(--astryx-theme-citadel-font-display,"Cinzel",Georgia,serif);
+   --font-head:var(--font-family-heading,"Space Grotesk",system-ui,sans-serif);
+   --font-body:var(--font-family-body,"Inter",system-ui,sans-serif);
+   --font-data:var(--font-family-code,"JetBrains Mono",ui-monospace,monospace);
+   --r-sm:var(--radius-inner,4px); --r-md:var(--radius-element,8px);
+   --r-lg:var(--radius-container,12px); --r-full:var(--radius-full,9999px);
    --sp-xs:4px; --sp-sm:8px; --sp-md:16px; --sp-lg:24px; --sp-xl:32px;
  }
  *{box-sizing:border-box;margin:0;padding:0}
@@ -42,11 +58,32 @@ CSS = """
  .grow{flex:1 1 auto}
  .search{display:flex;align-items:center;gap:8px;background:var(--surface-variant);border-radius:var(--r-md);padding:8px 12px;width:300px;max-width:32vw;color:var(--on-surface-muted)}
  .search svg{flex:none}
+ /* DESIGN.md components.input — surface-variant 배경·경계, rounded md.
+    브라우저 기본 위젯이 다크 표면 위에서 흰 상자로 튀는 것을 막는다. */
+ main input,main select,main textarea{background:var(--surface-variant);
+   border:1px solid var(--surface-variant);border-radius:var(--r-md);
+   color:var(--on-surface);font-family:var(--font-body);font-size:13px;
+   padding:8px 10px;outline:none}
+ main input:focus,main select:focus,main textarea:focus{border-color:var(--secondary)}
+ main input[type=range]{padding:0;background:none;border:none}
+ main button{background:var(--surface);border:1px solid var(--surface-variant);
+   border-radius:var(--r-md);color:var(--on-surface);font-family:var(--font-head);
+   font-size:12px;font-weight:600;padding:8px 14px;cursor:pointer}
+ main button:hover{border-color:var(--on-surface-muted)}
+ main button.primary{background:var(--primary);border-color:var(--primary);
+   color:var(--citadel-void)}
  .search input{background:none;border:none;outline:none;color:var(--on-surface);font-family:var(--font-body);font-size:13px;width:100%}
  .search input::placeholder{color:var(--on-surface-muted)}
  .spire{position:relative;display:flex;align-items:center;gap:8px;font-family:var(--font-head);font-size:12px;font-weight:600;color:var(--signal-amber);background:rgba(255,177,59,.08);border:1px solid rgba(255,177,59,.3);padding:8px 12px;border-radius:var(--r-md);cursor:pointer;white-space:nowrap}
  .spire .dot{width:7px;height:7px;border-radius:var(--r-full);background:var(--signal-amber);box-shadow:0 0 8px 1px var(--signal-amber)}
- .masthead{position:relative;height:108px;overflow:hidden;border-bottom:1px solid var(--surface-variant);display:flex;align-items:center;padding:0 var(--sp-lg);background:linear-gradient(90deg,rgba(7,17,28,.95) 0%,rgba(7,17,28,.72) 55%,rgba(13,27,42,.42) 100%),var(--citadel-night)}
+ /* 크기는 shell() 이 인라인으로 준다 (공간별 히어로·상한). 스크림이 아래에서
+    위로 걷혀 글자만 덮고 그림 본체는 살린다.
+    폭은 본문(main)과 맞춘다 — 전폭이면 본문과 어긋나고, 넓을수록 8:3 상한에
+    걸려 세로가 더 잘린다(2560px 전폭 37% vs 1200px 80%). */
+ .masthead{position:relative;overflow:hidden;flex:none;
+   max-width:1200px;width:calc(100% - var(--sp-lg) * 2);margin:var(--sp-md) auto 0;
+   border:1px solid var(--surface-variant);border-radius:var(--r-lg);
+   display:flex;align-items:flex-end;padding:0 var(--sp-lg) 20px}
  .masthead h1{font-family:var(--font-head);font-size:22px;font-weight:600;color:var(--on-surface);letter-spacing:-.01em;text-shadow:0 2px 14px rgba(7,17,28,.9)}
  .masthead p{font-family:var(--font-head);font-size:11px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;color:var(--parchment);margin-top:5px;text-shadow:0 2px 14px rgba(7,17,28,.9)}
  .spaces{display:flex;flex-wrap:wrap;gap:2px;margin-bottom:var(--sp-lg)}
@@ -54,19 +91,30 @@ CSS = """
  .spaces a:hover{color:var(--on-surface);background:var(--surface-variant)}
  .spaces a.active{color:var(--primary);background:rgba(69,224,111,.08)}
  .panel,.card{background:var(--surface);border:1px solid var(--surface-variant);border-radius:var(--r-lg);overflow:hidden}
- .card{margin-bottom:var(--sp-md)}
+ /* 패딩은 카드 자체에 준다 — `.card>.body` 래퍼를 쓰는 곳이 35개 중 5개뿐이라
+    나머지는 내용이 테두리에 붙어 있었다. 표는 카드 끝까지 흘러야 하므로 제외. */
+ .card{margin-bottom:var(--sp-md);padding:var(--sp-md)}
+ .card:has(>table){padding:0}
  .card>.body,.panel-body{padding:var(--sp-md)}
+ .card>.body{padding:0}  /* 카드가 이미 패딩을 가지므로 중복 제거 */
  .panel-head{display:flex;align-items:center;justify-content:space-between;padding:12px var(--sp-md);border-bottom:1px solid var(--surface-variant)}
  .panel-head h2{font-family:var(--font-head);font-size:12px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--on-surface)}
  .panel-head .sub{font-family:var(--font-head);font-size:10px;letter-spacing:.08em;color:var(--on-surface-muted);text-transform:uppercase}
- h2.h{font-family:var(--font-head);font-size:12px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--on-surface);margin:var(--sp-md) 0 10px;display:flex;align-items:center;gap:8px}
- h2.h::after{content:"";flex:1;height:1px;background:var(--surface-variant)}
+ /* 목업의 section label 조판 — 작은 대문자 라벨 + 헤어라인.
+    페이지들이 맨 <h2> 를 쓰므로 클래스 없이도 걸리게 한다. */
+ main h2,h2.h{font-family:var(--font-head);font-size:12px;font-weight:600;
+   letter-spacing:.1em;text-transform:uppercase;color:var(--on-surface);
+   margin:var(--sp-lg) 0 10px;display:flex;align-items:center;gap:8px}
+ main h2::after,h2.h::after{content:"";flex:1;height:1px;background:var(--surface-variant)}
+ /* 헤딩 옆 보조 설명은 대문자화에서 빼고 라벨 톤으로 */
+ main h2 .dim{text-transform:none;letter-spacing:0;font-size:11px;font-weight:400;flex:none}
  table{border-collapse:collapse;width:100%;font-size:13px}
  th{font-family:var(--font-head);font-size:9.5px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--on-surface-muted);text-align:left;padding:8px 10px;border-bottom:1px solid var(--surface-variant);white-space:nowrap}
  td{padding:11px 10px;border-bottom:1px solid rgba(38,49,58,.5);vertical-align:middle}
  tr:last-child td{border-bottom:none}
  tbody tr:hover td{background:rgba(38,49,58,.28)}
  td.num,th.num{text-align:right;font-family:var(--font-data)}
+ .empty-art{display:block;margin:0 auto 12px;width:132px;height:132px;image-rendering:pixelated;opacity:.9}
  .badge{display:inline-block;font-family:var(--font-head);font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;padding:3px 8px;border-radius:var(--r-sm);background:var(--surface-variant);color:var(--on-surface)}
  .badge.good{background:rgba(69,224,111,.14);color:var(--primary)}
  .badge.warn{background:rgba(255,177,59,.14);color:var(--signal-amber)}
@@ -92,7 +140,13 @@ CSS = """
  .btn{font-family:var(--font-head);font-size:11px;font-weight:600;padding:6px 12px;border-radius:var(--r-md);border:1px solid var(--surface-variant);color:var(--on-surface);background:none;cursor:pointer}
  .btn.primary{border-color:var(--primary);color:var(--primary);background:rgba(69,224,111,.06)}
  .btn.run{border:none;color:var(--citadel-void);background:var(--primary);box-shadow:0 0 0 1px rgba(69,224,111,.4),0 6px 18px -6px rgba(69,224,111,.5)}
+ .btn[disabled]{opacity:.4;cursor:default}
+ /* 페이지네이션 바 — 표 위에서 범위·이동·페이지 크기를 한 줄로. */
+ .pager{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:0 0 10px}
+ .pager select{padding:4px 6px;font-size:12px}
  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:var(--sp-md);margin-bottom:var(--sp-md)}
+ /* 그리드는 gap 이 간격을 준다 — 카드의 margin-bottom 이 겹쳐 행 간격만 넓어졌다. */
+ .grid>.card{margin-bottom:0}
  .bar{background:var(--surface-variant);border-radius:6px;height:10px;width:140px;display:inline-block;vertical-align:middle;margin-right:8px;overflow:hidden}
  .bar>i{display:block;height:100%;background:var(--primary)}
  .dim{font-size:12px;color:var(--on-surface-muted)} .muted{color:var(--on-surface-muted)}
@@ -254,15 +308,29 @@ def _search_icon() -> str:
 
 
 # 공간별 (라우트) 브레이드크럼 — (eyebrow EN·function, title KO).
+# 공간별 빈 상태 일러스트 (docs/mockups/empty-states.html 패턴).
+# Gate·Council 은 대응 아트가 없다 — 없으면 텍스트만 (정직 갭).
+_EMPTY_ART = {
+    "/table": "empty-wartable.png",
+    "/witnesses": "empty-witnesses.png",
+    "/watchtower": "empty-watchtower.png",
+    "/archive": "empty-archive.png",
+    "/chronicle": "empty-chronicle.png",
+    "/spire": "empty-spire.png",
+}
+
 _SPACE_META = {
-    "/":         ("Citadel Gate · Home", "본부 · Home"),
-    "/table":    ("War Table · Graph", "조사 · 그래프"),
-    "/witnesses": ("Hall of Witnesses · Evidence", "증거 검사"),
-    "/council":  ("Council Chamber · Investigation", "조사 보고서"),
-    "/watchtower": ("Watchtower · Ingestion", "수집 관제"),
-    "/archive":  ("Grand Archive · Documents", "문서 탐색"),
-    "/chronicle": ("Chronicle Vault · History", "시간 탐색"),
-    "/spire":    ("Signal Spire · Alerts", "알림 센터"),
+    "/":         ("Citadel Gate · Home", "본부 · Home", "gate-hero.png", 360),
+    "/table":    ("War Table · Graph", "조사 · 그래프", "war-table-hero.png", 300),
+    "/witnesses": ("Hall of Witnesses · Evidence", "증거 검사",
+                   "hall-of-witnesses-hero.png", 300),
+    "/council":  ("Council Chamber · Investigation", "조사 보고서",
+                  "council-chamber-hero.png", 300),
+    "/watchtower": ("Watchtower · Ingestion", "수집 관제", "watchtower-hero.png", 360),
+    "/archive":  ("Grand Archive · Documents", "문서 탐색", "grand-archive-hero.png", 300),
+    "/chronicle": ("Chronicle Vault · History", "시간 탐색",
+                   "chronicle-vault-hero.png", 300),
+    "/spire":    ("Signal Spire · Alerts", "알림 센터", "signal-spire-hero.png", 300),
 }
 
 
@@ -270,13 +338,36 @@ def shell(route: str, body: str, title: str) -> str:
     """목업 공유 셸로 페이지를 감싼 전체 HTML.
 
     header(워드마크+브레이드크럼+검색+Signal Spire 칩)·masthead 밴드·공간 탭을
-    포함하고, `body`(페이지 본문+JS)를 main 에 넣는다. 히어로 PNG 는 오프라인이므로
-    flat night 그라데이션으로 대체(목업 .masthead 의 fallback 조합).
+    포함하고, `body`(페이지 본문+JS)를 main 에 넣는다.
+
+    색·형태·폰트의 정본은 `design-system/theme-citadel` 이며 `/assets/*` 로 서빙된다
+    (viewer_static.py). 스코프 루트를 `<html>` 에 두는 이유는 astryx 기본 토큰이
+    `:root` 에 `light-dark()` 로 깔려 있어서다 — `<body>` 를 루트로 잡으면 `<html>`
+    이 라이트 팔레트를 써서 본문 아래가 흰색으로 남는다(다크 모드에선 안 드러남).
     """
-    eyebrow, app_title = _SPACE_META.get(route, _SPACE_META["/"])
+    eyebrow, app_title, hero, cap = _SPACE_META.get(route, _SPACE_META["/"])
+    # 히어로는 전부 1920×720 (8:3). 고정 높이 밴드에 cover 로 넣으면 세로 23% 만
+    # 보여 장면이 안 읽힌다 — 8:3 을 지키되 상한으로 본문 공간을 지킨다.
+    # 상한이 없으면 2560px 뷰포트에서 960px 를 먹는다.
+    mast_style = (
+        f"aspect-ratio:8/3;max-height:{cap}px;min-height:150px;"
+        "background:"
+        "linear-gradient(0deg,rgba(7,17,28,.94) 0%,rgba(7,17,28,.55) 26%,"
+        "rgba(7,17,28,.12) 55%,rgba(7,17,28,0) 80%),"
+        f"url('/assets/img/{hero}') center center / cover no-repeat,"
+        "var(--citadel-night)")
     return (
-        '<!doctype html><html lang="ko"><meta charset="utf-8">'
-        f"<title>{html.escape(title)}</title>" + CSS +
+        # 빈 상태 아트는 라우트에서 정해진다 — `window.empty()` 가 집어간다.
+        # script 태그가 아니라 data 속성인 이유: `_inject` 가 페이지당 <script> 를
+        # 정확히 하나로 유지하는 것을 병합 앵커 불변식으로 삼는다.
+        f'<!doctype html><html lang="ko" data-astryx-theme="citadel"'
+        f' data-empty-art="{_EMPTY_ART.get(route, "")}">'
+        '<meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width, initial-scale=1">'
+        f"<title>{html.escape(title)}</title>"
+        # 폰트 → 테마 → 뷰어 CSS 순. 뒤엣것이 앞을 덮는다.
+        '<link rel="stylesheet" href="/assets/fonts/fonts.css">'
+        '<link rel="stylesheet" href="/assets/theme-citadel.css">' + CSS +
         '<body><div class="app">'
         "<header>"
         f'<a class="wordmark" href="/">{_crest()}ORC&nbsp;CITADEL</a>'
@@ -288,7 +379,7 @@ def shell(route: str, body: str, title: str) -> str:
         '<a class="spire" href="/spire" title="Signal Spire · 결론·confidence 변화 알림">'
         '<span class="dot"></span> Signal Spire · 0</a>'
         "</header>"
-        '<div class="masthead"><div class="mh-txt">'
+        f'<div class="masthead" style="{mast_style}"><div class="mh-txt">'
         f"<h1>{html.escape(app_title)}</h1><p>{html.escape(eyebrow)}</p></div></div>"
         "<main>" + nav(route) + body + "</main>"
         "</div></body></html>"
@@ -827,16 +918,16 @@ load();
 # --- Citadel Gate — 홈/진입 대시보드 (`/`). ---
 PAGE_GATE = shell(
     "/",
-    """<h2>🗄️ 시스템 존 요약 <span class="dim">(raw / normalized / curated — 실측)</span></h2>
+    """<h2>시스템 존 요약 <span class="dim">(raw / normalized / curated — 실측)</span></h2>
 <div class="grid" id="zones"></div>
 
-<h2>🏰 Citadel Spaces <span class="dim">(공간 quick-enter)</span></h2>
+<h2>Citadel Spaces <span class="dim">(공간 quick-enter)</span></h2>
 <div class="grid" id="gate-spaces"></div>
 
-<h2>🎯 Campaign · Subject 랭킹 <span class="dim">(S31 · coverage + value + 독립출처 봉투)</span></h2>
+<h2>Campaign · Subject 랭킹 <span class="dim">(S31 · coverage + value + 독립출처 봉투)</span></h2>
 <div class="grid" id="gate-cards"></div>
 
-<h2>🚦 신호 분포 <span class="dim">(contradicted · low_evidence · high_confidence · normal)</span></h2>
+<h2>신호 분포 <span class="dim">(contradicted · low_evidence · high_confidence · normal)</span></h2>
 <div class="card" id="signals"></div>
 
 <script>
@@ -888,16 +979,16 @@ function esc(s){const d=document.createElement('div');d.textContent=s;return d.i
 # --- Watchtower — 수집 관제 (`/watchtower`). ---
 PAGE_WATCHTOWER = shell(
     "/watchtower",
-    """<h2>🛰️ 수집 관제 요약 <span class="dim">(raw 실측 + normalized publication_time 기준 신선도)</span></h2>
+    """<h2>수집 관제 요약 <span class="dim">(raw 실측 + normalized publication_time 기준 신선도)</span></h2>
 <div class="grid" id="wt-tiles"></div>
 
-<h2>📡 Source 상태 <span class="dim">(raw 존 · source × 문서 수 · source_type)</span></h2>
+<h2>Source 상태 <span class="dim">(raw 존 · source × 문서 수 · source_type)</span></h2>
 <div class="card"><table id="sources"></table></div>
 
-<h2>🛎️ SLO 판정표 <span class="dim">(nightly 5 — 관측 미누적 → 전항 not-measured, 정직)</span></h2>
+<h2>SLO 판정표 <span class="dim">(nightly 5 — 관측 미누적 → 전항 not-measured, 정직)</span></h2>
 <div class="card"><table id="slo"></table></div>
 
-<h2>📈 Error Budget <span class="dim">(위반/측정 — 측정 없음이면 ratio None)</span></h2>
+<h2>Error Budget <span class="dim">(위반/측정 — 측정 없음이면 ratio None)</span></h2>
 <div class="card" id="budget"></div>
 
 <script>
@@ -936,11 +1027,11 @@ function esc(s){const d=document.createElement('div');d.textContent=s;return d.i
 # --- Signal Spire — 알림 센터 (`/spire`). ---
 PAGE_SPIRE = shell(
     "/spire",
-    """<h2>🔔 5 종 트리거 카탈로그 <span class="dim">(정본 signal_spire.TRIGGER_TYPES)</span></h2>
+    """<h2>5 종 트리거 카탈로그 <span class="dim">(정본 signal_spire.TRIGGER_TYPES)</span></h2>
 <div class="card"><table id="spire-triggers"></table></div>
 
-<h2>🕯️ 알림 피드 <span class="dim">(실 점화 없음 → 정직 빈 상태, §6.2)</span></h2>
-<div class="card" id="feed"><span class="muted">새 알림 없음 — 아직 점화된 알림이 없습니다.</span></div>
+<h2>알림 피드 <span class="dim">(실 점화 없음 → 정직 빈 상태, §6.2)</span></h2>
+<div class="card" id="feed"></div>
 
 <script>
 const $=s=>document.querySelector(s);
@@ -951,7 +1042,10 @@ function esc(s){const d=document.createElement('div');d.textContent=s;return d.i
   $('#spire-triggers').innerHTML='<tr><th>Trigger</th><th>의미</th><th>점화</th></tr>'+
     (r.trigger_catalog||[]).map(t=>`<tr><td><code>${esc(t.trigger)}</code></td><td>${esc(t.description)}</td>
       <td><span class="pill normal">0 · not-fired</span></td></tr>`).join('');
-  $('#feed').innerHTML='<p class="muted">'+esc(r.note)+'</p><p class="dim">'+esc(r.fire_once_rule)+'</p>';
+  $('#feed').innerHTML='<div class="empty-state">'
+    +'<img src="/assets/img/empty-spire.png" alt="" class="empty-art">'
+    +'<div class="trig">새 알림 없음</div>'
+    +'<p>'+esc(r.note)+'</p><p class="dim">'+esc(r.fire_once_rule)+'</p></div>';
 })();
 </script>
     """,
@@ -961,19 +1055,22 @@ function esc(s){const d=document.createElement('div');d.textContent=s;return d.i
 # --- Grand Archive — 문서 탐색 (`/archive`). ---
 PAGE_ARCHIVE = shell(
     "/archive",
-    """<h2>🔎 Sifter <span class="dim">(source_type facet — source_id 접두사 결정적 파생)</span></h2>
+    """<h2>Sifter <span class="dim">(source_type facet — source_id 접두사 결정적 파생 · 검색 범위 전체 실측)</span></h2>
 <div class="card" id="archive-facets"></div>
 
-<h2>📚 Normalized Documents <span class="dim">(oc.duckdb · read-only · segment 수 포함)</span></h2>
-<div class="card"><table id="docs"></table></div>
+<h2>Normalized Documents <span class="dim">(oc.duckdb · read-only · 서버 페이지네이션 · segment 수 포함)</span></h2>
+<div class="card">
+  <div id="docs-pager" class="pager"></div>
+  <table id="docs"></table>
+</div>
 
-<h2>📖 Codex · 문서 상세</h2>
+<h2>Codex · 문서 상세</h2>
 <div class="card" id="archive-codex"><span class="muted">문서 행을 선택하세요.</span></div>
 
-<h2>📦 Raw 존 <span class="dim">(source × 문서 수 — Atom meta/전체 page 두 형식 공존)</span></h2>
+<h2>Raw 존 <span class="dim">(source × 문서 수 — Atom meta/전체 page 두 형식 공존)</span></h2>
 <div class="card"><table id="raw"></table></div>
 
-<h2>♻️ Dedup Cluster <span class="dim">(curated clusters)</span></h2>
+<h2>Dedup Cluster <span class="dim">(curated clusters)</span></h2>
 <div class="card" id="clusters"></div>
 
 <script>
@@ -981,27 +1078,80 @@ const $=s=>document.querySelector(s);
 function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
 const TYPE_TOK=['official','press','gov','research','exchange'];
 const stype=id=>{const h=String(id||'').split('-',1)[0];return TYPE_TOK.includes(h)?h:'source';};
-let docs=[], facet='';
+const num=n=>Number(n||0).toLocaleString();
+// 문서 목록은 서버 페이지네이션이다 — 실측 10만+ 문서를 한 응답·한 DOM 에 쏟아
+// 부어 페이지가 멈추던 것을 한 페이지(limit/offset)로 좁혔다. facet·검색·정렬도
+// 서버 축(/api/archive 파라미터)이라 페이지 밖 문서까지 정확히 반영된다.
+// 확장(aux_ext)은 같은 응답을 ARCHIVE.on() 훅으로 받아 재조회하지 않는다.
+var ARCHIVE=window.ARCHIVE={
+  state:{limit:50,offset:0,source_type:'',source:'',language:'',role:'',q:'',sort:'doc_id'},
+  docs:[],page:{},facets:{},data:null,loaded:false,hooks:[],
+  on(fn){this.hooks.push(fn);if(this.loaded)fn(this.data);},
+  set(patch,keepOffset){if(!keepOffset)patch=Object.assign({offset:0},patch);
+    Object.assign(this.state,patch);return loadArchive();},
+  reload(){return loadArchive();}
+};
+
+function archiveQs(){
+  const p=new URLSearchParams();
+  Object.keys(ARCHIVE.state).forEach(k=>{const v=ARCHIVE.state[k];if(v!==''&&v!=null)p.set(k,v);});
+  return p.toString();
+}
+
+async function loadArchive(){
+  const r=await (await fetch('/api/archive?'+archiveQs())).json();
+  ARCHIVE.data=r; ARCHIVE.loaded=true;
+  ARCHIVE.docs=r.normalized_documents||[];
+  ARCHIVE.page=r.normalized_page||{};
+  ARCHIVE.facets=r.facets||{};
+  renderFacets(); renderDocs(); renderPager(); renderZones(r);
+  ARCHIVE.hooks.forEach(h=>{try{h(r);}catch(e){}});
+  return r;
+}
 
 function renderFacets(){
-  const counts={};
-  docs.forEach(d=>{const t=stype(d.source_id);counts[t]=(counts[t]||0)+1;});
-  $('#archive-facets').innerHTML=Object.entries(counts).map(([t,n])=>
-    `<span class="chip${facet===t?' active':''}" data-t="${esc(t)}" style="${facet===t?'border-color:var(--primary);cursor:pointer':'cursor:pointer'}"><span class="sw" style="background:var(--primary)"></span>${esc(t)} · ${n}</span>`).join('')||'<span class="muted">문서 없음</span>';
-  document.querySelectorAll('#archive-facets .chip').forEach(c=>c.onclick=()=>{facet=facet===c.dataset.t?'':c.dataset.t;renderFacets();renderDocs();});
+  const counts=ARCHIVE.facets.source_type||{}, cur=ARCHIVE.state.source_type;
+  const keys=Object.keys(counts).sort();
+  $('#archive-facets').innerHTML=keys.length?keys.map(t=>
+    `<span class="chip${cur===t?' active':''}" data-t="${esc(t)}" style="${cur===t?'border-color:var(--primary);cursor:pointer':'cursor:pointer'}"><span class="sw" style="background:var(--primary)"></span>${esc(t)} · ${num(counts[t])}</span>`).join('')
+    :'<span class="muted">문서 없음</span>';
+  document.querySelectorAll('#archive-facets .chip').forEach(c=>c.onclick=()=>
+    ARCHIVE.set({source_type:ARCHIVE.state.source_type===c.dataset.t?'':c.dataset.t}));
 }
 
 function renderDocs(){
-  const shown=docs.filter(d=>!facet||stype(d.source_id)===facet);
+  const rows=ARCHIVE.docs;
   $('#docs').innerHTML='<tr><th>doc_id</th><th>source</th><th>type</th><th>title</th><th>segments</th><th>char_len</th><th>parser</th></tr>'+
-    shown.map(d=>`<tr data-doc="${esc(d.doc_id)}" style="cursor:pointer">
+    (rows.length?rows.map(d=>`<tr data-doc="${esc(d.doc_id)}" style="cursor:pointer">
       <td><code>${esc(d.doc_id)}</code></td><td>${esc(d.source_id)}</td><td><span class="badge">${esc(stype(d.source_id))}</span></td>
-      <td>${esc(d.title||'')}</td><td>${d.segments}</td><td>${d.char_len}</td><td><span class="badge">${esc(d.parser_version)}</span></td></tr>`).join('')||'<span class="muted">문서 없음</span>';
-  document.querySelectorAll('#docs tr[data-doc]').forEach(tr=>tr.onclick=()=>codex(tr.dataset.doc));
+      <td>${esc(d.title||'')}</td><td>${d.segments}</td><td>${d.char_len}</td><td><span class="badge">${esc(d.parser_version)}</span></td></tr>`).join('')
+     :'<tr><td colspan="7" class="muted">조건 일치 문서 없음</td></tr>');
+}
+
+function renderPager(){
+  const p=ARCHIVE.page, total=p.total||0, off=p.offset||0, lim=p.limit||50;
+  const from=total?off+1:0, to=off+ARCHIVE.docs.length;
+  const all=(ARCHIVE.data.normalized_counts||{}).documents||0;
+  $('#docs-pager').innerHTML=
+    `<span class="dim mono">${num(from)}–${num(to)} / ${num(total)}${total!==all?` (존 전체 ${num(all)})`:''}</span>`
+    +`<button class="btn" id="pg-prev"${off<=0?' disabled':''}>‹ 이전</button>`
+    +`<button class="btn" id="pg-next"${to>=total?' disabled':''}>다음 ›</button>`
+    +`<span class="dim">rows <select id="pg-lim">${[25,50,100,200].map(n=>`<option value="${n}"${n===lim?' selected':''}>${n}</option>`).join('')}</select></span>`;
+  $('#pg-prev').onclick=()=>ARCHIVE.set({offset:Math.max(0,off-lim)},true);
+  $('#pg-next').onclick=()=>ARCHIVE.set({offset:off+lim},true);
+  $('#pg-lim').onchange=e=>ARCHIVE.set({limit:+e.target.value});
+}
+
+function renderZones(r){
+  $('#raw').innerHTML='<tr><th>source</th><th>문서 수</th></tr>'+
+    ((r.raw_sources||[]).map(s=>`<tr><td>${esc(s.source_id)}</td><td>${num(s.doc_count)}</td></tr>`).join('')
+     ||'<tr><td colspan="2" class="muted">raw 없음</td></tr>');
+  $('#clusters').innerHTML='<p>dedup clusters <b>'+r.dedup_clusters+'</b></p><p class="dim">'+esc(r.format_note)+'</p>';
 }
 
 function codex(docId){
-  const d=docs.find(x=>x.doc_id===docId); if(!d) return;
+  const d=ARCHIVE.docs.find(x=>x.doc_id===docId);
+  if(!d){$('#archive-codex').innerHTML='<span class="muted">현재 페이지 밖 문서 — 검색으로 좁혀 선택하세요.</span>';return;}
   $('#archive-codex').innerHTML=`<div style="font-size:15px;font-weight:700">${esc(d.title||docId)}</div>
     <p class="dim mono">${esc(d.doc_id)} · ${esc(d.parser_version)}</p>
     <div class="conf" style="margin:10px 0">
@@ -1013,12 +1163,17 @@ function codex(docId){
 }
 
 (async()=>{
-  const r=await (await fetch('/api/archive')).json();
-  docs=r.normalized_documents||[];
-  renderFacets(); renderDocs();
-  $('#raw').innerHTML='<tr><th>source</th><th>문서 수</th></tr>'+
-    (r.raw_sources||[]).map(s=>`<tr><td>${esc(s.source_id)}</td><td>${s.doc_count}</td></tr>`).join('')||'<span class="muted">raw 없음</span>';
-  $('#clusters').innerHTML='<p>dedup clusters <b>'+r.dedup_clusters+'</b></p><p class="dim">'+esc(r.format_note)+'</p>';
+  // 행 클릭은 위임 1회 — 페이지마다 행 수만큼 핸들러를 다는 것을 없앤다.
+  $('#docs').addEventListener('click',ev=>{
+    const tr=ev.target.closest('tr[data-doc]');
+    if(tr) codex(tr.dataset.doc);
+  });
+  // 딥링크: ?doc=<doc_id>(Stacks·Witnesses) · ?src=<source_id>(source 드릴다운).
+  const up=new URLSearchParams(location.search), dl=up.get('doc'), src=up.get('src');
+  if(dl) ARCHIVE.state.doc_ids=dl;
+  if(src) ARCHIVE.state.source=src;
+  await loadArchive();
+  if(dl) codex(dl);
 })();
 </script>
     """,
@@ -1028,7 +1183,7 @@ function codex(docId){
 # --- Chronicle Vault — 시간 탐색 (`/chronicle`). ---
 PAGE_CHRONICLE = shell(
     "/chronicle",
-    """<h2>⏳ AS-OF 조회 <span class="dim">(valid_at · tx_at ISO datetime — 선택, 기본 현재 tx)</span></h2>
+    """<h2>AS-OF 조회 <span class="dim">(valid_at · tx_at ISO datetime — 선택, 기본 현재 tx)</span></h2>
 <div class="card">
   <form id="asof">
     <label>valid_at <input id="v" name="valid_at" placeholder="2026-08-01T00:00:00"></label>
@@ -1037,19 +1192,19 @@ PAGE_CHRONICLE = shell(
   </form>
 </div>
 
-<h2>🗂️ AS-OF 상태 분해 <span class="dim">(현재 믿음 vs 해당 tx 시점 믿음)</span></h2>
+<h2>AS-OF 상태 분해 <span class="dim">(현재 믿음 vs 해당 tx 시점 믿음)</span></h2>
 <div class="card" id="chron-state"></div>
 
-<h2>📜 Assertions <span class="dim">(bitemporal 범위 + supersedes)</span></h2>
+<h2>Assertions <span class="dim">(bitemporal 범위 + supersedes)</span></h2>
 <div class="card"><table id="assertions"></table></div>
 
-<h2>🧭 War Table 딥링크</h2>
+<h2>War Table 딥링크</h2>
 <div class="card" id="chron-deeplink"></div>
 
-<h2>🔗 Supersedes 체인</h2>
+<h2>Supersedes 체인</h2>
 <div class="card" id="chain"></div>
 
-<h2>⏪ Graph Replay <span class="dim">(postgres `graph_mutations` SoT — ADR-304)</span></h2>
+<h2>Graph Replay <span class="dim">(postgres `graph_mutations` SoT — ADR-304)</span></h2>
 <div class="card" id="replay"></div>
 
 <script>
@@ -1110,8 +1265,10 @@ from orc_citadel import table_ext as _table_ext, witnesses_ext as _witnesses_ext
 # chronicle 페이지는 두 헬퍼가 없다 — 보강 정의(기존 정의 절대 덮어쓰지 않음).
 _EXT_PRELUDE = (
     "window.api=window.api||function(p){return fetch(p).then(function(r){return r.json();});};\n"
-    "window.empty=window.empty||function(t,m){return '<div class=\"empty-state\"><div class=\"trig\">'"
-    "+esc(t)+'</div><p>'+esc(m)+'</p></div>';};\n"
+    # 아트가 있으면 일러스트를 얹는다 (window.EMPTY_ART — shell 이 라우트별로 심는다).
+    "window.empty=window.empty||function(t,m){var a=document.documentElement.dataset.emptyArt;return '<div class=\"empty-state\">'"
+    "+(a?'<img src=\"/assets/img/'+a+'\" alt=\"\" class=\"empty-art\">':'')"
+    "+'<div class=\"trig\">'+esc(t)+'</div><p>'+esc(m)+'</p></div>';};\n"
 )
 
 
@@ -1135,6 +1292,11 @@ PAGE_GATE = _inject(PAGE_GATE, _ab[0], _SEARCH_JS + _GATE_JS, prelude=_EXT_PRELU
 PAGE_WATCHTOWER = _inject(PAGE_WATCHTOWER, _ab[1], _WT_JS, prelude=_EXT_PRELUDE)
 PAGE_ARCHIVE = _inject(PAGE_ARCHIVE, _ab[2], _AR_JS, prelude=_EXT_PRELUDE)
 PAGE_CHRONICLE = _inject(PAGE_CHRONICLE, _ab[3], _CH_JS, prelude=_EXT_PRELUDE)
-# Spire 는 alert 영속 부재로 확장 없음 (honest-gap 유지). SEARCH_JS 는 헤더
-# search input 자기발견 — 미탑재 페이지에서도 무해하나 일관성 있게 gate 만 탑재.
+# Spire 는 alert 영속 부재로 본문 확장 없음 (honest-gap 유지).
+#
+# 헤더 검색은 셸의 일부다 — 8페이지 중 2곳에서만 동작하던 것을 전부로 올린다(갭 A4).
+# SEARCH_JS 는 헤더 search input 을 스스로 찾으므로 페이지별 배선이 필요 없다.
+for _name in ("PAGE_TABLE", "PAGE_WITNESSES", "PAGE_COUNCIL",
+              "PAGE_WATCHTOWER", "PAGE_CHRONICLE", "PAGE_SPIRE"):
+    globals()[_name] = _inject(globals()[_name], "", _SEARCH_JS, prelude=_EXT_PRELUDE)
 

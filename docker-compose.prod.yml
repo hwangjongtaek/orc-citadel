@@ -32,6 +32,10 @@ services:
       - "${VIEWER_BIND:-127.0.0.1}:8791:8791"
     volumes:
       - proddata:/app/data
+      # base 와 동일 — rsync 가 docs/·design-system/ 을 원격에 보내므로 그대로 물린다.
+      - ./docs/mockups/assets:/app/static/img:ro
+      - ./design-system/theme-citadel/dist/theme.css:/app/static/theme-citadel.css:ro
+      - ./design-system/fonts/dist:/app/static/fonts:ro
     environment:
       VIEWER_HOST: 0.0.0.0
       POSTGRES_HOST: postgres
@@ -55,6 +59,10 @@ services:
     working_dir: /app
     volumes:
       - proddata:/app/data
+      # base 와 동일 — rsync 가 docs/·design-system/ 을 원격에 보내므로 그대로 물린다.
+      - ./docs/mockups/assets:/app/static/img:ro
+      - ./design-system/theme-citadel/dist/theme.css:/app/static/theme-citadel.css:ro
+      - ./design-system/fonts/dist:/app/static/fonts:ro
     environment:
       # nightly 발화 시각(07:07/07:37)은 운영 타임존 기준 — 컨테이너 기본 UTC 봉인.
       TZ: ${TZ:-Asia/Seoul}

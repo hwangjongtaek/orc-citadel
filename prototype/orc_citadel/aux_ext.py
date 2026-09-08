@@ -85,7 +85,7 @@ async function gsRun(sb,dd){
 
 # --- Citadel Gate: mini-watchtower 카드 ----------------------------------------
 # quarantined(/api/table 실측 count) + source 별 last_fetch(/api/watchtower intake).
-GATE_EXT_BODY = """<h2>🛰️ Watchtower · 수집 관제 요약 <span class="dim">(mini — last_fetch · quarantine 현황 /api 실측)</span></h2>
+GATE_EXT_BODY = """<h2>Watchtower · 수집 관제 요약 <span class="dim">(mini — last_fetch · quarantine 현황 /api 실측)</span></h2>
 <div class="card"><table id="gate-mini-watchtower"></table></div>
 """
 
@@ -118,10 +118,10 @@ GATE_EXT_JS = r"""
 
 # --- Watchtower: intake 시계열 + sources 확장 테이블 ---------------------------
 # arrivals_per_hour 버킷 → 인라인 SVG 막대 (외부 lib 금지). measured=False 정직 빈.
-WT_EXT_BODY = """<h2>📥 Intake · 도착 시계열 <span class="dim">(fetch.json fetched_at 실측 1h 버킷 — 인라인 SVG · 외부 lib 없음)</span></h2>
+WT_EXT_BODY = """<h2>Intake · 도착 시계열 <span class="dim">(fetch.json fetched_at 실측 1h 버킷 — 인라인 SVG · 외부 lib 없음)</span></h2>
 <div class="grid" id="wt-intake"></div>
 
-<h2>🗂️ Sources 확장 <span class="dim">(last_fetch · governance — fetch.json 표본 실측)</span></h2>
+<h2>Sources 확장 <span class="dim">(last_fetch · governance — fetch.json 표본 실측)</span></h2>
 <div class="card"><table id="wt-sources-ext"></table></div>
 """
 
@@ -175,26 +175,31 @@ function wtBarPath(max,b,i){
 # --- Grand Archive: facet·Stacks·contains 검색·Codex 메타·?doc= 부트스트랩 ------
 # /api/archive 확장(cluster_role·language·publication_time·segment_kinds·url_groups)
 # 과 /api/search documents join. `codex` 래퍼로 기존 상세 패널에 메타+딥링크 appended.
-AR_EXT_BODY = """<h2>🧮 Archive Ext <span class="dim">(language · dedup role · publication 정렬 · 본문 contains)</span></h2>
+AR_EXT_BODY = """<h2>Archive Ext <span class="dim">(language · dedup role · publication 정렬 · 본문 contains)</span></h2>
 <div class="card"><div class="body">
   <div class="search" style="width:100%;max-width:560px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M20 20 L16.5 16.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-    <input id="ar-q" placeholder="본문 contains 검색 (title · url · doc_id — /api search join)" /></div>
+    <input id="ar-q" placeholder="본문 contains 검색 (title · url · doc_id — 서버 ILIKE · 페이지 단위)" /></div>
   <p class="dim" style="margin-top:6px">text contains 검색 — DuckDB ILIKE substring 정합 (BM25 · rank 없음).</p>
   <div class="sec-label">Facet · language / role / sort</div>
   <div id="ar-facets"></div>
   <div class="card" id="ar-table" style="margin-top:8px"></div>
 </div></div>
 
-<h2>🗃️ Stacks · 동일 URL 문서군 <span class="dim">(url_groups ≥2 · ≤20)</span></h2>
+<h2>Stacks · 동일 URL 문서군 <span class="dim">(url_groups ≥2 · ≤20)</span></h2>
 <div class="card" id="ar-stacks"></div>
 
-<h2>🧩 Segment kinds 현황 <span class="dim">(normalized segments GROUP BY)</span></h2>
+<h2>Segment kinds 현황 <span class="dim">(normalized segments GROUP BY)</span></h2>
 <div class="card" id="ar-kinds"></div>
 """
 
 AR_EXT_JS = r"""
 (function(){
-  var aextDocs=[], aextLang='', aextRole='', aextSort=false, aextMode='', aextStacks=[];
+  // 문서 축(facet·검색·정렬·페이지)은 전부 서버(/api/archive)로 내렸다 — 이 확장은
+  // 페이지 본문이 이미 받아온 같은 응답(window.ARCHIVE)을 훅으로 공유하고 재조회
+  // 하지 않는다. 10만+ 문서를 클라이언트에 들고 필터링하던 것이 페이지를 멈췄다.
+  var A=window.ARCHIVE;
+  if(!A) return;
+  var aextNote='';
   function drow(d){
     return '<tr data-doc="'+esc(d.doc_id)+'"><td><code>'+esc(d.doc_id)+'</code></td><td>'+esc(d.source_id||'')+'</td>'
       +'<td>'+esc(d.title||'')+'</td><td><span class="badge">'+esc(d.language||'unknown')+'</span></td>'
@@ -221,52 +226,34 @@ AR_EXT_JS = r"""
     s.onclick=onclick;
     return s;
   }
-  function rowsNow(){
-    var rows=aextDocs.filter(function(d){
-      return (!aextLang||(d.language||'unknown')===aextLang)&&(!aextRole||(d.cluster_role||'')==aextRole);
-    });
-    if(aextSort) rows=rows.slice().sort(function(a,b){
-      return String(b.publication_time||'').localeCompare(String(a.publication_time||''));
-    });
-    return rows;
-  }
   function rebuild(){
     var wrap=document.querySelector('#ar-facets');
     if(!wrap) return;
     wrap.textContent='';
-    var lo={}, ro={};
-    aextDocs.forEach(function(d){
-      var l=d.language||'unknown'; lo[l]=(lo[l]||0)+1;
-      if(d.cluster_role) ro[d.cluster_role]=(ro[d.cluster_role]||0)+1;
-    });
+    var lo=A.facets.language||{}, ro=A.facets.cluster_role||{};
     Object.keys(lo).sort().forEach(function(l){
-      wrap.appendChild(chip(l+' · '+lo[l],aextLang===l,function(){ aextLang=aextLang===l?'':l; rebuild(); }));
+      wrap.appendChild(chip(l+' · '+lo[l],A.state.language===l,function(){
+        A.set({language:A.state.language===l?'':l});
+      }));
     });
     Object.keys(ro).sort().forEach(function(rr){
-      wrap.appendChild(chip('role:'+rr+' · '+ro[rr],aextRole===rr,function(){ aextRole=aextRole===rr?'':rr; rebuild(); },'var(--parchment)'));
+      wrap.appendChild(chip('role:'+rr+' · '+ro[rr],A.state.role===rr,function(){
+        A.set({role:A.state.role===rr?'':rr});
+      },'var(--parchment)'));
     });
-    wrap.appendChild(chip(aextSort?'publication newest-first':'publication 정렬',aextSort,function(){ aextSort=!aextSort; rebuild(); },'var(--signal-amber)'));
+    var sorted=A.state.sort==='publication';
+    wrap.appendChild(chip(sorted?'publication newest-first':'publication 정렬',sorted,function(){
+      A.set({sort:sorted?'doc_id':'publication'});
+    },'var(--signal-amber)'));
     var tb=document.querySelector('#ar-table');
-    if(aextMode==='doc'&&aextSearchNote){
-      tb.innerHTML='<div class="panel-body">'+aextSearchNote+tableHtml(rowsNow())+'</div>';
-    } else {
-      tb.innerHTML=tableHtml(rowsNow());
-    }
-    tb.querySelectorAll('tr[data-doc]').forEach(function(tr){
-      tr.style.cursor='pointer';
-      tr.onclick=function(){ try{ codex(tr.getAttribute('data-doc')); }catch(_e){} };
-    });
+    var pg=A.page||{};
+    var note='<p class="dim" style="margin-bottom:8px">'
+      +(aextNote?esc(aextNote)+' · ':'')
+      +'적중 '+Number(pg.total||0).toLocaleString()+'건 중 '
+      +Number(A.docs.length).toLocaleString()+'건 표시 (페이지 이동은 위 Normalized Documents 페이저) · '
+      +'role facet 은 curated dup_clusters 전역 실측</p>';
+    tb.innerHTML='<div class="panel-body">'+note+tableHtml(A.docs)+'</div>';
   }
-  var aextSearchNote='';
-  function applyDocIds(ids,label){
-    var set={};
-    ids.forEach(function(i){ set[i]=1; });
-    aextDocs=aextAll.filter(function(d){ return set[d.doc_id]; });
-    aextMode='doc';
-    aextSearchNote='<p class="dim" style="margin-bottom:8px">'+esc(label)+'</p>';
-    rebuild();
-  }
-  var aextAll=[];
   function renderKinds(sk){
     var el=document.querySelector('#ar-kinds');
     var keys=Object.keys(sk||{});
@@ -290,7 +277,7 @@ AR_EXT_JS = r"""
     var codexOrig=window.codex;
     window.codex=function(docId){
       codexOrig(docId);
-      var d=aextAll.filter(function(x){ return x.doc_id===docId; })[0];
+      var d=A.docs.filter(function(x){ return x.doc_id===docId; })[0];
       var panel=document.querySelector('#archive-codex');
       if(!d||!panel) return;
       var meta=document.createElement('div');
@@ -305,55 +292,51 @@ AR_EXT_JS = r"""
       panel.appendChild(meta);
     };
   }
+  // 행 클릭 위임 1회 — 렌더마다 행 수만큼 핸들러를 달지 않는다.
+  var tbl=document.querySelector('#ar-table');
+  if(tbl) tbl.addEventListener('click',function(ev){
+    var tr=ev.target&&ev.target.closest?ev.target.closest('tr[data-doc]'):null;
+    if(tr){ try{ codex(tr.getAttribute('data-doc')); }catch(_e){} }
+  });
   var q=document.querySelector('#ar-q');
   if(q) q.addEventListener('keydown',function(e){
     if(e.key!=='Enter') return;
     e.preventDefault();
     var v=(q.value||'').trim();
-    if(!v){ aextDocs=aextAll.slice(); aextMode=''; aextSearchNote=''; rebuild(); return; }
-    api('/api/search?q='+encodeURIComponent(v)).then(function(sr){
-      var ids=(sr.documents||[]).map(function(d){ return d.doc_id; });
-      applyDocIds(ids,'text contains "'+v+'" — documents '+ids.length+'건 join (title·url ILIKE, BM25 아님)');
-    });
+    // contains 검색은 서버 축이다 — /api/archive?q= (title·url·doc_id ILIKE,
+    // BM25·rank 없음). 전량 join(/api/search) 을 하지 않아 페이지 밖도 정확하다.
+    aextNote=v?'text contains "'+v+'" — title·url·doc_id ILIKE 정합':'';
+    A.set({q:v,doc_ids:''});
   });
-  api('/api/archive').then(function(r){
-    aextAll=(r.normalized_documents||[]).slice();
-    aextDocs=aextAll.slice();
-    aextStacks=r.url_groups||[];
+  // URL 부트스트랩(?doc=·?src=)은 페이지 본문이 상태로 이미 반영했다 — 여기서는
+  // 검색창·주석 표기만 맞춘다 (중복 조회 없음).
+  var p=new URLSearchParams(location.search);
+  var doc=p.get('doc'), src=p.get('src');
+  if(doc){ if(q) q.value=doc; aextNote='URL 부트스트랩 — /archive?doc= 단일 문서 선택'; }
+  else if(src){ aextNote='Stacks 딥링크 — source '+src+' 문서'; }
+  A.on(function(r){
     renderKinds(r.segment_kinds||{});
-    renderStacks(aextStacks);
-    var p=new URLSearchParams(location.search);
-    var doc=p.get('doc'), src=p.get('src');
-    if(doc){
-      if(q) q.value=doc;
-      applyDocIds([doc],'URL 부트스트랩 — /archive?doc= 단일 문서 선택');
-      try{ codex(doc); }catch(_e){}
-    } else if(src){
-      aextDocs=aextAll.filter(function(d){ return d.source_id===src; });
-      aextMode='doc';
-      aextSearchNote='<p class="dim" style="margin-bottom:8px">Stacks 딥링크 — source '+esc(src)+' 문서</p>';
-      rebuild();
-    } else {
-      rebuild();
-    }
+    renderStacks(r.url_groups||[]);
+    rebuild();
   });
 })();
 """
+
 
 # --- Chronicle Vault: dual slider · preset · events rail · as-of 상세 -----------
 # bounds(/api/chronicle) 로 valid·tx 레일 스케일을 그리고, preset 질문 3 종은
 # 실재 assertion 에서 파생 — 재료 없으면 그 preset 은 비활성(chip.disabled).
 # /archive?doc= 부트스트랩과 달리 여기서는 URL as-of 파라미터로 타임슬라이더 복원.
-CH_BODY = """<h2>📐 Bitemporal Plane · 타임 슬라이더 <span class="dim">(valid × tx — /api/chronicle bounds 실측)</span></h2>
+CH_BODY = """<h2>Bitemporal Plane · 타임 슬라이더 <span class="dim">(valid × tx — /api/chronicle bounds 실측)</span></h2>
 <div class="card"><div class="body" id="ch-plane"></div></div>
 
-<h2>🧭 Preset 질문 <span class="dim">(실재 assertion 파생 — 재료 없으면 비활성)</span></h2>
+<h2>Preset 질문 <span class="dim">(실재 assertion 파생 — 재료 없으면 비활성)</span></h2>
 <div class="card"><div class="body" id="ch-presets"></div></div>
 
-<h2>🛤️ Events rail <span class="dim">(asserted · closed · superseded)</span></h2>
+<h2>Events rail <span class="dim">(asserted · closed · superseded)</span></h2>
 <div class="card"><div class="body" id="ch-events-rail"></div></div>
 
-<h2>🔖 As-of assertion 상세</h2>
+<h2>As-of assertion 상세</h2>
 <div class="card" id="ch-assertion-detail"><span class="muted">assertion 테이블 행을 선택하세요.</span></div>
 """
 

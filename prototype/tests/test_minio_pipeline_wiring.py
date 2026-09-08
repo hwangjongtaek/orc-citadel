@@ -20,9 +20,12 @@ minio_mod = pytest.importorskip("minio")
 def build_minio_store(bucket="raw-wiring-test"):
     try:
         client = build_minio_client()
+        # 첫 실제 연결은 여기서 일어난다 (client 생성은 lazy — 연결 안 함).
+        # 가드 밖에 두면 오프라인에서 skip 아닌 ERROR 가 된다.
+        bucket_exists = client.bucket_exists(bucket)
     except Exception as exc:
         pytest.skip(f"MinIO 연결 불가: {exc}")
-    if client.bucket_exists(bucket):
+    if bucket_exists:
         for o in client.list_objects(bucket, recursive=True):
             client.remove_object(bucket, o.object_name)
         client.remove_bucket(bucket)

@@ -1,0 +1,82 @@
+<svg class="plane-svg" viewBox="0 0 880 400" preserveAspectRatio="xMidYMid meet" role="img"
+               aria-label="valid time과 transaction time 2축 평면. claim-123은 tx 2024-09에서 2025-03까지 관찰된 superseded 버전, claim-201은 2025-03부터 현재까지 신뢰되는 현재 버전. 선택 교차점 T_v 2025-03 · T_t now는 claim-201 안에 위치.">
+            <defs>
+              <marker id="arw" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0 0 L10 5 L0 10 z" fill="#59636A"/>
+              </marker>
+              <marker id="arwG" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0 0 L10 5 L0 10 z" fill="#45E06F"/>
+              </marker>
+            </defs>
+
+            <!-- 축 프레임 -->
+            <line x1="92" y1="46" x2="92" y2="330" stroke="#26313A" stroke-width="1.5"/>
+            <line x1="92" y1="330" x2="820" y2="330" stroke="#26313A" stroke-width="1.5"/>
+            <!-- 축 제목 -->
+            <text class="ax-title" x="456" y="392" text-anchor="middle">Valid time · 현실 유효 시점 →</text>
+            <text class="ax-title" transform="rotate(-90 24 188)" x="24" y="188" text-anchor="middle">TX time · 관찰 시점 ↓</text>
+
+            <!-- valid(x) 눈금 -->
+            <g text-anchor="middle">
+              <text class="ax-tick" x="92"  y="348">2024-06</text>
+              <text class="ax-tick" x="236" y="348">2024-09</text>
+              <text class="ax-tick" x="428" y="348">2025-01</text>
+              <text class="ax-tick" x="524" y="348">2025-03</text>
+              <text class="ax-tick" x="668" y="348">2025-06</text>
+              <text class="ax-tick" x="812" y="348">2025-09</text>
+            </g>
+            <!-- tx(y) 눈금 -->
+            <g text-anchor="end">
+              <text class="ax-tick" x="86" y="49">2024-09</text>
+              <text class="ax-tick" x="86" y="123">2025-03</text>
+              <text class="ax-tick" x="86" y="172">2025-07</text>
+              <text class="ax-tick" x="86" y="333">now</text>
+            </g>
+            <!-- 격자 (은은) -->
+            <g stroke="#26313A" stroke-width="1" opacity=".4">
+              <line x1="428" y1="46" x2="428" y2="330"/>
+              <line x1="668" y1="46" x2="668" y2="330"/>
+              <line x1="92" y1="120" x2="820" y2="120"/>
+              <line x1="92" y1="169" x2="820" y2="169"/>
+            </g>
+
+            <!-- v1: claim-123 (superseded) — 흐린 회색 점선 사각형 + tx_to close 화살표 -->
+            <g opacity="0.6">
+              <rect x="92" y="46" width="720" height="74" rx="6"
+                    fill="rgba(89,99,106,.10)" stroke="#59636A" stroke-width="1.5" stroke-dasharray="5 4"/>
+              <text class="cell-lab" x="104" y="68" style="fill:#59636A">claim-123 · A사 → B사 단일 의존</text>
+              <text class="cell-sub" x="104" y="84">asr-9001 · superseded · tx 2024-09 → 2025-03 (close)</text>
+              <text class="cell-sub" x="104" y="98">valid 2024-06 → (open)</text>
+            </g>
+
+            <!-- v2: claim-201 (current belief) — war-green 사각형 -->
+            <g>
+              <rect x="428" y="120" width="384" height="210" rx="6"
+                    fill="rgba(69,224,111,.07)" stroke="#45E06F" stroke-width="2"/>
+              <text class="cell-lab" x="442" y="146" style="fill:#45E06F">claim-201 · A사 → 복수 공급처(B사+C사)</text>
+              <text class="cell-sub" x="442" y="162">asr-9002 · 현재 신뢰 · tx 2025-03 → now (open)</text>
+              <text class="cell-sub" x="442" y="176">valid 2025-01 → (open) · supersedes asr-9001</text>
+            </g>
+
+            <!-- supersession: v1 tx_to close → v2 (아래로 시간화살표) -->
+            <g>
+              <path d="M700 120 L700 150" stroke="#45E06F" stroke-width="1.8" stroke-dasharray="1 4" marker-end="url(#arwG)"/>
+              <text class="cell-sub" x="708" y="140" style="fill:#45E06F">supersedes</text>
+            </g>
+
+            <!-- v3: seer LLM 후보 — 점선 원 마커 (secondary) -->
+            <g>
+              <circle cx="476" cy="200" r="11" fill="rgba(32,184,90,.10)" stroke="#20B85A" stroke-width="1.6" stroke-dasharray="3 3"/>
+              <text class="cell-sub" x="494" y="197" style="fill:#20B85A">seer 후보 · asr-9003</text>
+              <text class="cell-sub" x="494" y="210">"C사 계약=발표뿐, 집행 미확인" · 미확정</text>
+            </g>
+
+            <!-- 선택 (T_v, T_t) 십자선 — 노드를 지우지 않고 교차점만 강조 -->
+            <g>
+              <line x1="524" y1="46" x2="524" y2="330" stroke="#FFB13B" stroke-width="1.4" stroke-dasharray="4 3" opacity=".85"/>
+              <line x1="92"  y1="322" x2="820" y2="322" stroke="#FFB13B" stroke-width="1.4" stroke-dasharray="4 3" opacity=".85"/>
+              <circle cx="524" cy="322" r="8" fill="none" stroke="#FFB13B" stroke-width="2"/>
+              <circle cx="524" cy="322" r="3" fill="#FFB13B"/>
+              <text class="cell-sub" x="536" y="314" style="fill:#FFB13B">AS-OF · T_v 2025-03 · T_t now</text>
+            </g>
+          </svg>

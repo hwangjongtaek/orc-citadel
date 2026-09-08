@@ -28,9 +28,12 @@ def store():
     """실 MinIO에 연결해 전용 버킷을 삭제·재생성으로 격리 (테스트마다 초기화)."""
     try:
         client = build_minio_client()
+        # 첫 실제 연결은 여기서 일어난다 (client 생성은 lazy — 연결 안 함).
+        # 가드 밖에 두면 오프라인에서 skip 아닌 ERROR 가 된다.
+        bucket_exists = client.bucket_exists(TEST_BUCKET)
     except Exception as exc:  # 오프라인/드라이버 부재 — 전체 skip
         pytest.skip(f"MinIO 연결 불가: {exc}")
-    if client.bucket_exists(TEST_BUCKET):
+    if bucket_exists:
         for obj in client.list_objects(TEST_BUCKET, recursive=True):
             client.remove_object(TEST_BUCKET, obj.object_name)
         client.remove_bucket(TEST_BUCKET)
