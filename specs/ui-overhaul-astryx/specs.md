@@ -52,9 +52,10 @@ Python 뷰어의 인라인 HTML 표시 계층(약 4,600줄)을 **Astryx React �
 
 - **Description**: 신규 픽셀아트 로고 2종 반입·파생·전면 교체.
 - **Implementation Approach**:
-  - 반입(사용자 제공 파일): `docs/mockups/assets/logo-lockup.png`(가로: crest+레터링), `docs/mockups/assets/logo-crest.png`(세로: 엠블럼+하단 레터링). 투명 배경 유지.
-  - 파생(스크립트 `scripts/derive_brand_assets.sh`, macOS `sips` 사용 — node·외부 도구 불요): 헤더용 lockup 축소본(높이 40px@1x·80px@2x), 파비콘(`favicon-32.png`·`apple-touch-180.png`는 crest 정방형에서).
-  - 교체 지점: ① 셸 헤더 워드마크(텍스트 "ORC CITADEL" → lockup 이미지 + `alt`) ② Gate 히어로 하단 crest 마크(기존 `crest-hero.png` 56px 자리) ③ 목업 index 마크 ④ favicon `<link>`(현행 부재 시 신설) ⑤ 리포 대표 `orc-citadel-hero.png`·README — **사용자 확인 후**(잔여 open question).
+  - 반입(사용자 제공 파일): `docs/mockups/assets/logo-lockup.png`(가로: crest+레터링 통합 원본), `docs/mockups/assets/logo-crest.png`(세로: 엠블럼+하단 레터링). 투명 배경 유지.
+  - **lockup은 분리해서 사용한다(확정)**: 가로 원본에서 투명 경계를 기준으로 `logo-mark.png`(crest 부분)와 `logo-title.png`(ORC CITADEL 레터링 부분)를 크롭 파생 — 헤더는 공간이 좁으므로 mark 단독 또는 mark+title 조합을 맥락별로 쓴다.
+  - 파생(스크립트 `scripts/derive_brand_assets.sh`, macOS `sips` 사용 — node·외부 도구 불요): 분리 크롭 2종 + 헤더용 축소본(높이 40px@1x·80px@2x), 파비콘(`favicon-32.png`·`apple-touch-180.png`는 crest 정방형에서).
+  - 교체 지점: ① 셸 헤더 워드마크(텍스트 "ORC CITADEL" → mark+title 이미지 + `alt`) ② Gate 브랜드 블록(기존 `crest-hero.png` 96px 자리) ③ 목업 index 마크 ④ favicon `<link>`(현행 부재 시 신설). ⑤ **리포 대표 `orc-citadel-hero.png`·README 배너는 교체하지 않는다(확정)**.
   - 기존 `crest-hero.png`는 삭제하지 않고 참조만 제거(자산 이력 보존, 갭 분석 기준선과 동일 정책).
 - **Constraints**: 픽셀아트 축소 시 뭉개짐 방지 — 파생본은 `image-rendering: pixelated` 지정 또는 정수배 축소만 사용. 히어로 크기 정책(8:3·상한)은 lockup에 적용하지 않는다(로고는 히어로가 아님).
 
@@ -218,8 +219,8 @@ deploy/grafana/provisioning/   (신설) datasource·dashboard as code
 
 ## Open Questions
 
-- README·리포 대표 이미지(`orc-citadel-hero.png`) 교체 여부 — 로고 반입 시 사용자 확인.
-- 로고 원본 파일 반입 대기(사용자 제공) — FR-4 선행 조건.
+- 로고 원본 파일 반입 대기(사용자 제공) — FR-4 선행 조건. 대화 첨부 이미지는 파일로 추출 불가하므로 PNG 2종을 리포 경로에 직접 저장 필요.
+- ~~README·리포 대표 이미지 교체 여부~~ → **교체하지 않음 확정** (2026-09-08).
 
 ## Clarification Log
 
@@ -232,3 +233,5 @@ deploy/grafana/provisioning/   (신설) datasource·dashboard as code
 | 5 | War Table hairball 가드 | subject 중심 서브그래프 기본 + `/api/graph_expand` 단계 확장, 결정적 SVG 레이아웃 | 2026-09-08 |
 | 6 | 파이프라인 모니터링 UI 부착 가능? | 가능·설계 정합 — design 11 §2.2가 "PostgreSQL + Grafana" 기확정. 병목은 메트릭 영속(in-memory slo_log) → FR-6 flush 배선으로 해소 | 2026-09-08 |
 | 7 | 존 데이터 브라우징 UI(DuckDB·Lakehouse 체험) | raw=MinIO Console(기존 활성), DuckDB 존=**parquet 스냅샷 + DuckDB UI 사이드카**(뷰어 쓰기 잠금 실측 함정 때문에 `.duckdb` 직접 attach 금지 — parquet 경유가 lakehouse 체험에도 정합), postgres=Grafana Explore 겸용, neo4j/opensearch=내장 UI 문서화만 | 2026-09-08 |
+| 8 | 로고 사용 방식·README 배너 | 가로 lockup은 mark/title **분리 크롭**해 사용, README 배너(`orc-citadel-hero.png`)는 **교체하지 않음** | 2026-09-08 |
+| 9 | 진행 방식 | **목업 선행(mockup-first)** — 각 공간은 목업을 먼저 저작·확인한 뒤 frontend 구현에 착수 (바로 구현 금지) | 2026-09-08 |

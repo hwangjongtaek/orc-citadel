@@ -10,6 +10,8 @@
 
 3개 트랙으로 진행한다. **A. 기반**(불변식 개정 → ui/ 승격 → frontend 스캐폴드), **B. 공간 이관**(브리핑 가치 순 8공간, 공간당 1~2커밋), **C. 모니터링**(Grafana — B와 병행 가능). 전 단계에서 리포 규약 유지: TDD 선작성 · Tidy First(구조/행위 커밋 분리) · honest-gap · 외부 CDN 금지.
 
+**진행 규칙 — 목업 선행 (2026-09-08 사용자 확정):** 각 공간(Step 5~13)은 바로 구현하지 않고 ① 목업(`design-system/mockups`)을 새 정보구조로 먼저 저작·빌드 ② 사용자 확인 ③ frontend 구현 착수 순서를 지킨다. 목업 저작은 해당 Step의 frontend 작업보다 앞서 독립 커밋으로 진행할 수 있다. (셸 2계층 내비 + Gate 브리핑 대시보드 목업은 2026-09-08 선행 완료 — Step 5의 ①이 소진됨.)
+
 ## Prerequisites
 
 - **로고 원본 2종 반입(사용자)**: 첨부 이미지의 원본 PNG를 `docs/mockups/assets/logo-lockup.png`(가로) · `logo-crest.png`(세로)로 저장. Step 4 선행 조건 — 미도착 시 Step 4만 뒤로 미루고 나머지 진행.
@@ -284,8 +286,8 @@ Step 16a ── 16b ── 16c  (Step 3 이후 병행, 프런트·Grafana와 독
 | Step 1 | Pending | | | |
 | Step 2 | Pending | | | |
 | Step 3 | Pending | | | |
-| Step 4 | Pending | | | 로고 원본 반입 대기 |
-| Step 5 | Pending | | | 번들 예산 실측 기록 |
+| Step 4 | Pending | | | 로고 원본 반입 대기 · lockup은 mark/title 분리 크롭 · README 배너 미교체 확정 |
+| Step 5 | In Progress | 2026-09-08 | | 목업 선행 완료(셸 2계층 + Gate 대시보드) · frontend 구현은 사용자 확인 후 · 번들 예산 실측 기록 |
 | Step 6 | Pending | | | Spec 1.1.0 → 1.2.0 |
 | Step 7 | Pending | | | |
 | Step 8 | Pending | | | |
