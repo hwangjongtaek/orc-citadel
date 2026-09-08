@@ -1114,12 +1114,14 @@ _PAGES = {
     "/chronicle": PAGE_CHRONICLE,    # 시간 탐색
     # 이관 기간 롤백 경로 (specs/ui-overhaul-astryx TS-1) — 이관 완료 시 일괄 제거.
     "/legacy/gate": PAGE_GATE,
+    "/legacy/witnesses": PAGE_WITNESSES,
 }
 
 # canonical 라우트 → frontend dist 엔트리. 공간을 이관할 때마다 추가한다.
 # dist 를 못 찾으면 _PAGES 인라인으로 폴백한다 — 롤백은 여기서 한 줄 제거.
 _MIGRATED = {
     "/": "gate.html",
+    "/witnesses": "witnesses.html",
 }
 
 

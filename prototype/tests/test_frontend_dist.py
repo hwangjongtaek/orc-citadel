@@ -18,7 +18,10 @@ REPO = Path(__file__).resolve().parents[2]
 DIST = REPO / "frontend" / "dist"
 
 # 이관된 엔트리 목록 — 공간을 이관할 때마다 여기 추가한다.
-ENTRIES = ["gate"]
+ENTRIES = ["gate", "witnesses"]
+# canonical 라우트 ↔ dist 엔트리 (viewer._MIGRATED 와 동기).
+MIGRATED = [("/", "gate"), ("/witnesses", "witnesses")]
+LEGACY = ["/legacy/gate", "/legacy/witnesses"]
 
 
 @pytest.fixture(scope="module")
@@ -67,44 +70,50 @@ def test_bundles_have_no_external_origins() -> None:
         assert not bad, f"{js.name}: {bad[:3]}"
 
 
-def test_gate_bundle_wires_search_palette() -> None:
+def test_bundles_wire_search_palette() -> None:
     """⌘K 통합 검색 팔레트 (TS-3) — 번들이 /api/search 를 소비하고
-    딥링크 3종(table?subject·witnesses?claim·archive?doc)을 만든다."""
-    js = (DIST / "js" / "gate.js").read_text(encoding="utf-8", errors="ignore")
+    딥링크 3종(table?subject·witnesses?claim·archive?doc)을 만든다.
+    코드 스플릿으로 어느 청크에 있을지 모르므로 dist 전체에서 찾는다."""
+    js = "".join(f.read_text(encoding="utf-8", errors="ignore")
+                 for f in sorted(DIST.rglob("*.js")))
     assert "/api/search" in js
     for marker in ("/table?subject=", "/witnesses?claim=", "/archive?doc="):
         assert marker in js, marker
 
 
-def test_root_route_serves_frontend_gate() -> None:
-    """이관 1호 — canonical `/` 는 dist gate 를 서빙한다 (TS-1 라우트 전환)."""
+@pytest.mark.parametrize("route,entry", MIGRATED)
+def test_migrated_routes_serve_frontend_dist(route: str, entry: str) -> None:
+    """이관된 canonical 라우트는 dist 를 서빙한다 (TS-1 라우트 전환)."""
     from orc_citadel.viewer_static import default_roots
     from test_viewer_static import _get
 
-    status, headers, body = _get("/", default_roots())
+    status, headers, body = _get(route, default_roots())
     assert status == 200
     assert headers["Content-Type"].startswith("text/html")
-    assert b"/app/js/gate.js" in body, "인라인 Gate 가 아니라 frontend dist 여야 한다"
+    assert f"/app/js/{entry}.js".encode() in body, \
+        f"{route}: 인라인이 아니라 frontend dist 여야 한다"
 
 
-def test_root_falls_back_to_inline_without_dist() -> None:
-    """dist 가 없으면 인라인 Gate 로 폴백 — 롤백 안전 경로."""
+@pytest.mark.parametrize("route,entry", MIGRATED)
+def test_migrated_routes_fall_back_to_inline_without_dist(route: str, entry: str) -> None:
+    """dist 가 없으면 인라인으로 폴백 — 롤백 안전 경로."""
     import dataclasses
 
     from orc_citadel.viewer_static import default_roots
     from test_viewer_static import _get
 
     roots = dataclasses.replace(default_roots(), app=None)
-    status, headers, body = _get("/", roots)
+    status, headers, body = _get(route, roots)
     assert status == 200
-    assert b"/app/js/gate.js" not in body
+    assert f"/app/js/{entry}.js".encode() not in body
 
 
-def test_legacy_gate_route_kept() -> None:
-    """이관 기간 롤백 경로 — `/legacy/gate` 가 구 인라인 Gate 를 서빙한다."""
+@pytest.mark.parametrize("route", LEGACY)
+def test_legacy_routes_kept(route: str) -> None:
+    """이관 기간 롤백 경로 — `/legacy/<space>` 가 구 인라인 페이지를 서빙한다."""
     from test_viewer_static import _get
 
-    status, headers, body = _get("/legacy/gate")
+    status, headers, body = _get(route)
     assert status == 200
     assert headers["Content-Type"].startswith("text/html")
     assert body.lower().startswith(b"<!doctype html>")
