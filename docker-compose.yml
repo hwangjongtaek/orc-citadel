@@ -96,6 +96,17 @@ services:
       postgres:
         condition: service_healthy
 
+  # 데이터 존 브라우징 사이드카 (specs/ui-overhaul-astryx TS-7, Step 16b).
+  # - parquet 스냅샷(16a)만 read-only 로 읽는다 — 존 `.duckdb` 는 마운트하지
+  #   않는다 (뷰어 RW 잠금 함정 원천 차단, §3-3 존 오염 불가).
+  # - 접근 정책은 viewer·grafana 와 동일: loopback + SSH 터널.
+  duckdb-ui:
+    build: ./deploy/duckdb-ui
+    ports:
+      - "127.0.0.1:4213:4213"
+    volumes:
+      - ./prototype/data/parquet:/data/parquet:ro
+
   # 선택 실행: docker compose --profile prototype up -d --build
   # 호스트 publish는 docker-compose.prod.yml 가 소유 — 이중 바인딩은
   # OrbStack 포트 포워더를 교착시킨다 (0.0.0.0 + 127.0.0.1 병존 시 dead 포트).
