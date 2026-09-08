@@ -1118,6 +1118,7 @@ _PAGES = {
     "/legacy/table": PAGE_TABLE,
     "/legacy/archive": PAGE_ARCHIVE,
     "/legacy/spire": PAGE_SPIRE,
+    "/legacy/council": PAGE_COUNCIL,
 }
 
 # canonical 라우트 → frontend dist 엔트리. 공간을 이관할 때마다 추가한다.
@@ -1128,6 +1129,7 @@ _MIGRATED = {
     "/table": "table.html",
     "/archive": "archive.html",
     "/spire": "spire.html",
+    "/council": "council.html",
 }
 
 

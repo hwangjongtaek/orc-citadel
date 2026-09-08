@@ -202,7 +202,7 @@
 - [x] **Step 8**: War Table (그래프 재작성)
 - [x] **Step 9**: Archive
 - [x] **Step 10**: Spire
-- [ ] **Step 11**: Council
+- [x] **Step 11**: Council
 - [ ] **Step 12**: Watchtower (+ Grafana 딥링크)
 - [ ] **Step 13**: Chronicle
 - [ ] **Step 14**: Grafana 트랙 (14a flush → 14b compose → 14c 대시보드)
@@ -293,7 +293,7 @@ Step 16a ── 16b ── 16c  (Step 3 이후 병행, 프런트·Grafana와 독
 | Step 8 | Done | 2026-09-08 | 2026-09-08 | `/table` canonical 전환. ui/graph.mjs — subject 중심 + predicate 그룹 집계 + 부채꼴 단계 확장(페이지당 12·항상 ≤100 노드·결정적 슬롯 배치로 라벨 겹침 0). truncated 정직 표기. Inspector = subject 봉투 + claim 카드 + Witnesses 딥링크. Chronicle 레일(assertion tx 실데이터). graph_expand API 는 빈 응답이라 subgraph 클라이언트 페이징으로 대체 |
 | Step 9 | Done | 2026-09-08 | 2026-09-08 | `/archive` canonical 전환. ui/archive.mjs(facetChips·lineageBadge·docCard·pager·sifterSearch) — 목업·앱 공유. 서버 축 유지(facet 3축·contains q·정렬·limit/offset 페이저), `?doc=`·`?src=` 부트스트랩 파리티. Codex = lineage 뱃지 + 같은 URL 버전 히스토리(url_groups) + dedup 총계(528). footer = segment_kinds 실측. 계획의 components/{FacetChips,LineageBadge}.mjs 는 기존 관례(공간당 평면 모듈)에 맞춰 archive.mjs 로 통합 |
 | Step 10 | Done | 2026-09-08 | 2026-09-08 | `/spire` canonical 전환. ui/spire.mjs(triggerRow·filterRow·feedTabs·alertCard·subscriptionCard·newSubscriptionSlot) — 알림 카드 골격은 목업 fixture 로 증명, 앱은 /api/spire 실측으로 전 열 정직 빈(트리거 카탈로그 5종 docstring·empty-spire 일러스트·fire-once 규칙 인용). 구독은 비활성 자리만(§3-3). 셸 Spire 칩 = alerts.length 실측 |
-| Step 11 | Pending | | | |
+| Step 11 | Done | 2026-09-08 | 2026-09-08 | `/council` canonical 전환. 단일 3열(중복 패널 결함 소멸). ui/council.mjs — agentCard(초상 stretch 방식 승격)·loopStrip(12스텝)·turnCard·COUNCIL_ROLES(wire 판정 카탈로그). 8역할 executed/not-run 은 wire 필드 존재로, trace 는 on-request 버튼 1회(로드 자동 fetch 없음). Cost 4타일 전부 — 정직 표기, 모델 ID 미표기(wire 미영속). 계획의 ui/svg/council-loop.mjs 는 SVG 대신 loopStrip 칩 스트립으로 대체(정보 동일·의존 감소) |
 | Step 12 | Pending | | | 14a 선행 권장 |
 | Step 13 | Pending | | | |
 | Step 14 | Pending | | | 병행 트랙 |

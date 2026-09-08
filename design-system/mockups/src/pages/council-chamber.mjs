@@ -3,8 +3,9 @@
 import {LayoutContent, LayoutPanel} from '@astryxdesign/core/Layout';
 import {shell} from '../../../ui/shell.mjs';
 import {
-  h, Badge, HStack, Text, sectionLabel, coverage, id, panelHead, grid,
+  h, Badge, Text, sectionLabel, coverage, id, panelHead, grid,
 } from '../../../ui/components.mjs';
+import {agentCard, loopStrip, turnCard} from '../../../ui/council.mjs';
 
 export const title = 'Council Chamber · 조사 실행 — Orc Citadel';
 
@@ -69,69 +70,19 @@ const COST = [['$3.02', 'llm usd'], ['51', 'tool calls'],
   ['940K', 'tokens in'], ['72K', 'tokens out']];
 const MODELS = [['opus-4-8', '14 · $2.31'], ['sonnet-5', '29 · $0.63'], ['haiku-4-5', '8 · $0.08']];
 
-const STATUS = {done: 'success', running: 'warning', idle: 'neutral'};
-
-function agentCard([fn, wn, state, desc, model, art]) {
-  // 초상은 카드 세로에 꽉 차게, 비율 유지 (2026-09-08 확정).
-  // img 에 직접 stretch 를 걸면 주축 폭은 고유 크기(512px)로 남아 거인이 된다 —
-  // 래퍼 div 의 aspect-ratio 가 stretch 된 높이를 폭으로 전이하게 하고,
-  // img 는 래퍼를 absolute + cover 로 채운다.
-  return h('div', {key: fn, style: {display: 'flex', gap: 12, padding: '10px 12px',
-    alignItems: 'stretch',
-    border: '1px solid var(--color-border)', borderRadius: 'var(--radius-element)',
-    marginBottom: 8, background: state === 'running' ? 'rgba(255,177,59,.05)' : 'transparent'}},
-    h('div', {style: {alignSelf: 'stretch', aspectRatio: '1 / 1', minHeight: 56,
-      position: 'relative', flex: 'none', overflow: 'hidden',
-      borderRadius: 'var(--radius-inner)'}},
-      h('img', {src: `./assets/${art}`, alt: '',
-        style: {position: 'absolute', inset: 0, width: '100%', height: '100%',
-          objectFit: 'cover', imageRendering: 'pixelated'}})),
-    h('div', {style: {minWidth: 0}},
-      h('div', {style: {display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap'}},
-        h('span', {style: {fontFamily: 'var(--font-family-heading)', fontSize: 12,
-          fontWeight: 600, color: 'var(--color-text-primary)'}}, fn),
-        h('span', {style: {fontSize: 10, color: 'var(--color-text-secondary)'}}, wn),
-        h(Badge, {variant: STATUS[state], label: state})),
-      h('div', {style: {marginTop: 4}}, h(Text, {type: 'supporting'}, desc)),
-      h('div', {style: {marginTop: 4}}, id(model))));
-}
-
 const council = h(LayoutPanel, {width: 320, hasDivider: true, padding: 0,
   label: "Warchief's Council"},
   panelHead("Warchief's Council", '8 Agents · Loop 2'),
-  h('div', {style: {padding: 16}}, AGENTS.map(agentCard)));
+  h('div', {style: {padding: 16}}, AGENTS.map(([fn, wn, state, desc, model, art]) =>
+    h('div', {key: fn}, agentCard({name: fn, worldName: wn, state, desc, model, art})))));
 
-const loopStrip = h('div', {style: {display: 'flex', flexWrap: 'wrap', gap: 4}},
-  LOOP.map(([ko, en], i) =>
-    h('span', {key: en, style: {display: 'inline-flex', alignItems: 'center', gap: 6,
-      padding: '5px 9px', borderRadius: 'var(--radius-full)', fontSize: 10.5,
-      border: '1px solid var(--color-border)',
-      background: i < 8 ? 'rgba(69,224,111,.06)' : 'transparent',
-      color: i < 8 ? 'var(--color-text-primary)' : 'var(--color-text-secondary)'}},
-      ko, h('span', {style: {fontFamily: 'var(--font-family-code)', fontSize: 9,
-        color: 'var(--color-text-secondary)'}}, en))));
+const loopChips = loopStrip({steps: LOOP, doneCount: 8});
 
-function turnCard([agent, model, at, body, evidence, uncertainty]) {
-  return h('div', {key: at, style: {border: '1px solid var(--color-border)',
-    borderRadius: 'var(--radius-element)', padding: 12, marginBottom: 10}},
-    h('div', {style: {display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap'}},
-      h('span', {style: {fontFamily: 'var(--font-family-heading)', fontSize: 12,
-        fontWeight: 600, color: 'var(--color-text-primary)'}}, agent),
-      h(Badge, {variant: 'neutral', label: model}), id(at)),
-    h('div', {style: {marginTop: 8}}, h(Text, {type: 'supporting'}, body)),
-    h('div', {style: {marginTop: 10, padding: '8px 10px',
-      background: 'var(--color-background-muted)', borderRadius: 'var(--radius-inner)'}},
-      h(Text, {type: 'label'}, '근거 · Evidence'),
-      h('div', {style: {marginTop: 4}}, id(evidence))),
-    h('div', {style: {marginTop: 6}},
-      h(Text, {type: 'label'}, '불확실성 · Uncertainty'),
-      h('div', {style: {marginTop: 4}}, id(uncertainty))));
-}
 
 const loopBody = h(LayoutContent, {padding: 0},
   panelHead('조사 루프 · Investigation Loop', 'subclaim-3 · step-014'),
   h('div', {style: {padding: 16}},
-    loopStrip,
+    loopChips,
     sectionLabel('현재 하위 질문'),
     h('div', {style: {border: '1px solid var(--color-accent)',
       background: 'rgba(69,224,111,.05)', borderRadius: 'var(--radius-element)',
@@ -139,7 +90,8 @@ const loopBody = h(LayoutContent, {padding: 0},
       h(Text, {}, 'C사와의 신규 공급 계약은 발표가 아닌 실제 집행이 확인되는가?'),
       h('div', {style: {marginTop: 6}}, id('subclaim-3 · step-014'))),
     sectionLabel('발언 · Turns'),
-    TURNS.map(turnCard)));
+    TURNS.map(([agent, model, at, body, evidence, uncertainty]) =>
+      h('div', {key: at}, turnCard({agent, model, at, body, evidence, uncertainty})))));
 
 const stopping = h(LayoutPanel, {width: 372, hasDivider: true, padding: 0,
   label: 'Stopping · Cost · Audit'},
