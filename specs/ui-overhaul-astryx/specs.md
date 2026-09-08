@@ -57,7 +57,8 @@ Python 뷰어의 인라인 HTML 표시 계층(약 4,600줄)을 **Astryx React �
   - 파생(스크립트 `scripts/derive_brand_assets.sh`, macOS `sips` 사용 — node·외부 도구 불요): 분리 크롭 2종 + 헤더용 축소본(높이 40px@1x·80px@2x), 파비콘(`favicon-32.png`·`apple-touch-180.png`는 crest 정방형에서).
   - 교체 지점: ① 셸 헤더 워드마크(텍스트 "ORC CITADEL" → mark+title 이미지 + `alt`) ② Gate 브랜드 블록(기존 `crest-hero.png` 96px 자리) ③ 목업 index 마크 ④ favicon `<link>`(현행 부재 시 신설). ⑤ **리포 대표 `orc-citadel-hero.png`·README 배너는 교체하지 않는다(확정)**.
   - 기존 `crest-hero.png`는 삭제하지 않고 참조만 제거(자산 이력 보존, 갭 분석 기준선과 동일 정책).
-- **Constraints**: 픽셀아트 축소 시 뭉개짐 방지 — 파생본은 `image-rendering: pixelated` 지정 또는 정수배 축소만 사용. 히어로 크기 정책(8:3·상한)은 lockup에 적용하지 않는다(로고는 히어로가 아님).
+- **Constraints**: 로고 표시는 전부 원본(621·1129px)보다 작은 **다운스케일**이므로 `image-rendering: pixelated`를 쓰지 않는다(픽셀레이티드는 업스케일용 — 다운스케일에선 앨리어싱 유발, 브라우저 기본 스무딩 사용). 히어로 크기 정책(8:3·상한)은 lockup에 적용하지 않는다(로고는 히어로가 아님).
+- **구현 기록 (2026-09-08, 목업 레벨 완료)**: 원본에 알파가 없고 near-white 배경이 구워져 있어 `scripts/brand_logo_intake.py`(Pillow — sips 계획 대체)로 배경 제거·mark/title 분리·favicon 파생. 산출 5종 커밋: `logo-lockup.png`(1787×716)·`logo-mark.png`(621×716)·`logo-title.png`(1129×376)·`favicon-32.png`·`apple-touch-180.png`. 셸 워드마크(mark 30px + title 22px)·Gate 브랜드 블록(mark 96 + title 46)·index(mark 56)·favicon `<link>` 배선 완료, `crest-hero.png` 참조 0건 가드 추가. **세로 crest 원본은 미도착**(첨부 2건이 동일 lockup) — 정방형 쓰임새는 mark 크롭으로 충당 중이며 세로판(레터링 하단 배치)이 필요해지면 추가 반입.
 
 ### TS-5: 공간별 정보구조 — L2 갭 소진 (from FR-5)
 
@@ -219,7 +220,7 @@ deploy/grafana/provisioning/   (신설) datasource·dashboard as code
 
 ## Open Questions
 
-- 로고 원본 파일 반입 대기(사용자 제공) — FR-4 선행 조건. 대화 첨부 이미지는 파일로 추출 불가하므로 PNG 2종을 리포 경로에 직접 저장 필요.
+- ~~로고 원본 파일 반입 대기~~ → **가로 lockup 반입·처리 완료** (2026-09-08). 잔여: 세로 crest 원본(첨부 2건이 동일 lockup이라 미도착) — mark 크롭으로 충당 중, 필요 시 추가 반입.
 - ~~README·리포 대표 이미지 교체 여부~~ → **교체하지 않음 확정** (2026-09-08).
 
 ## Clarification Log

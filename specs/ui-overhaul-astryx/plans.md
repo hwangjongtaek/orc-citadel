@@ -286,7 +286,7 @@ Step 16a ── 16b ── 16c  (Step 3 이후 병행, 프런트·Grafana와 독
 | Step 1 | Pending | | | |
 | Step 2 | Pending | | | |
 | Step 3 | Pending | | | |
-| Step 4 | Pending | | | 로고 원본 반입 대기 · lockup은 mark/title 분리 크롭 · README 배너 미교체 확정 |
+| Step 4 | In Progress | 2026-09-08 | | 목업 레벨 완료 — lockup 반입·배경 투명화·mark/title 분리·favicon 파생·셸/Gate/index 배선 (`scripts/brand_logo_intake.py`). 세로 crest 원본 미도착(mark 크롭으로 충당). 뷰어 셸 교체는 frontend 이관 시 |
 | Step 5 | In Progress | 2026-09-08 | | 목업 선행 완료(셸 2계층 + Gate 대시보드) · frontend 구현은 사용자 확인 후 · 번들 예산 실측 기록 |
 | Step 6 | Pending | | | Spec 1.1.0 → 1.2.0 |
 | Step 7 | Pending | | | |
