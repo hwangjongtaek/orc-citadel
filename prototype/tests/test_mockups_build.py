@@ -92,6 +92,17 @@ def test_every_space_is_linked_from_shell(pages: dict[str, str]) -> None:
         assert f'href="./{slug}.html"' in pages["war-table"], slug
 
 
+def test_index_cards_show_space_heroes(pages: dict[str, str]) -> None:
+    """index 공간 카드는 준비된 히어로 삽화 8종을 썸네일로 싣는다."""
+    html = pages["index"]
+    heroes = ["gate-hero.png", "war-table-hero.png", "hall-of-witnesses-hero.png",
+              "signal-spire-hero.png", "grand-archive-hero.png",
+              "council-chamber-hero.png", "watchtower-hero.png",
+              "chronicle-vault-hero.png"]
+    missing = [f for f in heroes if f not in html]
+    assert not missing, f"index 카드 미포함 삽화: {missing}"
+
+
 def test_shell_nav_is_two_tiered(pages: dict[str, str]) -> None:
     """브리핑-우선 IA (specs TS-3) — 1차 4공간 + '운영 · 감사' 2차 그룹 + ⌘K 힌트."""
     html = pages["war-table"]
@@ -157,8 +168,9 @@ def test_pages_without_hero_use_flat_band(pages: dict[str, str], name: str) -> N
     """
     html = pages[name]
     assert "height:132px" in html, f"{name}: 평평한 밴드가 아니다"
-    assert "aspect-ratio:8 / 3" not in html
-    assert "crest-hero.png" not in html or name == "index"
+    # 마스트헤드 히어로 밴드(8:3 + 상한 300px 조합)가 없어야 한다 — 본문 카드의
+    # 8:3 썸네일(index 공간 카드)은 무관하므로 상한 마커로 판별한다.
+    assert "max-height:300px" not in html, f"{name}: 마스트헤드가 히어로 밴드다"
 
 
 def test_masthead_has_explicit_width(pages: dict[str, str]) -> None:

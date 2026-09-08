@@ -28,8 +28,14 @@ const body = h(LayoutContent, {padding: 4},
   h('div', {style: {marginTop: 20}},
     grid(4, 16, ...SPACES.map(([slug, name, role]) => {
       const [desc, spec] = DETAIL[slug];
+      // 준비된 공간 히어로 삽화 8종을 카드 썸네일로 — 파일명은 `<slug>-hero.png`,
+      // citadel-gate 만 역사적 이유로 `gate-hero.png`.
+      const hero = slug === 'citadel-gate' ? 'gate-hero.png' : `${slug}-hero.png`;
       return h('a', {key: slug, href: `./${slug}.html`, style: {textDecoration: 'none'}},
         h(Card, {}, h('div', {style: {padding: 4}},
+          h('div', {style: {aspectRatio: '8 / 3', borderRadius: 'var(--radius-inner)',
+            overflow: 'hidden', marginBottom: 10,
+            background: `url('./assets/${hero}') center / cover no-repeat, var(--color-background-surface)`}}),
           h('div', {style: {fontFamily: 'var(--font-family-heading)', fontSize: 14,
             fontWeight: 600, color: 'var(--color-text-primary)'}}, name),
           h('div', {style: {marginTop: 2}}, h(Text, {type: 'supporting'}, role)),
