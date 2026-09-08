@@ -21,7 +21,10 @@ PAGES = [
 
 # 공간 페이지가 반드시 실어야 하는 핵심 정보 블록 (원본 목업 대비 재현 확인).
 REQUIRED = {
-    "citadel-gate": ["New Campaign", "Campaigns · 진행 중 조사", "Watchtower", "공간 빠른 진입"],
+    # 브리핑-우선 대시보드 (specs/ui-overhaul-astryx TS-3): KPI · 결론 카드 ·
+    # 변화 피드 · New Campaign 비활성(read-only) · 공간 빠른 진입.
+    "citadel-gate": ["Conclusions · 주요 결론", "Recent Changes · 최근 변화",
+                     "New Campaign", "read-only 프로토타입", "공간 빠른 진입"],
     "war-table": ["Campaign Map", "Temporal Evidence Graph", "Evidence Inspector",
                   "Chronicle", "supports", "contradicts", "superseded"],
     "hall-of-witnesses": ["Claims", "Evidence &amp; Provenance", "Provenance Trail",
@@ -86,6 +89,15 @@ def test_every_space_is_linked_from_shell(pages: dict[str, str]) -> None:
               "watchtower", "grand-archive", "chronicle-vault", "signal-spire"]
     for slug in spaces:
         assert f'href="./{slug}.html"' in pages["war-table"], slug
+
+
+def test_shell_nav_is_two_tiered(pages: dict[str, str]) -> None:
+    """브리핑-우선 IA (specs TS-3) — 1차 4공간 + '운영 · 감사' 2차 그룹 + ⌘K 힌트."""
+    html = pages["war-table"]
+    assert "운영 · 감사" in html
+    assert "⌘K" in html
+    # 2차 그룹 강등 후에도 8공간 링크 전부 유지 (test_every_space_is_linked_from_shell 보완).
+    assert 'href="./watchtower.html"' in html
 
 
 def test_assets_referenced_exist(pages: dict[str, str]) -> None:

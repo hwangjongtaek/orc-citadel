@@ -16,17 +16,26 @@ const h = React.createElement;
 /** 문서형 페이지의 본문·배너 최대 폭. 뷰어(`main{max-width:1200px}`)와 같은 값. */
 export const CONTENT_WIDTH = 1200;
 
-/** 공간 목록 — (경로, 세계관 명칭, 기술 용어). blueprint L244 병기 규약. */
-export const SPACES = [
-  ['citadel-gate', 'Citadel Gate', '본부 · Home'],
+/**
+ * 공간 목록 — (경로, 세계관 명칭, 기술 용어). blueprint L244 병기 규약.
+ *
+ * 브리핑-우선 IA (specs/ui-overhaul-astryx TS-3): 주요 작업 4종(결론 조회 ·
+ * 근거 추적 · 변화 확인 · 검색)에 대응하는 4공간이 1차, 운영·감사 성격의
+ * 4공간은 2차 그룹으로 강등한다. URL·기능은 그대로다 — 배치만 바뀐다.
+ */
+export const PRIMARY_SPACES = [
+  ['citadel-gate', 'Citadel Gate', '브리핑 · Home'],
   ['war-table', 'War Table', '그래프 탐색'],
   ['hall-of-witnesses', 'Hall of Witnesses', '증거 검사'],
-  ['council-chamber', 'Council Chamber', '조사 실행'],
-  ['watchtower', 'Watchtower', '수집 관제'],
-  ['grand-archive', 'Grand Archive', '문서 탐색'],
-  ['chronicle-vault', 'Chronicle Vault', '시간 탐색'],
   ['signal-spire', 'Signal Spire', '알림 센터'],
 ];
+export const SECONDARY_SPACES = [
+  ['grand-archive', 'Grand Archive', '문서 탐색'],
+  ['council-chamber', 'Council Chamber', '조사 실행'],
+  ['watchtower', 'Watchtower', '수집 관제'],
+  ['chronicle-vault', 'Chronicle Vault', '시간 탐색'],
+];
+export const SPACES = [...PRIMARY_SPACES, ...SECONDARY_SPACES];
 
 /** 브랜드 문장 — 날카로운 철제 외곽·대칭 엄니·중앙 지식 불꽃 (DESIGN.md). */
 const crest = () =>
@@ -73,6 +82,16 @@ const S = {
     fontFamily: 'var(--font-family-heading)', fontSize: 12, fontWeight: 600,
     color: 'var(--color-text-secondary)'},
   tabOn: {color: 'var(--color-accent)', background: 'rgba(69,224,111,.08)'},
+  // 2차 그룹 — 강등이지 은닉이 아니다. 크기만 한 단계 줄이고 링크는 전부 유지.
+  tab2: {fontSize: 11, fontWeight: 500},
+  navSep: {width: 1, alignSelf: 'stretch', margin: '2px 10px',
+    background: 'var(--color-border)'},
+  navGroupLabel: {alignSelf: 'center', fontFamily: 'var(--font-family-heading)',
+    fontSize: 9.5, fontWeight: 600, letterSpacing: '.12em', textTransform: 'uppercase',
+    color: 'var(--color-text-secondary)', whiteSpace: 'nowrap', marginRight: 4},
+  kbd: {fontFamily: 'var(--font-family-code)', fontSize: 10, flex: 'none',
+    padding: '2px 6px', border: '1px solid var(--color-border)',
+    borderRadius: 'var(--radius-inner)', color: 'var(--color-text-secondary)'},
   // 히어로는 전부 1920×720 (8:3). 밴드 높이를 고정하면 세로 23% 만 보인다.
   // `full` 은 8:3 을 그대로 지켜 이미지를 통째로 보여주고, `band` 는 좌우 패널이
   // 세로를 다투는 앱셸 페이지용 압축 밴드다 (§heroFit).
@@ -168,14 +187,22 @@ export function shell({route, eyebrow, context, title, subtitle, hero, alerts = 
         h('span', {style: S.ctxTitle}, context)),
       h('div', {style: {flex: '1 1 auto'}}),
       h('label', {style: S.search}, searchIcon(),
-        h('input', {style: S.searchInput, placeholder: 'entity · claim · source 검색', readOnly: true})),
+        h('input', {style: S.searchInput,
+          placeholder: 'subject · claim · document 통합 검색', readOnly: true}),
+        h('span', {style: S.kbd, 'aria-hidden': 'true'}, '⌘K')),
       h('a', {style: S.spire, href: './signal-spire.html',
         title: 'Signal Spire · 결론·confidence 변화 알림'},
         h('span', {style: S.dot}), `Signal Spire · ${alerts}`)),
     h('nav', {style: S.tabs, 'aria-label': 'Citadel 공간'},
-      SPACES.map(([slug, name]) =>
+      PRIMARY_SPACES.map(([slug, name]) =>
         h('a', {key: slug, href: `./${slug}.html`,
-          style: slug === route ? {...S.tab, ...S.tabOn} : S.tab}, name))),
+          style: slug === route ? {...S.tab, ...S.tabOn} : S.tab}, name)),
+      h('span', {style: S.navSep, 'aria-hidden': 'true'}),
+      h('span', {style: S.navGroupLabel}, '운영 · 감사'),
+      SECONDARY_SPACES.map(([slug, name]) =>
+        h('a', {key: slug, href: `./${slug}.html`,
+          style: slug === route
+            ? {...S.tab, ...S.tab2, ...S.tabOn} : {...S.tab, ...S.tab2}}, name))),
     masthead({title, subtitle, hero, fit}));
 
   /**

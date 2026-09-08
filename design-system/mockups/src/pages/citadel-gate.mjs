@@ -1,12 +1,51 @@
-/** Citadel Gate · 본부 — New Campaign | Campaigns | Watchtower 요약 | 공간 빠른 진입. */
+/**
+ * Citadel Gate · 브리핑 대시보드 (specs/ui-overhaul-astryx TS-3).
+ *
+ * 처음 보는 사람이 3클릭 이내에 "지금 무슨 결론이 있고 근거가 무엇인지"에
+ * 도달하는 브리핑 시작점: KPI → 결론 카드(딥링크) → 최근 변화 피드.
+ * New Campaign 은 쓰기 개념이라 비활성 자리만 둔다 (read-only §3-3).
+ */
 
 import {LayoutContent} from '@astryxdesign/core/Layout';
-import {shell, SPACES} from '../shell.mjs';
+import {shell, PRIMARY_SPACES, SECONDARY_SPACES} from '../shell.mjs';
 import {
-  h, Card, Badge, Text, Button, sectionLabel, coverage, statTile, id, grid,
+  h, Card, Badge, Text, Button, sectionLabel, confidence, statTile, id, grid,
 } from '../ui.mjs';
 
-export const title = 'Citadel Gate · 본부 — Orc Citadel';
+export const title = 'Citadel Gate · 브리핑 — Orc Citadel';
+
+/** 지식 현황 KPI — 실측 규모(2026-09 L3 재적재)를 반영한 정직한 스케일. */
+const KPI = [
+  {value: '105,252', label: 'Documents · raw', note: 'normalized 전량 · segments 823,629', tone: 'good'},
+  {value: '25', label: 'Entities', note: '결정적 ER — exact match 병합만'},
+  {value: '722', label: 'Claims · promoted', note: 'dup 528 클러스터 · 독립성 보정', tone: 'good'},
+  {value: '+38', label: '최근 24h 수집', note: 'nightly 07:07 · RSS + arXiv'},
+];
+
+/** 주요 subject 결론 — confidence 는 값+근거+독립 출처 병기 (단일 게이지 금지). */
+const CONCLUSIONS = [
+  {subject: 'B사 — HBM 공급 능력 확대', modality: 'fact', tone: 'success',
+   statement: 'SEC 10-K 등 독립 출처 5건이 2024–2025 증설 실행을 확인한다. 이전 결론 1건은 superseded.',
+   conf: '0.83', ev: 14, indep: 5, cid: 'sub-b-hbm'},
+  {subject: 'A사 — AI 가속기 공급망 다변화', modality: 'asserted', tone: 'warning',
+   statement: '신규 공급 계약 공시 3건이 다변화 주장을 지지하나, 물량 기준 B사 의존은 유지 — 반증 1건 수집됨.',
+   conf: '0.61', ev: 7, indep: 2, cid: 'sub-a-diversify'},
+  {subject: 'C사 — 데이터센터 증설 착공', modality: 'asserted', tone: 'warning',
+   statement: '발표 대비 착공 확인은 1건 — 지자체 인허가 공고가 지지, 부지 계약 공시는 미확인.',
+   conf: '0.44', ev: 5, indep: 3, cid: 'sub-c-dc'},
+];
+
+const MODALITY = {fact: 'success', asserted: 'warning', opinion: 'neutral', prediction: 'purple'};
+
+/** 최근 변화 — Signal Spire 피드의 상위 3건 요약. */
+const CHANGES = [
+  ['Confidence Δ', 'success', 'B사 HBM 확대', '0.79 → 0.83',
+   'SEC 10-K 독립 출처 +1 — 결론 상향', 'evd-4021'],
+  ['Contradiction', 'error', 'A사 단일 의존 주장', '반증 후보 수집',
+   '보도자료 1건이 contradicts 후보로 격리 — 판정 대기', 'evd-789'],
+  ['New Evidence', 'warning', 'C사 착공', '근거 +1 (독립)',
+   '지자체 인허가 공고 — asserted 유지, coverage 상승', 'evd-3377'],
+];
 
 const PROCESS = [
   ['char-scout.png', 'Scouts', '근거 수집'],
@@ -14,42 +53,43 @@ const PROCESS = [
   ['char-warchief.png', '보고서', '근거로 답'],
 ];
 
-const SCOPE = [
-  ['기간', '2024-01 → now'], ['지역', '글로벌 · US·KR·TW'],
-  ['source_type', '공시·보도자료·뉴스'], ['조사 깊이', '표준 (3-hop)'],
-];
+function conclusionCard({subject, modality, tone, statement, conf, ev, indep, cid}) {
+  const link = (href, label) =>
+    h('a', {href, style: {fontFamily: 'var(--font-family-heading)', fontSize: 11.5,
+      fontWeight: 600, color: 'var(--color-accent)', textDecoration: 'none'}}, label);
+  return h(Card, {key: cid}, h('div', {style: {padding: 4}},
+    h('div', {style: {display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap'}},
+      h(Badge, {variant: MODALITY[modality] || 'neutral', label: modality}), id(cid)),
+    h('div', {style: {marginTop: 8, fontFamily: 'var(--font-family-heading)',
+      fontSize: 14, fontWeight: 600, color: 'var(--color-text-primary)'}}, subject),
+    h('div', {style: {marginTop: 6, minHeight: 60}},
+      h(Text, {type: 'supporting'}, statement)),
+    h('div', {style: {marginTop: 10}}, confidence(conf, ev, indep)),
+    h('div', {style: {display: 'flex', gap: 16, marginTop: 12}},
+      link('./war-table.html', 'War Table에서 보기 →'),
+      link('./hall-of-witnesses.html', '근거 열람 · Witnesses →'))));
+}
 
-const CAMPAIGNS = [
-  ['Running', 'camp-0142', 'running',
-    '2024년 이후 A사의 AI 가속기 공급망 다변화가 실제로 진행되었는가 — 발표 대 실제 계약·공시 구분',
-    72, '0.61', 7, 2, '반증 발견', 'B사 단일 의존 주장에 모순되는 보도자료(ev-789) 수집됨', 'error'],
-  ['Running', 'camp-0137', 'running',
-    'C사의 신규 데이터센터 증설 발표가 실제 착공·부지 계약으로 이어졌는지 검증',
-    48, '0.44', 5, 3, '신규 근거', '지자체 인허가 공고 1건이 착공 주장을 지지 (독립 출처 +1)', 'success'],
-  ['Paused', 'camp-0119', 'paused',
-    '규제 변경(수출 통제)이 A사·C사 공급 계약에 직·간접으로 영향을 미쳤는가',
-    35, '0.29', 4, 1, '일시중지', '독립 출처 1건 · 근거 부족으로 사용자 검토 대기', 'warning'],
-  ['Done', 'camp-0103', 'done',
-    'B사의 HBM 공급 능력 확대 주장이 2024–2025 공시 실적으로 확인되는지 종합',
-    91, '0.83', 14, 5, '결론 확정', 'SEC 10-K 등 독립 출처 5건이 확대 주장을 지지', 'success'],
-  ['Running', 'camp-0148', 'running',
-    'A사–C사 간 장기 공급 계약(LTA) 존재 여부와 발효 시점의 bitemporal 정합성 검증',
-    57, '0.52', 6, 2, '엔티티 미확정', '"C사?" 후보 1건 격리(quarantine) 중 · 해소 대기', 'purple'],
-  ['Paused', 'camp-0091', 'paused',
-    '데이터센터 전력 조달(PPA) 발표가 실제 계약 체결로 이어졌는지 국가별 비교',
-    22, '0.18', 3, 1, 'source 대기', '신규 공시 freshness 낮음 · Scout 재수집 예약됨', 'warning'],
-];
+function changeCard([kind, tone, subject, delta, note, ref]) {
+  return h(Card, {key: ref}, h('div', {style: {padding: 4}},
+    h('div', {style: {display: 'flex', alignItems: 'center',
+      justifyContent: 'space-between', gap: 8}},
+      h(Badge, {variant: tone, label: kind}), id(ref)),
+    h('div', {style: {marginTop: 8, display: 'flex', alignItems: 'baseline', gap: 8,
+      flexWrap: 'wrap'}},
+      h('span', {style: {fontFamily: 'var(--font-family-heading)', fontSize: 13,
+        fontWeight: 600, color: 'var(--color-text-primary)'}}, subject),
+      h('span', {style: {fontFamily: 'var(--font-family-code)', fontSize: 12,
+        color: 'var(--color-accent)'}}, delta)),
+    h('div', {style: {marginTop: 4}}, h(Text, {type: 'supporting'}, note)),
+    h('div', {style: {marginTop: 8}},
+      h('a', {href: './signal-spire.html', style: {fontFamily: 'var(--font-family-heading)',
+        fontSize: 11.5, fontWeight: 600, color: 'var(--color-accent)',
+        textDecoration: 'none'}}, 'Signal Spire에서 보기 →'))));
+}
 
-const WATCH = [
-  {value: '38', label: 'Sources active', note: '/ 41 등록 · 3 유휴', tone: 'good'},
-  {value: '96', unit: '%', label: 'Freshness', note: '중앙값 지연 4.2h', tone: 'good'},
-  {value: '1,284', label: 'Ingestion backlog', note: 'docs 대기 · +6%/1h'},
-  {value: '7', label: 'Quarantine', note: '엔티티 해소·검토 대기', tone: 'warn'},
-];
-
-const STATE = {running: 'success', paused: 'warning', done: 'neutral'};
-
-const newCampaign = h(Card, {}, h('div', {style: {padding: 4}},
+/** New Campaign — 쓰기라 범위 밖. 자리는 두되 비활성 + read-only 표시 (TS-3). */
+const newCampaign = h(Card, {}, h('div', {style: {padding: 4, opacity: .75}},
   h('div', {style: {display: 'flex', alignItems: 'center',
     justifyContent: 'space-between', gap: 12, flexWrap: 'wrap'}},
     h('div', {},
@@ -57,7 +97,7 @@ const newCampaign = h(Card, {}, h('div', {style: {padding: 4}},
       h('div', {style: {marginTop: 4}},
         h(Text, {type: 'supporting'},
           '자연어 질문 → Council 이 계획을 세우고 Scouts 가 근거를 수집'))),
-    h(Badge, {variant: 'neutral', label: 'Council 대기'})),
+    h(Badge, {variant: 'neutral', label: 'read-only 프로토타입 · 비활성'})),
 
   h('div', {style: {display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
     margin: '16px 0'}},
@@ -76,38 +116,24 @@ const newCampaign = h(Card, {}, h('div', {style: {padding: 4}},
     fontSize: 13}},
     '예) 2024년 이후 A사의 AI 가속기 공급망 다변화가 실제로 진행되었는가?'),
 
-  h('div', {style: {marginTop: 10}}, h(Text, {type: 'label'}, 'Scope · 조사 범위 (선택)')),
-  h('div', {style: {display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 6}},
-    SCOPE.map(([k, v]) => h(Badge, {key: k, variant: 'neutral', label: `${k} · ${v} ▾`}))),
-
   h('div', {style: {display: 'flex', alignItems: 'center',
     justifyContent: 'space-between', gap: 12, marginTop: 14, flexWrap: 'wrap'}},
     h(Text, {type: 'supporting'},
-      '발표와 실제 집행을 구분하고 반증도 함께 수집합니다. 실행 전 계획을 Council Chamber 에서 검토할 수 있습니다.'),
-    h(Button, {variant: 'primary'}, '조사 실행'))));
+      '조사 실행은 read-only 불변식(§3-3) 개정 전까지 비활성 — 지금은 이미 축적된 지식을 조회합니다.'),
+    h(Button, {variant: 'secondary'}, '조사 실행 (비활성)'))));
 
-function campaignCard([state, cid, tone, question, cov, conf, ev, indep, evtLabel, evtNote, evtTone]) {
-  return h(Card, {key: cid}, h('div', {style: {padding: 4}},
-    h('div', {style: {display: 'flex', alignItems: 'center', gap: 8}},
-      h(Badge, {variant: STATE[tone], label: state}), id(cid)),
-    h('div', {style: {marginTop: 8, minHeight: 54}},
-      h(Text, {type: 'supporting'}, question)),
-    h('div', {style: {marginTop: 8}},
-      h(Text, {type: 'label'}, 'Evidence coverage'),
-      h('div', {style: {marginTop: 4}}, coverage(cov, cov < 50 ? 'warn' : null))),
-    h('div', {style: {display: 'flex', gap: 14, marginTop: 10}},
-      ...[[conf, 'Confidence'], [String(ev), '근거'], [String(indep), '독립 출처']]
-        .map(([v, c]) => h('div', {key: c},
-          h('div', {style: {fontFamily: 'var(--font-family-heading)', fontSize: 15,
-            fontWeight: 600, color: 'var(--color-text-primary)'}}, v),
-          h('div', {style: {fontSize: 9.5, letterSpacing: '.06em',
-            textTransform: 'uppercase', color: 'var(--color-text-secondary)'}}, c)))),
-    h('div', {style: {marginTop: 10, display: 'flex', gap: 8, alignItems: 'flex-start'}},
-      h(Badge, {variant: evtTone, label: evtLabel}),
-      h(Text, {type: 'supporting'}, evtNote))));
+function quickEntry(spaces) {
+  return grid(4, 16, ...spaces.map(([slug, name, role]) =>
+    h('a', {key: slug, href: `./${slug}.html`, style: {textDecoration: 'none'}},
+      h(Card, {}, h('div', {style: {padding: 4}},
+        h('div', {style: {fontFamily: 'var(--font-family-heading)', fontSize: 13,
+          fontWeight: 600, color: 'var(--color-text-primary)'}}, name),
+        h('div', {style: {marginTop: 4}}, h(Text, {type: 'supporting'}, role)))))));
 }
 
 const body = h(LayoutContent, {padding: 4},
+  // 브랜드 블록 — 신규 lockup 로고 도착 시 crest-hero + 텍스트 워드마크를
+  // logo-mark / logo-title 분리 자산으로 교체한다 (FR-4, 반입 대기).
   h('div', {style: {display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20}},
     h('img', {src: './assets/crest-hero.png', alt: 'Orc Citadel 문장', width: 96, height: 96,
       style: {imageRendering: 'pixelated'}}),
@@ -121,28 +147,29 @@ const body = h(LayoutContent, {padding: 4},
         h(Text, {type: 'supporting'},
           'Temporal Evidence Intelligence · 시간을 기억하는 증거 정보 본부')))),
 
+  grid(4, 16, ...KPI.map(k => h('div', {key: k.label}, statTile(k)))),
+
+  sectionLabel('Conclusions · 주요 결론 — subject 단위 현재 결론과 근거'),
+  grid(3, 16, ...CONCLUSIONS.map(conclusionCard)),
+
+  sectionLabel('Recent Changes · 최근 변화 — confidence 델타 · 반증 · 신규 근거'),
+  grid(3, 16, ...CHANGES.map(changeCard)),
+
+  sectionLabel('New Campaign · 새 조사 (비활성)'),
   newCampaign,
 
-  sectionLabel('Campaigns · 진행 중 조사'),
-  grid(3, 16, ...CAMPAIGNS.map(campaignCard)),
-
-  sectionLabel('Watchtower · 수집 관제 요약 — Scouts ingestion · freshness · quarantine 현황'),
-  grid(4, 16, ...WATCH.map(w => h('div', {key: w.label}, statTile(w)))),
-
   sectionLabel('Citadel · 공간 빠른 진입'),
-  grid(4, 16, ...SPACES.map(([slug, name, role]) =>
-    h('a', {key: slug, href: `./${slug}.html`, style: {textDecoration: 'none'}},
-      h(Card, {}, h('div', {style: {padding: 4}},
-        h('div', {style: {fontFamily: 'var(--font-family-heading)', fontSize: 13,
-          fontWeight: 600, color: 'var(--color-text-primary)'}}, name),
-        h('div', {style: {marginTop: 4}}, h(Text, {type: 'supporting'}, role))))))));
+  quickEntry(PRIMARY_SPACES),
+  h('div', {style: {marginTop: 12, marginBottom: 6}},
+    h(Text, {type: 'supporting'}, '운영 · 감사')),
+  quickEntry(SECONDARY_SPACES));
 
 export const render = () => shell({
   route: 'citadel-gate',
-  eyebrow: 'Citadel Gate · Home',
-  context: '본부 · Home',
-  title: 'Citadel Gate · 본부',
-  subtitle: 'Temporal Evidence Intelligence · 시간을 기억하는 증거 정보 본부',
+  eyebrow: 'Citadel Gate · Briefing',
+  context: '브리핑 · Home',
+  title: 'Citadel Gate · 브리핑',
+  subtitle: '지금 무슨 결론이 있고, 그 근거는 무엇인가 — 3클릭 이내',
   hero: 'gate-hero.png',
   slots: {content: body},
 });
