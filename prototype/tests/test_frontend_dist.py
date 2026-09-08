@@ -18,11 +18,12 @@ REPO = Path(__file__).resolve().parents[2]
 DIST = REPO / "frontend" / "dist"
 
 # 이관된 엔트리 목록 — 공간을 이관할 때마다 여기 추가한다.
-ENTRIES = ["gate", "witnesses", "table", "archive"]
+ENTRIES = ["gate", "witnesses", "table", "archive", "spire"]
 # canonical 라우트 ↔ dist 엔트리 (viewer._MIGRATED 와 동기).
 MIGRATED = [("/", "gate"), ("/witnesses", "witnesses"), ("/table", "table"),
-            ("/archive", "archive")]
-LEGACY = ["/legacy/gate", "/legacy/witnesses", "/legacy/table", "/legacy/archive"]
+            ("/archive", "archive"), ("/spire", "spire")]
+LEGACY = ["/legacy/gate", "/legacy/witnesses", "/legacy/table", "/legacy/archive",
+          "/legacy/spire"]
 
 
 @pytest.fixture(scope="module")
@@ -89,6 +90,16 @@ def test_archive_bundle_wires_server_axes() -> None:
     js = "".join(f.read_text(encoding="utf-8", errors="ignore")
                  for f in sorted(DIST.rglob("*.js")))
     for marker in ("/api/archive", "cluster_role", "url_groups", "segment_kinds"):
+        assert marker in js, marker
+
+
+def test_spire_bundle_honest_empty() -> None:
+    """Signal Spire (TS-5) — 트리거 카탈로그는 /api/spire 실측, alert 영속 부재는
+    가공 없이 정직 빈(empty-spire 일러스트 + fire-once 규칙 인용)으로 렌더한다."""
+    js = "".join(f.read_text(encoding="utf-8", errors="ignore")
+                 for f in sorted(DIST.rglob("*.js")))
+    for marker in ("/api/spire", "trigger_catalog", "fire_once_rule",
+                   "empty-spire.png"):
         assert marker in js, marker
 
 

@@ -36,7 +36,8 @@ export default defineConfig({
     outDir: 'dist',
     rollupOptions: {
       input: {gate: at('gate.html'), witnesses: at('witnesses.html'),
-              table: at('table.html'), archive: at('archive.html')},
+              table: at('table.html'), archive: at('archive.html'),
+              spire: at('spire.html')},
       output: {
         entryFileNames: 'js/[name].js',
         chunkFileNames: 'js/[name].js',

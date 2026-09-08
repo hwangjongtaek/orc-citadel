@@ -201,7 +201,7 @@
 - [ ] **Step 7**: Witnesses (ClaimCard·EvidenceDrawer 확립)
 - [x] **Step 8**: War Table (그래프 재작성)
 - [x] **Step 9**: Archive
-- [ ] **Step 10**: Spire
+- [x] **Step 10**: Spire
 - [ ] **Step 11**: Council
 - [ ] **Step 12**: Watchtower (+ Grafana 딥링크)
 - [ ] **Step 13**: Chronicle
@@ -292,7 +292,7 @@ Step 16a ── 16b ── 16c  (Step 3 이후 병행, 프런트·Grafana와 독
 | Step 7 | Done | 2026-09-08 | 2026-09-08 | `/witnesses` canonical 전환. ui/witnesses.mjs 확립(claimRow·claimFocus·독립성·trail·documentSegments·roundTrip). 3-hop 왕복 실데이터 E2E(하이라이트 성립). ⚠ L3 발견: extraction segment(#p1+)와 normalized 세그먼트(p0.s*) 불일치 — 표본 20건 중 매칭 3 · 미매칭 17, UI 는 접두 폴백 + "span 미매칭" 정직 표기. 세그먼트 정합 복구는 데이터 트랙 과제 |
 | Step 8 | Done | 2026-09-08 | 2026-09-08 | `/table` canonical 전환. ui/graph.mjs — subject 중심 + predicate 그룹 집계 + 부채꼴 단계 확장(페이지당 12·항상 ≤100 노드·결정적 슬롯 배치로 라벨 겹침 0). truncated 정직 표기. Inspector = subject 봉투 + claim 카드 + Witnesses 딥링크. Chronicle 레일(assertion tx 실데이터). graph_expand API 는 빈 응답이라 subgraph 클라이언트 페이징으로 대체 |
 | Step 9 | Done | 2026-09-08 | 2026-09-08 | `/archive` canonical 전환. ui/archive.mjs(facetChips·lineageBadge·docCard·pager·sifterSearch) — 목업·앱 공유. 서버 축 유지(facet 3축·contains q·정렬·limit/offset 페이저), `?doc=`·`?src=` 부트스트랩 파리티. Codex = lineage 뱃지 + 같은 URL 버전 히스토리(url_groups) + dedup 총계(528). footer = segment_kinds 실측. 계획의 components/{FacetChips,LineageBadge}.mjs 는 기존 관례(공간당 평면 모듈)에 맞춰 archive.mjs 로 통합 |
-| Step 10 | Pending | | | |
+| Step 10 | Done | 2026-09-08 | 2026-09-08 | `/spire` canonical 전환. ui/spire.mjs(triggerRow·filterRow·feedTabs·alertCard·subscriptionCard·newSubscriptionSlot) — 알림 카드 골격은 목업 fixture 로 증명, 앱은 /api/spire 실측으로 전 열 정직 빈(트리거 카탈로그 5종 docstring·empty-spire 일러스트·fire-once 규칙 인용). 구독은 비활성 자리만(§3-3). 셸 Spire 칩 = alerts.length 실측 |
 | Step 11 | Pending | | | |
 | Step 12 | Pending | | | 14a 선행 권장 |
 | Step 13 | Pending | | | |
