@@ -203,7 +203,7 @@
 - [x] **Step 9**: Archive
 - [x] **Step 10**: Spire
 - [x] **Step 11**: Council
-- [ ] **Step 12**: Watchtower (+ Grafana 딥링크)
+- [x] **Step 12**: Watchtower (+ Grafana 딥링크)
 - [ ] **Step 13**: Chronicle
 - [ ] **Step 14**: Grafana 트랙 (14a flush → 14b compose → 14c 대시보드)
 - [ ] **Step 16**: 데이터 브라우징 트랙 (16a parquet export → 16b DuckDB UI 사이드카 → 16c 가이드 문서)
@@ -294,7 +294,7 @@ Step 16a ── 16b ── 16c  (Step 3 이후 병행, 프런트·Grafana와 독
 | Step 9 | Done | 2026-09-08 | 2026-09-08 | `/archive` canonical 전환. ui/archive.mjs(facetChips·lineageBadge·docCard·pager·sifterSearch) — 목업·앱 공유. 서버 축 유지(facet 3축·contains q·정렬·limit/offset 페이저), `?doc=`·`?src=` 부트스트랩 파리티. Codex = lineage 뱃지 + 같은 URL 버전 히스토리(url_groups) + dedup 총계(528). footer = segment_kinds 실측. 계획의 components/{FacetChips,LineageBadge}.mjs 는 기존 관례(공간당 평면 모듈)에 맞춰 archive.mjs 로 통합 |
 | Step 10 | Done | 2026-09-08 | 2026-09-08 | `/spire` canonical 전환. ui/spire.mjs(triggerRow·filterRow·feedTabs·alertCard·subscriptionCard·newSubscriptionSlot) — 알림 카드 골격은 목업 fixture 로 증명, 앱은 /api/spire 실측으로 전 열 정직 빈(트리거 카탈로그 5종 docstring·empty-spire 일러스트·fire-once 규칙 인용). 구독은 비활성 자리만(§3-3). 셸 Spire 칩 = alerts.length 실측 |
 | Step 11 | Done | 2026-09-08 | 2026-09-08 | `/council` canonical 전환. 단일 3열(중복 패널 결함 소멸). ui/council.mjs — agentCard(초상 stretch 방식 승격)·loopStrip(12스텝)·turnCard·COUNCIL_ROLES(wire 판정 카탈로그). 8역할 executed/not-run 은 wire 필드 존재로, trace 는 on-request 버튼 1회(로드 자동 fetch 없음). Cost 4타일 전부 — 정직 표기, 모델 ID 미표기(wire 미영속). 계획의 ui/svg/council-loop.mjs 는 SVG 대신 loopStrip 칩 스트립으로 대체(정보 동일·의존 감소) |
-| Step 12 | Pending | | | 14a 선행 권장 |
+| Step 12 | Done | 2026-09-08 | 2026-09-08 | `/watchtower` canonical 전환. ui/watchtower.mjs(stageCard·failureCard·sloCard·grafanaCard). /api/watchtower 에 run_metrics 표시 필드 추가(최근 런 요약 read-only·pg 미가동 정직 빈 — metrics_connect 주입 테스트 2). KPI 5타일 실측(freshness 일 단위 표기), stage·DLQ 는 wire 미영속 → not-measured/범위 밖 정직 렌더, Run Metrics 테이블(14a 실측), Grafana 카드는 14b 전까지 미배선 표기, Sources 확장 컬럼(last_fetch·governance) |
 | Step 13 | Pending | | | |
 | Step 14 | 14a Done | 2026-09-08 | | 14a: run_metrics.py(테이블 2종·append-only·safe_flush 비차단) + scheduler 런 종료 훅 + nightly_* slo_log 주입·요약 반환, 테스트 10(순수 5 오프라인·pg 5 격리), 기본 경로 스모크 실측. 14b·14c 남음 |
 | Step 16 | Pending | | | 병행 트랙 (데이터 브라우징) |

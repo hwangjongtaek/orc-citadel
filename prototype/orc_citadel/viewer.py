@@ -270,6 +270,49 @@ _ARCHIVE_SORTS = {"doc_id": "doc_id",
                   "publication": "publication_time DESC NULLS LAST, doc_id"}
 
 
+def _recent_run_metrics(connect=None, limit: int = 5) -> dict:
+    """pipeline_run_metrics 최근 런 요약 (read-only 표시용 — TS-6).
+
+    run 단위 drill-down 은 Grafana 몫 — 여기는 최근 런 스칼라 요약만.
+    postgres 미가동/드라이버 부재는 정직 빈 (§6.2 — 가짜 런 없음).
+    """
+    tables = ["pipeline_run_metrics", "pipeline_slo_observations"]
+    conn = None
+    try:
+        if connect is not None:
+            conn = connect()
+        else:
+            import psycopg
+            from orc_citadel.postgres_mutation_log import build_dsn
+            conn = psycopg.connect(build_dsn())
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT run_id, job_id, MIN(recorded_at) AS started "
+            "FROM pipeline_run_metrics GROUP BY run_id, job_id "
+            "ORDER BY started DESC LIMIT %s", (limit,))
+        heads = cur.fetchall()
+        runs = []
+        for run_id, job_id, started in heads:
+            cur.execute(
+                "SELECT run_id, metric, value FROM pipeline_run_metrics "
+                "WHERE run_id = %s AND labels = '{}'::jsonb".replace("{}", "{" + "}"),
+                (run_id,))
+            metrics = {m: v for _, m, v in cur.fetchall()}
+            runs.append({"run_id": run_id, "job_id": job_id,
+                         "recorded_at": str(started), "metrics": metrics})
+        return {"available": True, "runs": runs, "source_tables": tables}
+    except Exception as exc:
+        return {"available": False, "runs": [], "source_tables": tables,
+                "note": f"run 메트릭 조회 불가 — postgres 미가동/미영속 "
+                        f"(honest-gap §6.2): {exc}"}
+    finally:
+        if conn is not None and connect is None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
 def _qs_int(raw, default: int, lo: int, hi: int) -> int:
     """쿼리 정수 파싱 — 비수치는 기본값, 범위 밖은 클램프 (결정적)."""
     try:
@@ -696,7 +739,10 @@ class Handler(BaseHTTPRequestHandler):
                 },
             })
         return {"sources": sources, "freshness": _freshness(norm_db),
-                "intake": intake, "slo": _slo_panel()}
+                "intake": intake, "slo": _slo_panel(),
+                # 표시용 run 메트릭 요약 (TS-6) — drill-down 은 Grafana 몫.
+                "run_metrics": _recent_run_metrics(
+                    getattr(self, "metrics_connect", None))}
 
     @_j
     def _api_spire(self, qs):
@@ -1119,6 +1165,7 @@ _PAGES = {
     "/legacy/archive": PAGE_ARCHIVE,
     "/legacy/spire": PAGE_SPIRE,
     "/legacy/council": PAGE_COUNCIL,
+    "/legacy/watchtower": PAGE_WATCHTOWER,
 }
 
 # canonical 라우트 → frontend dist 엔트리. 공간을 이관할 때마다 추가한다.
@@ -1130,6 +1177,7 @@ _MIGRATED = {
     "/archive": "archive.html",
     "/spire": "spire.html",
     "/council": "council.html",
+    "/watchtower": "watchtower.html",
 }
 
 

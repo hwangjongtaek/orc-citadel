@@ -18,12 +18,14 @@ REPO = Path(__file__).resolve().parents[2]
 DIST = REPO / "frontend" / "dist"
 
 # 이관된 엔트리 목록 — 공간을 이관할 때마다 여기 추가한다.
-ENTRIES = ["gate", "witnesses", "table", "archive", "spire", "council"]
+ENTRIES = ["gate", "witnesses", "table", "archive", "spire", "council",
+           "watchtower"]
 # canonical 라우트 ↔ dist 엔트리 (viewer._MIGRATED 와 동기).
 MIGRATED = [("/", "gate"), ("/witnesses", "witnesses"), ("/table", "table"),
-            ("/archive", "archive"), ("/spire", "spire"), ("/council", "council")]
+            ("/archive", "archive"), ("/spire", "spire"), ("/council", "council"),
+            ("/watchtower", "watchtower")]
 LEGACY = ["/legacy/gate", "/legacy/witnesses", "/legacy/table", "/legacy/archive",
-          "/legacy/spire", "/legacy/council"]
+          "/legacy/spire", "/legacy/council", "/legacy/watchtower"]
 
 
 @pytest.fixture(scope="module")
@@ -111,6 +113,17 @@ def test_council_bundle_wires_report_and_trace() -> None:
                  for f in sorted(DIST.rglob("*.js")))
     for marker in ("/api/council", "/api/investigate", "planned_subclaims",
                    "audit_trace", "terminated_by"):
+        assert marker in js, marker
+
+
+def test_watchtower_bundle_wires_metrics_and_grafana() -> None:
+    """Watchtower (TS-6) — /api/watchtower 실측 + run_metrics 표시 필드를 소비하고
+    Grafana 딥링크 카드(pipeline_run_metrics 소스 명시)를 렌더한다.
+    메트릭 유무 양쪽 정직 렌더 — 가짜 stage 수치 하드코딩 금지."""
+    js = "".join(f.read_text(encoding="utf-8", errors="ignore")
+                 for f in sorted(DIST.rglob("*.js")))
+    for marker in ("/api/watchtower", "run_metrics", "pipeline_run_metrics",
+                   "Grafana", "nightly_slos"):
         assert marker in js, marker
 
 
