@@ -38,17 +38,43 @@ export const SECONDARY_SPACES = [
 export const SPACES = [...PRIMARY_SPACES, ...SECONDARY_SPACES];
 
 /**
+ * URL 공간 — 같은 컴포넌트가 두 소비자를 섬긴다 (TS-2).
+ * 목업은 정적 파일(`./<slug>.html`·`./assets/`), 앱은 뷰어 라우트(`/table`·
+ * `/assets/img/`). 기본값은 목업 — 기존 SSG 출력이 바이트 단위로 유지된다.
+ */
+export const MOCKUP_URLS = {
+  page: (slug) => `./${slug}.html`,
+  home: './index.html',
+  asset: (file) => `./assets/${file}`,
+};
+export const APP_ROUTES = {
+  'citadel-gate': '/',
+  'war-table': '/table',
+  'hall-of-witnesses': '/witnesses',
+  'signal-spire': '/spire',
+  'grand-archive': '/archive',
+  'council-chamber': '/council',
+  'watchtower': '/watchtower',
+  'chronicle-vault': '/chronicle',
+};
+export const APP_URLS = {
+  page: (slug) => APP_ROUTES[slug],
+  home: '/',
+  asset: (file) => `/assets/img/${file}`,
+};
+
+/**
  * 브랜드 로고 — 신규 픽셀아트 lockup 을 mark/title 로 분리한 자산 (FR-4).
  * 원본(621·1129px)보다 항상 작게 그리므로 `image-rendering: pixelated` 를 쓰지
  * 않는다 — pixelated 는 업스케일용이고 다운스케일에선 앨리어싱만 남긴다.
  */
 // height 는 반드시 인라인 style 로 준다 — reset.css 의 `:where(img){height:auto}` 가
 // height *속성*을 덮어써 자연 크기(621·1129px)로 커지는 함정.
-const logoMark = (height) =>
-  h('img', {src: './assets/logo-mark.png', alt: '',
+const logoMark = (height, urls = MOCKUP_URLS) =>
+  h('img', {src: urls.asset('logo-mark.png'), alt: '',
     style: {height, width: 'auto', flex: 'none', display: 'block'}});
-const logoTitle = (height) =>
-  h('img', {src: './assets/logo-title.png', alt: 'ORC CITADEL',
+const logoTitle = (height, urls = MOCKUP_URLS) =>
+  h('img', {src: urls.asset('logo-title.png'), alt: 'ORC CITADEL',
     style: {height, width: 'auto', flex: 'none', display: 'block'}});
 export {logoMark, logoTitle};
 
@@ -128,7 +154,7 @@ const S = {
  * 히어로 밴드 — 원본 목업의 3중 배경(그라데이션 + 히어로 PNG + night).
  * `hero` 가 없으면 그라데이션만 (empty-states·index 처럼 공간이 아닌 페이지).
  */
-function masthead({title, subtitle, hero}) {
+function masthead({title, subtitle, hero, urls}) {
   const shape = hero ? S.mastBand : S.mastFlat;
   // 히어로가 있으면 아래에서 위로 걷히는 스크림 — 글자만 덮고 그림 본체는 살린다.
   // 히어로가 없으면 좌→우 (원본 밴드 조판).
@@ -137,7 +163,7 @@ function masthead({title, subtitle, hero}) {
     : 'linear-gradient(90deg, rgba(7,17,28,.92) 0%, rgba(7,17,28,.6) 42%, rgba(7,17,28,.32) 100%)';
   const layers = [
     scrim,
-    hero ? `url('./assets/${hero}') center center / cover no-repeat` : null,
+    hero ? `url('${urls.asset(hero)}') center center / cover no-repeat` : null,
     'var(--color-background-surface)',
   ].filter(Boolean).join(', ');
   return h('div', {
@@ -159,13 +185,14 @@ function masthead({title, subtitle, hero}) {
  * @param hero     `assets/` 내 히어로 PNG 파일명
  * @param alerts   Signal Spire 칩 카운트
  * @param slots    Layout 슬롯 { start, content, end, footer }
+ * @param urls     URL 공간 (기본 MOCKUP_URLS — 앱은 APP_URLS)
  */
 export function shell({route, eyebrow, context, title, subtitle, hero, alerts = 3,
-                       slots}) {
+                       slots, urls = MOCKUP_URLS}) {
   const header = h(LayoutHeader, {padding: 0, hasDivider: false},
     h('div', {style: S.bar},
-      h('a', {style: S.wordmark, href: './index.html', 'aria-label': 'ORC CITADEL'},
-        logoMark(30), logoTitle(22)),
+      h('a', {style: S.wordmark, href: urls.home, 'aria-label': 'ORC CITADEL'},
+        logoMark(30, urls), logoTitle(22, urls)),
       h('div', {style: S.ctx},
         h('span', {style: S.eyebrow}, eyebrow),
         h('span', {style: S.ctxTitle}, context)),
@@ -174,20 +201,20 @@ export function shell({route, eyebrow, context, title, subtitle, hero, alerts = 
         h('input', {style: S.searchInput,
           placeholder: 'subject · claim · document 통합 검색', readOnly: true}),
         h('span', {style: S.kbd, 'aria-hidden': 'true'}, '⌘K')),
-      h('a', {style: S.spire, href: './signal-spire.html',
+      h('a', {style: S.spire, href: urls.page('signal-spire'),
         title: 'Signal Spire · 결론·confidence 변화 알림'},
         h('span', {style: S.dot}), `Signal Spire · ${alerts}`)),
     h('nav', {style: S.tabs, 'aria-label': 'Citadel 공간'},
       PRIMARY_SPACES.map(([slug, name]) =>
-        h('a', {key: slug, href: `./${slug}.html`,
+        h('a', {key: slug, href: urls.page(slug),
           style: slug === route ? {...S.tab, ...S.tabOn} : S.tab}, name)),
       h('span', {style: S.navSep, 'aria-hidden': 'true'}),
       h('span', {style: S.navGroupLabel}, '운영 · 감사'),
       SECONDARY_SPACES.map(([slug, name]) =>
-        h('a', {key: slug, href: `./${slug}.html`,
+        h('a', {key: slug, href: urls.page(slug),
           style: slug === route
             ? {...S.tab, ...S.tab2, ...S.tabOn} : {...S.tab, ...S.tab2}}, name))),
-    masthead({title, subtitle, hero}));
+    masthead({title, subtitle, hero, urls}));
 
   // 8공간 동일 셸: 항상 `fill`(패널·본문 독립 스크롤). 좌·우 패널이 없는
   // 페이지(Gate·Watchtower)는 본문 폭만 1200px 로 제한해 가독을 지킨다 —

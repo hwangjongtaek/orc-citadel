@@ -67,6 +67,40 @@ def test_bundles_have_no_external_origins() -> None:
         assert not bad, f"{js.name}: {bad[:3]}"
 
 
+def test_root_route_serves_frontend_gate() -> None:
+    """이관 1호 — canonical `/` 는 dist gate 를 서빙한다 (TS-1 라우트 전환)."""
+    from orc_citadel.viewer_static import default_roots
+    from test_viewer_static import _get
+
+    status, headers, body = _get("/", default_roots())
+    assert status == 200
+    assert headers["Content-Type"].startswith("text/html")
+    assert b"/app/js/gate.js" in body, "인라인 Gate 가 아니라 frontend dist 여야 한다"
+
+
+def test_root_falls_back_to_inline_without_dist() -> None:
+    """dist 가 없으면 인라인 Gate 로 폴백 — 롤백 안전 경로."""
+    import dataclasses
+
+    from orc_citadel.viewer_static import default_roots
+    from test_viewer_static import _get
+
+    roots = dataclasses.replace(default_roots(), app=None)
+    status, headers, body = _get("/", roots)
+    assert status == 200
+    assert b"/app/js/gate.js" not in body
+
+
+def test_legacy_gate_route_kept() -> None:
+    """이관 기간 롤백 경로 — `/legacy/gate` 가 구 인라인 Gate 를 서빙한다."""
+    from test_viewer_static import _get
+
+    status, headers, body = _get("/legacy/gate")
+    assert status == 200
+    assert headers["Content-Type"].startswith("text/html")
+    assert body.lower().startswith(b"<!doctype html>")
+
+
 def test_viewer_serves_app_dist() -> None:
     """뷰어 `/app/*` 서빙 계약 — 200 + MIME, 경로 탈출 차단, 미지정 404."""
     from orc_citadel.viewer_static import app_root, StaticRoots, default_roots

@@ -1056,6 +1056,15 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path.startswith("/assets/") or parsed.path.startswith("/app/"):
             self._serve_asset(parsed.path); return
 
+        # 이관된 공간은 frontend dist 를 canonical 로 서빙한다 (TS-1).
+        dist_entry = _MIGRATED.get(parsed.path)
+        if dist_entry is not None:
+            # 인스턴스 → 클래스 속성 순 (테스트가 인스턴스에 roots 를 주입한다)
+            roots = getattr(self, "static_roots", None)
+            if roots is not None and roots.resolve(f"/app/{dist_entry}") is not None:
+                self._serve_asset(f"/app/{dist_entry}"); return
+            # dist 미존재 → 아래 인라인 페이지로 폴백 (롤백 안전)
+
         page = _page_for(parsed.path)
         if page is None:
             # 미지정 경로가 Gate HTML 200 을 돌려주던 것을 바로잡는다 —
@@ -1095,7 +1104,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 _PAGES = {
-    "/": PAGE_GATE,           # Citadel Gate (진입 대시보드)
+    "/": PAGE_GATE,           # Citadel Gate (진입 대시보드) — dist 미존재 시 폴백
     "/table": PAGE_TABLE,     # War Table 3+1 (Campaign Map · 캔버스 · Inspector · Chronicle)
     "/witnesses": PAGE_WITNESSES,  # 증거 검사 · 원문 왕복
     "/council": PAGE_COUNCIL,      # 조사 보고서 조회
@@ -1103,6 +1112,14 @@ _PAGES = {
     "/spire": PAGE_SPIRE,            # 알림 센터
     "/archive": PAGE_ARCHIVE,        # 문서 탐색
     "/chronicle": PAGE_CHRONICLE,    # 시간 탐색
+    # 이관 기간 롤백 경로 (specs/ui-overhaul-astryx TS-1) — 이관 완료 시 일괄 제거.
+    "/legacy/gate": PAGE_GATE,
+}
+
+# canonical 라우트 → frontend dist 엔트리. 공간을 이관할 때마다 추가한다.
+# dist 를 못 찾으면 _PAGES 인라인으로 폴백한다 — 롤백은 여기서 한 줄 제거.
+_MIGRATED = {
+    "/": "gate.html",
 }
 
 

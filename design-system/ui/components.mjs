@@ -151,11 +151,13 @@ export function evidenceCard({relation, source, quote, trailHops, tone}) {
     trail(...trailHops));
 }
 
-/** 정직 빈 상태 — `empty-*.png` 일러스트를 icon 슬롯에 넣는다. */
-export function emptyState({art, title, description, actions, isCompact}) {
+/** 정직 빈 상태 — `empty-*.png` 일러스트를 icon 슬롯에 넣는다.
+ * `assetBase` 로 URL 공간을 주입한다 (목업 `./assets/` · 앱 `/assets/img/`). */
+export function emptyState({art, title, description, actions, isCompact,
+                            assetBase = './assets/'}) {
   return h(EmptyState, {
     title, description, actions, isCompact,
-    icon: art ? h('img', {src: `./assets/${art}`, alt: '', width: 132, height: 132,
+    icon: art ? h('img', {src: `${assetBase}${art}`, alt: '', width: 132, height: 132,
       style: {imageRendering: 'pixelated', opacity: .9}}) : undefined,
   });
 }
