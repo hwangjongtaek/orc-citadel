@@ -168,6 +168,15 @@
 - **Validation**: 로컬 compose 기동 → nightly 시뮬레이션 런 1회 → 대시보드에 실측치 표시. 데이터 없는 패널 No data.
 - **Complexity**: Medium
 
+### Step 16: 데이터 브라우징 트랙 (Step 3 이후 병행 가능 — Step 14와 독립)
+
+- **16a. parquet 스냅샷 export 배선 (TDD)** — `scripts/scheduler_runner.py` Modify(런 종료 훅에 `export_parquet` 호출 — 14a와 동일 지점·선택 주입·비차단), export를 `.new` 디렉터리 → 원자 교체로 감싸는 헬퍼(`rebuild_zones` 패턴 승계). `prototype/tests/test_parquet_snapshot.py` Create 선작성(원자 교체·실패 시 직전 유지·비차단).
+- **16b. DuckDB UI 사이드카** — `deploy/duckdb-ui/Dockerfile` Create(duckdb CLI 핀 + `INSTALL ui` 빌드 시 1회), `docker-compose.yml`·`prod.yml` Modify(parquet 디렉터리 **read-only 마운트**·loopback·`.duckdb` 미포함 — 잠금 함정 원천 차단).
+- **16c. 접근 절차 + 체험 가이드** — `docs/operating/data-browsing.md` Create: 존 계층 → 저장 형식 → 도구 매핑(raw=MinIO Console·DuckDB존=parquet+DuckDB UI·SoT/메트릭=Grafana Explore·neo4j/opensearch=내장 UI), 복붙용 예제 쿼리(segments 조인·dedup cluster·correlation drill-down), prod SSH 터널 절차, `.duckdb` 직접 attach 금지 규칙 명문화. `docs/operating/deployment.md` Modify(서비스 목록).
+- **Specs Reference**: TS-7
+- **Validation**: 로컬 compose에서 스냅샷 export → DuckDB UI로 예제 쿼리 3종 실행 + MinIO Console에서 raw 오브젝트 열람. export 실패 시 직전 스냅샷 유지 확인.
+- **Complexity**: Medium
+
 ### Step 15: legacy 일괄 제거 + 마감 기록
 
 - **Goal**: 2체계 공존 종료 — 인라인 표시 계층 제거, 3단계 기록 완료.
@@ -195,7 +204,8 @@
 - [ ] **Step 12**: Watchtower (+ Grafana 딥링크)
 - [ ] **Step 13**: Chronicle
 - [ ] **Step 14**: Grafana 트랙 (14a flush → 14b compose → 14c 대시보드)
-- [ ] **Step 15**: legacy 제거 + 마감 기록
+- [ ] **Step 16**: 데이터 브라우징 트랙 (16a parquet export → 16b DuckDB UI 사이드카 → 16c 가이드 문서)
+- [ ] **Step 15**: legacy 제거 + 마감 기록 (최종)
 - [ ] **Final**: requirements Acceptance Criteria 전수 확인
 
 ## File Change Summary
@@ -212,6 +222,7 @@
 | `prototype/orc_citadel/run_metrics.py` | Create | 14a | postgres flush |
 | `scripts/scheduler_runner.py` | Modify | 14a | 런 종료 훅 |
 | `docker-compose*.yml` + `deploy/grafana/**` | Modify/Create | 14b·c | Grafana 사이드카·provisioning |
+| `deploy/duckdb-ui/Dockerfile` + `docs/operating/data-browsing.md` | Create | 16 | DuckDB UI 사이드카·체험 가이드 |
 | `prototype/tests/test_frontend_dist.py` 외 | Create/Modify | 3~14 | TDD 가드 |
 | `viewer_pages.py`·`*_ext.py` | Delete/축소 | 15 | 인라인 표시 계층 제거 |
 
@@ -223,6 +234,7 @@ Step 1 ── Step 2 ── Step 3 ── Step 5 ── Step 6 ── Step 7 ─
 Prereq(로고) ── Step 4 ─┘ (Step 3 이후 아무 때나)                     └─ Step 12 ── Step 15
                                                                           │
 Step 14a ── 14b ── 14c  (Step 3 이후 병행, 14a는 Step 12 권장 선행) ──────┘
+Step 16a ── 16b ── 16c  (Step 3 이후 병행, 프런트·Grafana와 독립)
 ```
 
 - Step 7의 ClaimCard가 8·9·13의 재사용 기반 — 7을 8보다 먼저 고정.
@@ -260,7 +272,9 @@ Step 14a ── 14b ── 14c  (Step 3 이후 병행, 14a는 Step 12 권장 선
 | dist 커밋 diff 소음 | High | Low | 청크 이름 안정화 + 이관 커밋과 dist 커밋 분리 |
 | 그래프 SVG 자작 레이아웃 품질 | Medium | Medium | 결정적 시드 + 100노드 상한 + Step 8 실데이터(722 claims) 검증. 미달 시 레이아웃만 교체(컴포넌트 계약 유지) |
 | 픽셀 로고 축소 뭉개짐 | Low | Low | 정수배 축소·pixelated 렌더링 |
-| Grafana 이미지 원격 pull 불가 | Low | Medium | 배포 1회 네트워크 확인, 불가 시 로컬 `docker save/load` 경로를 deployment.md에 기록 |
+| Grafana 이미지 원격 pull 불가 | Low | Medium | 배포 1회 네트워크 확인, 불가 시 로컬 `docker save/load` 경로를 deployment.md에 기록 (duckdb-ui 이미지 동일) |
+| 외부 도구의 `.duckdb` 직접 attach로 잠금 충돌 | Medium | Medium | 사이드카 마운트에 `.duckdb` 미포함(parquet만) + 금지 규칙 문서 명문화 |
+| parquet export 소요(105k docs·823k segments) | Low | Low | nightly 비차단 훅 — 런 시간에 합산될 뿐 파이프라인 무영향. 소요 실측을 16a에서 기록 |
 | 2체계 공존 장기화 | Medium | Medium | 공간별 롤백 경로 유지 + Step 15를 브리핑 가치 4공간(5~8) 완료 직후로 앞당길 수 있게 legacy 의존 최소화 |
 
 ## Progress Tracking
@@ -281,7 +295,8 @@ Step 14a ── 14b ── 14c  (Step 3 이후 병행, 14a는 Step 12 권장 선
 | Step 12 | Pending | | | 14a 선행 권장 |
 | Step 13 | Pending | | | |
 | Step 14 | Pending | | | 병행 트랙 |
-| Step 15 | Pending | | | |
+| Step 16 | Pending | | | 병행 트랙 (데이터 브라우징) |
+| Step 15 | Pending | | | 최종 마감 |
 
 ## Acceptance Criteria Checklist
 
@@ -292,3 +307,4 @@ From requirements:
 - [ ] FR-4: 로고 2종 반입·서빙 / crest-hero 참조 전량 교체 / 파생본·레티나 정책 / README 확인 후 반영
 - [ ] FR-5: 공간별 갭 체크리스트(Spire·Council·Witnesses·Archive·Watchtower·Chronicle·War Table) 전수
 - [ ] FR-6: grafana 서비스 / provisioning 커밋 / 메트릭 영속 배선 / 대시보드 1종 / Watchtower 딥링크
+- [ ] FR-7: parquet export 배선 / DuckDB UI 사이드카 / MinIO Console 절차 / 체험 가이드 문서 / `.duckdb` 직접 접근 금지 명문화

@@ -24,6 +24,7 @@ Astryx 도입 Phase 0–2(theme-citadel 저작 · 목업 Astryx SSG 재작성 ·
 - [ ] G3 **분석 심도 유지**: 8공간의 전문 분석·브라우징 기능 동등성(기능 하향 없음) + L2 잔여 갭 전수 소진.
 - [ ] G4 **브랜드 갱신**: 신규 로고 2종(가로 lockup · 세로 crest)으로 전 화면 브랜드 자산 교체.
 - [ ] G5 **파이프라인 모니터링**: 데이터 엔지니어링 실습 목표에 따라, 실수집 데이터가 흐르는 파이프라인을 실시간 모니터링할 수 있는 체계(Grafana류) 부착.
+- [ ] G6 **데이터 브라우징 체험**: 존 계층별 실데이터가 **어떤 형식으로 쌓이고 어떻게 활용 가능한지**(raw 오브젝트 → DuckDB/parquet → postgres SoT) 직접 브라우징·질의할 수 있는 도구 부착.
 
 ## Functional Requirements
 
@@ -85,6 +86,20 @@ Astryx 도입 Phase 0–2(theme-citadel 저작 · 목업 Astryx SSG 재작성 ·
   - [ ] 파이프라인 run 메트릭 postgres 영속 배선: run summary(시각·stage별 처리량·실패 수·소요) + SLO-05/06/07 관측치 + correlation_id 분해 가능 스키마([design 11 §2.2](../../docs/design/11-observability-and-governance.md) D1–D6 및 ADR-1102 정합)
   - [ ] 최소 대시보드 1종: 수집 성공률·freshness·stage 처리량·quarantine 추이 (데이터 없는 패널은 정직하게 No data)
   - [ ] Watchtower(FR-5)에서 Grafana로의 딥링크 제공 (운영 drill-down 이관 명시)
+
+### FR-7: 데이터 존 브라우징 — 저장 형식 체험 도구 (G6)
+
+- **Description**: 제품 뷰어(가공된 소비 뷰)와 별개로, **존에 쌓인 원 데이터를 저장 형식 그대로** 브라우징·질의하는 도구를 부착한다. 존 계층별로 이미 있는 것을 최대한 재사용한다:
+  - **raw (lakehouse 오브젝트 층)**: 로컬 파일 트리 / prod MinIO 버킷 — **MinIO Console**(dev compose에 이미 `:9001` 활성)로 fetch.json·content.bin 오브젝트를 직접 브라우징.
+  - **normalized·curated (DuckDB 존)**: 뷰어가 `.duckdb`에 **쓰기 잠금**을 쥐므로(실측 함정) 외부 도구의 직접 attach는 금지. 대신 기존 `DuckDBZone.export_parquet()`로 **parquet 스냅샷**을 내리고, **DuckDB UI 사이드카**(공식 `ui` 확장, 로컬 웹 노트북)가 `read_parquet`로 질의 — "컬럼나 파일로 쌓고 엔진은 분리"라는 lakehouse 패턴을 그대로 체험.
+  - **postgres (mutation log SoT·메트릭)**: FR-6 Grafana의 **Explore**로 ad-hoc SQL 겸용 (별도 서비스 없음).
+  - **neo4j·opensearch**: 자체 내장 UI(Neo4j Browser·Dashboards)가 이미 존재 — 접근 절차 문서화까지만 (신규 서비스 없음).
+- **Acceptance Criteria**:
+  - [ ] scheduler 런 종료 훅에서 parquet 스냅샷 export 배선 (선택 주입·비차단 — FR-6 flush와 동일 지점·규약)
+  - [ ] DuckDB UI 사이드카 compose 서비스 — parquet 디렉터리 read-only 마운트, loopback + SSH 터널, 확장 설치는 이미지 빌드 시 1회(런타임 오프라인)
+  - [ ] MinIO Console 접근 절차(prod SSH 터널) 문서화 — dev는 현행 유지
+  - [ ] **체험 가이드 문서** `docs/operating/data-browsing.md`: 존 계층 → 저장 형식 → 브라우징 도구 → 예제 쿼리(segments 조인·dedup cluster·correlation drill-down) 매핑
+  - [ ] 뷰어 `.duckdb` 파일에 대한 외부 동시 접근 금지 규칙 명문화 (잠금 함정 재발 방지)
 
 ## Non-Functional Requirements
 

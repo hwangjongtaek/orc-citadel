@@ -84,6 +84,18 @@ Python 뷰어의 인라인 HTML 표시 계층(약 4,600줄)을 **Astryx React �
   - 로컬(compose 미사용, launchd venv)은 flush 대상 postgres가 없으면 skip(선택 주입 규약 승계 — `slo_log=None` 패턴과 동일).
 - **Constraints**: Grafana는 관측 전용(그래프 SoT 접근 없음, read-only DB 계정). 대시보드 패널은 데이터 부재 시 No data 그대로(honest-gap).
 
+### TS-7: 데이터 존 브라우징 사이드카 (from FR-7)
+
+- **Description**: 존 계층별 저장 형식을 그대로 브라우징하는 체험 도구. 신규 구축 최소화 — MinIO Console(기존)·Grafana Explore(FR-6 겸용)·Neo4j Browser/Dashboards(내장)는 접근 절차만, 신규는 **parquet export 배선 + DuckDB UI 사이드카** 둘뿐.
+- **Components Involved**: `docker-compose.yml`·`prod.yml`(duckdb-ui 서비스), `deploy/duckdb-ui/Dockerfile`(duckdb CLI + `INSTALL ui` — 빌드 시 1회 네트워크), `scripts/scheduler_runner.py`(export 훅 — run_metrics flush와 동일 지점), `docs/operating/data-browsing.md`(신설 가이드).
+- **Data Flow**: scheduler 런 종료 → `export_parquet()`(기존 메서드) → `data/parquet/<zone>/*.parquet` → duckdb-ui 컨테이너가 read-only 마운트로 `read_parquet` 질의. raw는 MinIO Console이 버킷 직접 열람.
+- **Implementation Approach**:
+  - **잠금 회피가 설계의 핵심**: 뷰어 `_build()`가 `curated.duckdb`·`oc.duckdb`에 쓰기 잠금을 쥔다(실측 — arxiv-collection-gotchas). 외부 도구는 `.duckdb`를 절대 직접 열지 않고 parquet 스냅샷만 읽는다. 이 규칙을 가이드 문서에 명문화.
+  - export는 `.new` 디렉터리 생성 후 원자 교체(rebuild_zones 패턴 승계) — UI가 읽는 중 파일 반쯤 교체되는 상태 방지. 비차단(실패해도 런 성공).
+  - DuckDB UI는 loopback 바인딩 + SSH 터널(viewer·Grafana와 동일 정책). 예제 쿼리는 가이드 문서에 복붙 가능한 형태로(segments 조인, dedup cluster 조회, as-of, correlation drill-down).
+  - 신선도: nightly 스냅샷이면 체험 목적에 충분 — 즉시 재수출은 컨테이너에서 export 스크립트 수동 1회로 문서화.
+- **Constraints**: DuckDB `ui` 확장은 로컬 단일 사용자 도구(인증 없음) — loopback 한정 유지. parquet 디렉터리는 read-only 마운트(사이드카가 존을 오염시킬 수 없음 — §3-3 정합).
+
 ## Architecture
 
 ### Component Design
@@ -115,6 +127,7 @@ deploy/grafana/provisioning/   (신설) datasource·dashboard as code
 1. **앱**: 정적 HTML+JS(dist, 커밋됨) → CSR 마운트 → `/api/*` fetch → ui/ 컴포넌트 렌더.
 2. **목업**: 같은 ui/ 컴포넌트 + fixtures → `renderToStaticMarkup` → `docs/mockups/`(클라이언트 JS 0 불변).
 3. **모니터링**: scheduler 런 → run_metrics flush → postgres → Grafana + `/api/watchtower`.
+4. **데이터 브라우징**: scheduler 런 → parquet 스냅샷(원자 교체) → DuckDB UI(read-only) / raw → MinIO Console / SoT·메트릭 → Grafana Explore.
 
 ### Integration Points
 
@@ -169,6 +182,8 @@ deploy/grafana/provisioning/   (신설) datasource·dashboard as code
 | dist 부재/오염 | `test_frontend_dist.py`가 커밋 시점 차단 + 뷰어는 404 | 발생 전 차단 |
 | Grafana 미기동/메트릭 0 | Watchtower 딥링크 카드에 상태 표기, 패널 No data | 뷰어 기능 무영향 |
 | metrics flush 실패 | 경고 로그 후 런 계속(비차단) | 파이프라인 무영향 |
+| parquet export 실패/부분 산출 | `.new` 원자 교체 — 실패 시 직전 스냅샷 유지, 경고 로그 | DuckDB UI는 항상 완결 스냅샷만 봄 |
+| 외부 도구가 `.duckdb` 직접 attach | 금지 규칙 문서화 + read-only 마운트에 `.duckdb` 미포함(parquet만) | 잠금 충돌 원천 차단 |
 
 ## Dependencies
 
@@ -178,6 +193,7 @@ deploy/grafana/provisioning/   (신설) datasource·dashboard as code
 - `react`/`react-dom` 19, `vite`(버전 핀): frontend 빌드.
 - `vitest`: frontend 컴포넌트 테스트(저작 도구).
 - Grafana OSS 이미지(버전 핀): compose 사이드카. 플러그인 없음.
+- DuckDB CLI + `ui` 확장(버전 핀): duckdb-ui 사이드카 이미지. 확장 설치는 빌드 시 1회, 런타임 오프라인.
 
 ### Internal
 
@@ -215,3 +231,4 @@ deploy/grafana/provisioning/   (신설) datasource·dashboard as code
 | 4 | 브리핑 모드 형태 | 홈 대시보드 + 딥링크 (별도 프레젠테이션 뷰 없음) | 2026-09-08 |
 | 5 | War Table hairball 가드 | subject 중심 서브그래프 기본 + `/api/graph_expand` 단계 확장, 결정적 SVG 레이아웃 | 2026-09-08 |
 | 6 | 파이프라인 모니터링 UI 부착 가능? | 가능·설계 정합 — design 11 §2.2가 "PostgreSQL + Grafana" 기확정. 병목은 메트릭 영속(in-memory slo_log) → FR-6 flush 배선으로 해소 | 2026-09-08 |
+| 7 | 존 데이터 브라우징 UI(DuckDB·Lakehouse 체험) | raw=MinIO Console(기존 활성), DuckDB 존=**parquet 스냅샷 + DuckDB UI 사이드카**(뷰어 쓰기 잠금 실측 함정 때문에 `.duckdb` 직접 attach 금지 — parquet 경유가 lakehouse 체험에도 정합), postgres=Grafana Explore 겸용, neo4j/opensearch=내장 UI 문서화만 | 2026-09-08 |
