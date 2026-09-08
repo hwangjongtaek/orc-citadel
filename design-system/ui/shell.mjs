@@ -186,9 +186,10 @@ function masthead({title, subtitle, hero, urls}) {
  * @param alerts   Signal Spire 칩 카운트
  * @param slots    Layout 슬롯 { start, content, end, footer }
  * @param urls     URL 공간 (기본 MOCKUP_URLS — 앱은 APP_URLS)
+ * @param onSearchOpen  검색창 클릭 시 팔레트 열기 (앱 전용 — 목업은 정적)
  */
 export function shell({route, eyebrow, context, title, subtitle, hero, alerts = 3,
-                       slots, urls = MOCKUP_URLS}) {
+                       slots, urls = MOCKUP_URLS, onSearchOpen}) {
   const header = h(LayoutHeader, {padding: 0, hasDivider: false},
     h('div', {style: S.bar},
       // GNB 는 타이틀 레터링만 — 오크 얼굴 mark 는 제외한다 (2026-09-08 확정).
@@ -199,7 +200,9 @@ export function shell({route, eyebrow, context, title, subtitle, hero, alerts = 
         h('span', {style: S.eyebrow}, eyebrow),
         h('span', {style: S.ctxTitle}, context)),
       h('div', {style: {flex: '1 1 auto'}}),
-      h('label', {style: S.search}, searchIcon(),
+      h('label', {
+        style: onSearchOpen ? {...S.search, cursor: 'pointer'} : S.search,
+        onClick: onSearchOpen}, searchIcon(),
         h('input', {style: S.searchInput,
           placeholder: 'subject · claim · document 통합 검색', readOnly: true}),
         h('span', {style: S.kbd, 'aria-hidden': 'true'}, '⌘K')),

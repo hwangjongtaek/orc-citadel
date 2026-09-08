@@ -162,12 +162,9 @@ deploy/grafana/provisioning/   (신설) datasource·dashboard as code
 
 ## API / Interface Design
 
-### `/api/search` scope 확장 (유일한 API 계약 변경 — 하위호환 추가)
+### `/api/search` — 변경 불필요로 판명 (2026-09-08 구현 시 확인)
 
-- **Method**: GET
-- **Path**: `/api/search?q=…&scope=documents|subjects|claims|all` (scope 생략 = `documents`, 기존 응답 무변경)
-- **Output**: `{documents: […], subjects: […], claims: […]}` — scope별 키만 채움. subjects는 `/api/rank` 투영, claims는 surface/predicate ILIKE 투영. 전부 read-only.
-- **Errors**: q 부재 400(기존 규약 승계).
+- 계획했던 scope 확장은 **불필요** — 기존 `/api/search?q=` 가 이미 `{entities, claims, documents, counts}` cross-zone 을 반환한다(각 ≤10, 결정적 정렬). 팔레트가 그대로 소비하고 딥링크는 기존 URL 부트스트랩(`/table?subject=`·`/witnesses?claim=`·`/archive?doc=`)을 쓴다. **API 계약 변경 0건 → Spec 1.1.0 유지 확정.**
 
 ### 기타 소비 계약
 
@@ -236,3 +233,4 @@ deploy/grafana/provisioning/   (신설) datasource·dashboard as code
 | 7 | 존 데이터 브라우징 UI(DuckDB·Lakehouse 체험) | raw=MinIO Console(기존 활성), DuckDB 존=**parquet 스냅샷 + DuckDB UI 사이드카**(뷰어 쓰기 잠금 실측 함정 때문에 `.duckdb` 직접 attach 금지 — parquet 경유가 lakehouse 체험에도 정합), postgres=Grafana Explore 겸용, neo4j/opensearch=내장 UI 문서화만 | 2026-09-08 |
 | 8 | 로고 사용 방식·README 배너 | 가로 lockup은 mark/title **분리 크롭**해 사용, README 배너(`orc-citadel-hero.png`)는 **교체하지 않음** | 2026-09-08 |
 | 9 | 진행 방식 | **목업 선행(mockup-first)** — 각 공간은 목업을 먼저 저작·확인한 뒤 frontend 구현에 착수 (바로 구현 금지) | 2026-09-08 |
+| 10 | Step 6 API 판단 | `/api/search` 기구현이 팔레트 요건 충족 — scope 확장 폐기, **Spec 1.1.0 유지** | 2026-09-08 |

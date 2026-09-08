@@ -67,6 +67,15 @@ def test_bundles_have_no_external_origins() -> None:
         assert not bad, f"{js.name}: {bad[:3]}"
 
 
+def test_gate_bundle_wires_search_palette() -> None:
+    """⌘K 통합 검색 팔레트 (TS-3) — 번들이 /api/search 를 소비하고
+    딥링크 3종(table?subject·witnesses?claim·archive?doc)을 만든다."""
+    js = (DIST / "js" / "gate.js").read_text(encoding="utf-8", errors="ignore")
+    assert "/api/search" in js
+    for marker in ("/table?subject=", "/witnesses?claim=", "/archive?doc="):
+        assert marker in js, marker
+
+
 def test_root_route_serves_frontend_gate() -> None:
     """이관 1호 — canonical `/` 는 dist gate 를 서빙한다 (TS-1 라우트 전환)."""
     from orc_citadel.viewer_static import default_roots

@@ -17,6 +17,7 @@ import {
 import {
   brandBlock, conclusionCard, changeCard, newCampaignCard, quickEntry,
 } from '@ui/gate.mjs';
+import {Palette, usePaletteHotkey} from '../../lib/palette.jsx';
 
 const urls = APP_URLS;
 
@@ -80,6 +81,8 @@ function conclusions(table) {
 
 function App() {
   const {loading, error, data} = useDashboard();
+  const [paletteOpen, setPaletteOpen] = React.useState(false);
+  usePaletteHotkey(setPaletteOpen);
 
   let body;
   if (loading) {
@@ -123,17 +126,20 @@ function App() {
   }
 
   const alerts = data?.spire?.alerts?.length ?? 0;
-  return shell({
-    route: 'citadel-gate',
-    eyebrow: 'Citadel Gate · Briefing',
-    context: '브리핑 · Home',
-    title: 'Citadel Gate · 브리핑',
-    subtitle: '지금 무슨 결론이 있고, 그 근거는 무엇인가 — 3클릭 이내',
-    hero: 'gate-hero.png',
-    alerts,
-    urls,
-    slots: {content: h(LayoutContent, {padding: 4}, body)},
-  });
+  return h(React.Fragment, {},
+    shell({
+      route: 'citadel-gate',
+      eyebrow: 'Citadel Gate · Briefing',
+      context: '브리핑 · Home',
+      title: 'Citadel Gate · 브리핑',
+      subtitle: '지금 무슨 결론이 있고, 그 근거는 무엇인가 — 3클릭 이내',
+      hero: 'gate-hero.png',
+      alerts,
+      urls,
+      onSearchOpen: () => setPaletteOpen(true),
+      slots: {content: h(LayoutContent, {padding: 4}, body)},
+    }),
+    h(Palette, {open: paletteOpen, onClose: () => setPaletteOpen(false)}));
 }
 
 createRoot(document.getElementById('root')).render(h(App));
