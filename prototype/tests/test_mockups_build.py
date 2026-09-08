@@ -100,6 +100,17 @@ def test_shell_nav_is_two_tiered(pages: dict[str, str]) -> None:
     assert 'href="./watchtower.html"' in html
 
 
+def test_brand_logo_wired(pages: dict[str, str]) -> None:
+    """신규 로고 반입(FR-4) — 셸 워드마크 mark+title 이미지 + head favicon."""
+    html = pages["war-table"]  # 셸 공통 요소는 아무 공간 페이지에서나 보인다
+    assert "logo-mark.png" in html
+    assert "logo-title.png" in html
+    assert 'rel="icon"' in html and "favicon-32.png" in html
+    # 교체 완료 후 구 crest-hero 참조는 남지 않는다 (파일은 이력 보존 차원에서 유지)
+    for name, page in pages.items():
+        assert "crest-hero.png" not in page, name
+
+
 def test_assets_referenced_exist(pages: dict[str, str]) -> None:
     """히어로·초상·빈상태 PNG 참조가 전부 실제 파일로 존재한다."""
     source = DIST / "assets"

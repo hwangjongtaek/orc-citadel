@@ -20,8 +20,8 @@ const DETAIL = {
 
 const body = h(LayoutContent, {padding: 4},
   h('div', {style: {display: 'flex', alignItems: 'center', gap: 14, marginBottom: 16}},
-    h('img', {src: './assets/crest-hero.png', alt: 'Orc Citadel 문장',
-      width: 56, height: 56, style: {imageRendering: 'pixelated', flex: 'none'}}),
+    h('img', {src: './assets/logo-mark.png', alt: 'Orc Citadel 문장',
+      height: 56, style: {width: 'auto', flex: 'none'}}),
     h(Text, {type: 'supporting'},
     'Astryx + theme-citadel 로 재작성한 8공간 정적 목업. '
       + '컴포넌트는 빌드 시점에 정적 HTML 로 렌더되며 클라이언트 JS 는 없다.')),

@@ -37,15 +37,18 @@ export const SECONDARY_SPACES = [
 ];
 export const SPACES = [...PRIMARY_SPACES, ...SECONDARY_SPACES];
 
-/** 브랜드 문장 — 날카로운 철제 외곽·대칭 엄니·중앙 지식 불꽃 (DESIGN.md). */
-const crest = () =>
-  h('svg', {width: 22, height: 22, viewBox: '0 0 24 24', fill: 'none', 'aria-hidden': 'true',
-    style: {color: 'var(--color-accent)', flex: 'none'}},
-    h('path', {d: 'M12 2 L20 6 V13 C20 18 12 22 12 22 C12 22 4 18 4 13 V6 Z',
-      stroke: 'currentColor', strokeWidth: 1.6, fill: 'rgba(69,224,111,.07)'}),
-    h('path', {d: 'M9 9 Q12 12 15 9 M12 11 V15', stroke: 'currentColor',
-      strokeWidth: 1.6, strokeLinecap: 'round'}),
-    h('circle', {cx: 12, cy: 8, r: 1.3, fill: 'currentColor'}));
+/**
+ * 브랜드 로고 — 신규 픽셀아트 lockup 을 mark/title 로 분리한 자산 (FR-4).
+ * 원본(621·1129px)보다 항상 작게 그리므로 `image-rendering: pixelated` 를 쓰지
+ * 않는다 — pixelated 는 업스케일용이고 다운스케일에선 앨리어싱만 남긴다.
+ */
+const logoMark = (height) =>
+  h('img', {src: './assets/logo-mark.png', alt: '', height,
+    style: {width: 'auto', flex: 'none', display: 'block'}});
+const logoTitle = (height) =>
+  h('img', {src: './assets/logo-title.png', alt: 'ORC CITADEL', height,
+    style: {width: 'auto', flex: 'none', display: 'block'}});
+export {logoMark, logoTitle};
 
 const searchIcon = () =>
   h('svg', {width: 15, height: 15, viewBox: '0 0 24 24', fill: 'none', 'aria-hidden': 'true'},
@@ -181,7 +184,8 @@ export function shell({route, eyebrow, context, title, subtitle, hero, alerts = 
     || (!hero || slots.start || slots.end ? 'band' : 'full');
   const header = h(LayoutHeader, {padding: 0, hasDivider: false},
     h('div', {style: S.bar},
-      h('a', {style: S.wordmark, href: './index.html'}, crest(), 'ORC CITADEL'),
+      h('a', {style: S.wordmark, href: './index.html', 'aria-label': 'ORC CITADEL'},
+        logoMark(30), logoTitle(22)),
       h('div', {style: S.ctx},
         h('span', {style: S.eyebrow}, eyebrow),
         h('span', {style: S.ctxTitle}, context)),

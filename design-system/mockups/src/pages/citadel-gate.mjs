@@ -132,16 +132,14 @@ function quickEntry(spaces) {
 }
 
 const body = h(LayoutContent, {padding: 4},
-  // 브랜드 블록 — 신규 lockup 로고 도착 시 crest-hero + 텍스트 워드마크를
-  // logo-mark / logo-title 분리 자산으로 교체한다 (FR-4, 반입 대기).
-  h('div', {style: {display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20}},
-    h('img', {src: './assets/crest-hero.png', alt: 'Orc Citadel 문장', width: 96, height: 96,
-      style: {imageRendering: 'pixelated'}}),
+  // 브랜드 블록 — 신규 lockup 분리 자산 (FR-4: logo-mark + logo-title).
+  h('div', {style: {display: 'flex', alignItems: 'center', gap: 20, marginBottom: 20}},
+    h('img', {src: './assets/logo-mark.png', alt: 'Orc Citadel 문장', height: 96,
+      style: {width: 'auto', flex: 'none'}}),
     h('div', {},
-      h('div', {style: {fontFamily: 'var(--astryx-theme-citadel-font-display)',
-        fontSize: 34, letterSpacing: '.12em', color: 'var(--color-text-primary)'}},
-        'ORC CITADEL'),
-      h('div', {style: {marginTop: 4}},
+      h('img', {src: './assets/logo-title.png', alt: 'ORC CITADEL', height: 46,
+        style: {width: 'auto', display: 'block'}}),
+      h('div', {style: {marginTop: 8}},
         h(Text, {type: 'supporting'}, 'The Camp works. The Citadel remembers.')),
       h('div', {style: {marginTop: 2}},
         h(Text, {type: 'supporting'},
