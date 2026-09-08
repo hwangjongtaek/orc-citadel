@@ -72,15 +72,20 @@ const MODELS = [['opus-4-8', '14 · $2.31'], ['sonnet-5', '29 · $0.63'], ['haik
 const STATUS = {done: 'success', running: 'warning', idle: 'neutral'};
 
 function agentCard([fn, wn, state, desc, model, art]) {
-  // alignItems 필수 — 기본 stretch 면 초상(img, reset 이 height:auto 로 만듦)이
-  // 행 높이만큼 세로로 늘어나 찌그러진다. 크기도 속성이 아니라 인라인 style 로.
-  return h('div', {key: fn, style: {display: 'flex', gap: 10, padding: '10px 12px',
-    alignItems: 'flex-start',
+  // 초상은 카드 세로에 꽉 차게, 비율 유지 (2026-09-08 확정).
+  // img 에 직접 stretch 를 걸면 주축 폭은 고유 크기(512px)로 남아 거인이 된다 —
+  // 래퍼 div 의 aspect-ratio 가 stretch 된 높이를 폭으로 전이하게 하고,
+  // img 는 래퍼를 absolute + cover 로 채운다.
+  return h('div', {key: fn, style: {display: 'flex', gap: 12, padding: '10px 12px',
+    alignItems: 'stretch',
     border: '1px solid var(--color-border)', borderRadius: 'var(--radius-element)',
     marginBottom: 8, background: state === 'running' ? 'rgba(255,177,59,.05)' : 'transparent'}},
-    h('img', {src: `./assets/${art}`, alt: '',
-      style: {width: 34, height: 34, imageRendering: 'pixelated',
-        borderRadius: 'var(--radius-inner)', flex: 'none'}}),
+    h('div', {style: {alignSelf: 'stretch', aspectRatio: '1 / 1', minHeight: 56,
+      position: 'relative', flex: 'none', overflow: 'hidden',
+      borderRadius: 'var(--radius-inner)'}},
+      h('img', {src: `./assets/${art}`, alt: '',
+        style: {position: 'absolute', inset: 0, width: '100%', height: '100%',
+          objectFit: 'cover', imageRendering: 'pixelated'}})),
     h('div', {style: {minWidth: 0}},
       h('div', {style: {display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap'}},
         h('span', {style: {fontFamily: 'var(--font-family-heading)', fontSize: 12,
