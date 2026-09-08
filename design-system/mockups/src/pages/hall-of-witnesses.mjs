@@ -1,11 +1,11 @@
 /** Hall of Witnesses · 증거 검사 — claim 목록 | Evidence·Provenance | 원문 왕복. */
 
 import {LayoutContent, LayoutPanel, LayoutFooter} from '@astryxdesign/core/Layout';
-import {shell} from '../shell.mjs';
+import {shell} from '../../../ui/shell.mjs';
 import {
   h, Card, Badge, VStack, HStack, Text, sectionLabel, confidence, sectionLabel as sl,
   evidenceCard, sourceSpan, trail, id, panelHead,
-} from '../ui.mjs';
+} from '../../../ui/components.mjs';
 
 export const title = 'Hall of Witnesses · 증거 검사 — Orc Citadel';
 

@@ -1,8 +1,8 @@
 /** Grand Archive · 문서 탐색 — Sifter(검색·필터) | Stacks(목록) | Codex(상세). */
 
 import {LayoutContent, LayoutPanel} from '@astryxdesign/core/Layout';
-import {shell} from '../shell.mjs';
-import {h, Card, Badge, Text, sectionLabel, id, panelHead, grid} from '../ui.mjs';
+import {shell} from '../../../ui/shell.mjs';
+import {h, Card, Badge, Text, sectionLabel, id, panelHead, grid} from '../../../ui/components.mjs';
 
 export const title = 'Grand Archive · 문서 탐색 — Orc Citadel';
 

@@ -1,8 +1,8 @@
 /** 목업 인덱스 — 8공간 + 빈 상태 참조. */
 
 import {LayoutContent} from '@astryxdesign/core/Layout';
-import {shell, SPACES} from '../shell.mjs';
-import {h, Card, Text, Badge, sectionLabel, id, grid} from '../ui.mjs';
+import {shell, SPACES} from '../../../ui/shell.mjs';
+import {h, Card, Text, Badge, sectionLabel, id, grid} from '../../../ui/components.mjs';
 
 export const title = 'Orc Citadel — 목업 인덱스';
 

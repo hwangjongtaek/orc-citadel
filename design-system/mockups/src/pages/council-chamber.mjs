@@ -1,10 +1,10 @@
 /** Council Chamber · 조사 실행 — Warchief's Council | 조사 루프·발언 | Stopping·Cost·Audit. */
 
 import {LayoutContent, LayoutPanel} from '@astryxdesign/core/Layout';
-import {shell} from '../shell.mjs';
+import {shell} from '../../../ui/shell.mjs';
 import {
   h, Badge, HStack, Text, sectionLabel, coverage, id, panelHead, grid,
-} from '../ui.mjs';
+} from '../../../ui/components.mjs';
 
 export const title = 'Council Chamber · 조사 실행 — Orc Citadel';
 

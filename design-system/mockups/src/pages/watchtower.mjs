@@ -1,11 +1,11 @@
 /** Watchtower · 수집 관제 — KPI 5타일 + Pipeline throughput | Sources | Failure·DLQ | SLO. */
 
 import {LayoutContent} from '@astryxdesign/core/Layout';
-import {shell} from '../shell.mjs';
+import {shell} from '../../../ui/shell.mjs';
 import {
   h, Card, Badge, Text, sectionLabel, statTile, id, grid,
   Table, TableHeader, TableHeaderCell, TableBody, TableRow, TableCell,
-} from '../ui.mjs';
+} from '../../../ui/components.mjs';
 
 export const title = 'Watchtower · 수집 관제 — Orc Citadel';
 

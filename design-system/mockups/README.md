@@ -22,13 +22,11 @@ node build.mjs war-table   # 저작 중 한두 페이지만
 
 ```
 build.mjs          SSG 드라이버 — 렌더 → HTML, CSS·폰트·assets 복사
-src/shell.mjs      공유 셸 (헤더·공간 탭·마스트헤드 히어로 밴드)
-src/ui.mjs         Astryx 위의 얇은 헬퍼 + 도메인 시각 요소
-src/svg/*.svg      원본 목업에서 옮긴 도메인 SVG
-src/pages/*.mjs    페이지 10개
+src/pages/*.mjs    페이지 10개 — 공용 컴포넌트 + 샘플 데이터 결합 wrapper
+../ui/             공용 컴포넌트 1벌 (셸·components·svg) — 목업과 앱(frontend/)이 공유
 ```
 
-`src/ui.mjs` 에 들어가는 것은 두 부류뿐이다 — (1) Astryx 조합 단축, (2) Astryx 에 대응 컴포넌트가 **없는** 도메인 시각 요소. 새 스타일을 여기서 발명하지 말 것. 값은 전부 theme-citadel 토큰을 참조한다.
+셸·컴포넌트·SVG 는 [`design-system/ui/`](../ui/README.md) 로 승격됐다(2026-09-08, specs TS-2) — 저작 규약(no-JSX·토큰만·props-only)은 그쪽 README 가 정본이다. 이 디렉터리에는 페이지 wrapper 와 샘플 데이터만 남는다.
 
 ## 저작 규약
 

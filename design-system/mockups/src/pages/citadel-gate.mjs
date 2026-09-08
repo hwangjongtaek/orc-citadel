@@ -7,10 +7,10 @@
  */
 
 import {LayoutContent} from '@astryxdesign/core/Layout';
-import {shell, PRIMARY_SPACES, SECONDARY_SPACES} from '../shell.mjs';
+import {shell, PRIMARY_SPACES, SECONDARY_SPACES} from '../../../ui/shell.mjs';
 import {
   h, Card, Badge, Text, Button, sectionLabel, confidence, statTile, id, grid,
-} from '../ui.mjs';
+} from '../../../ui/components.mjs';
 
 export const title = 'Citadel Gate · 브리핑 — Orc Citadel';
 

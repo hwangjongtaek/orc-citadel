@@ -1,8 +1,8 @@
 /** Signal Spire · 알림 센터 — Triggers·Campaigns·Scope | Alert Feed | Subscriptions. */
 
 import {LayoutContent, LayoutPanel} from '@astryxdesign/core/Layout';
-import {shell} from '../shell.mjs';
-import {h, Card, Badge, Text, sectionLabel, id, panelHead, grid} from '../ui.mjs';
+import {shell} from '../../../ui/shell.mjs';
+import {h, Card, Badge, Text, sectionLabel, id, panelHead, grid} from '../../../ui/components.mjs';
 
 export const title = 'Signal Spire · 알림 센터 — Orc Citadel';
 
