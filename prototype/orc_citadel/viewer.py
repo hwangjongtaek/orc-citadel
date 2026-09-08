@@ -1143,8 +1143,13 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", mime)
         self.send_header("Content-Length", str(len(data)))
-        # 생성물은 내용이 바뀌면 파일명이 아니라 내용이 바뀐다 — 짧게만 캐시한다.
-        self.send_header("Cache-Control", "public, max-age=3600")
+        # dist 번들(/app/*)은 청크 이름이 안정(해시 없음)이라, 캐시된 구 공유
+        # 청크 + 새 엔트리 혼합이 빈 화면을 만든다 (재배포마다 실측 재발) —
+        # no-cache 로 매 요청 재검증한다. 공용 자산은 짧게 캐시 유지.
+        if url_path.startswith("/app/"):
+            self.send_header("Cache-Control", "no-cache")
+        else:
+            self.send_header("Cache-Control", "public, max-age=3600")
         self.end_headers()
         self.wfile.write(data)
 
@@ -1166,6 +1171,7 @@ _PAGES = {
     "/legacy/spire": PAGE_SPIRE,
     "/legacy/council": PAGE_COUNCIL,
     "/legacy/watchtower": PAGE_WATCHTOWER,
+    "/legacy/chronicle": PAGE_CHRONICLE,
 }
 
 # canonical 라우트 → frontend dist 엔트리. 공간을 이관할 때마다 추가한다.
@@ -1178,6 +1184,7 @@ _MIGRATED = {
     "/spire": "spire.html",
     "/council": "council.html",
     "/watchtower": "watchtower.html",
+    "/chronicle": "chronicle.html",
 }
 
 

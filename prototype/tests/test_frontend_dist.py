@@ -19,13 +19,14 @@ DIST = REPO / "frontend" / "dist"
 
 # 이관된 엔트리 목록 — 공간을 이관할 때마다 여기 추가한다.
 ENTRIES = ["gate", "witnesses", "table", "archive", "spire", "council",
-           "watchtower"]
+           "watchtower", "chronicle"]
 # canonical 라우트 ↔ dist 엔트리 (viewer._MIGRATED 와 동기).
 MIGRATED = [("/", "gate"), ("/witnesses", "witnesses"), ("/table", "table"),
             ("/archive", "archive"), ("/spire", "spire"), ("/council", "council"),
-            ("/watchtower", "watchtower")]
+            ("/watchtower", "watchtower"), ("/chronicle", "chronicle")]
 LEGACY = ["/legacy/gate", "/legacy/witnesses", "/legacy/table", "/legacy/archive",
-          "/legacy/spire", "/legacy/council", "/legacy/watchtower"]
+          "/legacy/spire", "/legacy/council", "/legacy/watchtower",
+          "/legacy/chronicle"]
 
 
 @pytest.fixture(scope="module")
@@ -127,6 +128,17 @@ def test_watchtower_bundle_wires_metrics_and_grafana() -> None:
         assert marker in js, marker
 
 
+def test_chronicle_bundle_wires_bitemporal_axes() -> None:
+    """Chronicle (TS-5) — /api/chronicle bounds·events 실측을 소비하고 as-of
+    딥링크(as_of_valid·as_of_tx)와 supersedes 체인을 만든다. valid 축 실측
+    부재(전부 null)는 정직 빈 라벨 — 가짜 시간축 금지."""
+    js = "".join(f.read_text(encoding="utf-8", errors="ignore")
+                 for f in sorted(DIST.rglob("*.js")))
+    for marker in ("/api/chronicle", "as_of_valid", "as_of_tx", "supersedes",
+                   "graph_replay"):
+        assert marker in js, marker
+
+
 @pytest.mark.parametrize("route,entry", MIGRATED)
 def test_migrated_routes_serve_frontend_dist(route: str, entry: str) -> None:
     """이관된 canonical 라우트는 dist 를 서빙한다 (TS-1 라우트 전환)."""
@@ -179,3 +191,22 @@ def test_viewer_serves_app_dist() -> None:
     assert roots.resolve("/app/../viewer.py") is None
     assert roots.resolve("/app/missing.html") is None
     assert app_root() == DIST
+
+
+def test_app_bundles_are_not_cached() -> None:
+    """/app/* 는 no-cache — 청크 이름이 안정(해시 없음)이라 재배포 시 캐시된 구
+    공유 청크와 새 엔트리가 섞여 빈 화면이 난다 (Step 11·13 실측 재발). 공용
+    자산(/assets/*)은 1h 캐시 유지 — 내용이 바뀌면 파일명도 바뀌는 부류가 아님에
+    유의해 dist 만 무캐시."""
+    from orc_citadel.viewer_static import default_roots
+    from test_viewer_static import _get
+
+    status, headers, _ = _get("/app/js/gate.js", default_roots())
+    assert status == 200
+    assert "no-cache" in headers.get("Cache-Control", "")
+    # canonical 라우트(dist HTML)도 동일 — 이관 직후 stale HTML 방지.
+    status, headers, _ = _get("/", default_roots())
+    assert "no-cache" in headers.get("Cache-Control", "")
+    # 공용 자산은 기존 캐시 정책 유지.
+    status, headers, _ = _get("/assets/theme-citadel.css", default_roots())
+    assert "max-age=3600" in headers.get("Cache-Control", "")
