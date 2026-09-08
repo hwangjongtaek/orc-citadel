@@ -44,6 +44,22 @@ def _flush_metrics(job_id: str, summary: dict | None, slo_log) -> None:
               flush=True)
 
 
+def _snapshot_parquet() -> None:
+    """런 종료 훅 — DuckDB 존 parquet 스냅샷 (specs/ui-overhaul-astryx 16a).
+
+    **비차단**: safe_snapshot 은 예외를 전파하지 않는다 — 존 잠금·부재여도
+    런은 성공하고, 실패한 존은 직전 스냅샷이 유지된다.
+    """
+    from orc_citadel.parquet_snapshot import safe_snapshot
+    res = safe_snapshot()
+    if res.get("exported"):
+        zones = {z: v.get("tables", v.get("error")) for z, v in res["zones"].items()}
+        print(f"[parquet] snapshot {zones}", flush=True)
+    else:
+        print(f"[parquet] export 실패(비차단 — 런은 정상): "
+              f"{res.get('error') or res.get('zones')}", flush=True)
+
+
 def run_collect() -> None:
     """nightly 수집 태스크 — RSS/sitemap 신규만 (arXiv bulk 제외)."""
     from orc_citadel.slo_observation_log import SloObservationLog
@@ -51,6 +67,7 @@ def run_collect() -> None:
     slo_log = SloObservationLog()
     summary = nightly_collect(slo_log=slo_log)
     _flush_metrics("nightly_collect", summary, slo_log)
+    _snapshot_parquet()
 
 
 def run_slo06() -> None:
