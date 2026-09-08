@@ -25,6 +25,10 @@ services:
   opensearch:
     ports: !override []
 
+  grafana:
+    # loopback 바인딩은 base 상속 (127.0.0.1:3000) — SSH 터널로 접근.
+    restart: unless-stopped
+
   prototype:
     # viewer — prod 포트 바인딩도 loopback 기본. 외부 공개는 VIEWER_BIND=0.0.0.0
     image: orc-citadel-prototype:latest
