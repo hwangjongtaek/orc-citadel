@@ -199,8 +199,8 @@
 - [ ] **Step 5**: Gate 브리핑 대시보드 (+ 번들 예산 실측)
 - [ ] **Step 6**: /api/search scope + Cmd+K 팔레트 (Spec 1.2.0)
 - [ ] **Step 7**: Witnesses (ClaimCard·EvidenceDrawer 확립)
-- [ ] **Step 8**: War Table (그래프 재작성)
-- [ ] **Step 9**: Archive
+- [x] **Step 8**: War Table (그래프 재작성)
+- [x] **Step 9**: Archive
 - [ ] **Step 10**: Spire
 - [ ] **Step 11**: Council
 - [ ] **Step 12**: Watchtower (+ Grafana 딥링크)
@@ -291,7 +291,7 @@ Step 16a ── 16b ── 16c  (Step 3 이후 병행, 프런트·Grafana와 독
 | Step 6 | Done | 2026-09-08 | 2026-09-08 | API 무변경(기존 /api/search 소비) → **Spec 1.1.0 유지**. ui/palette.mjs(공용) + frontend lib(⌘K·디바운스·키보드). 딥링크 3종 E2E 검증(TSMC→War Table). ⚠ 확장 키입력으론 ⌘K가 옴니박스로 감 — 실사용 키보드 검증은 사용자 확인 필요 |
 | Step 7 | Done | 2026-09-08 | 2026-09-08 | `/witnesses` canonical 전환. ui/witnesses.mjs 확립(claimRow·claimFocus·독립성·trail·documentSegments·roundTrip). 3-hop 왕복 실데이터 E2E(하이라이트 성립). ⚠ L3 발견: extraction segment(#p1+)와 normalized 세그먼트(p0.s*) 불일치 — 표본 20건 중 매칭 3 · 미매칭 17, UI 는 접두 폴백 + "span 미매칭" 정직 표기. 세그먼트 정합 복구는 데이터 트랙 과제 |
 | Step 8 | Done | 2026-09-08 | 2026-09-08 | `/table` canonical 전환. ui/graph.mjs — subject 중심 + predicate 그룹 집계 + 부채꼴 단계 확장(페이지당 12·항상 ≤100 노드·결정적 슬롯 배치로 라벨 겹침 0). truncated 정직 표기. Inspector = subject 봉투 + claim 카드 + Witnesses 딥링크. Chronicle 레일(assertion tx 실데이터). graph_expand API 는 빈 응답이라 subgraph 클라이언트 페이징으로 대체 |
-| Step 9 | Pending | | | |
+| Step 9 | Done | 2026-09-08 | 2026-09-08 | `/archive` canonical 전환. ui/archive.mjs(facetChips·lineageBadge·docCard·pager·sifterSearch) — 목업·앱 공유. 서버 축 유지(facet 3축·contains q·정렬·limit/offset 페이저), `?doc=`·`?src=` 부트스트랩 파리티. Codex = lineage 뱃지 + 같은 URL 버전 히스토리(url_groups) + dedup 총계(528). footer = segment_kinds 실측. 계획의 components/{FacetChips,LineageBadge}.mjs 는 기존 관례(공간당 평면 모듈)에 맞춰 archive.mjs 로 통합 |
 | Step 10 | Pending | | | |
 | Step 11 | Pending | | | |
 | Step 12 | Pending | | | 14a 선행 권장 |

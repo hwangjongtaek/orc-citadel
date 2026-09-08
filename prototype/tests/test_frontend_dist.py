@@ -18,10 +18,11 @@ REPO = Path(__file__).resolve().parents[2]
 DIST = REPO / "frontend" / "dist"
 
 # 이관된 엔트리 목록 — 공간을 이관할 때마다 여기 추가한다.
-ENTRIES = ["gate", "witnesses", "table"]
+ENTRIES = ["gate", "witnesses", "table", "archive"]
 # canonical 라우트 ↔ dist 엔트리 (viewer._MIGRATED 와 동기).
-MIGRATED = [("/", "gate"), ("/witnesses", "witnesses"), ("/table", "table")]
-LEGACY = ["/legacy/gate", "/legacy/witnesses", "/legacy/table"]
+MIGRATED = [("/", "gate"), ("/witnesses", "witnesses"), ("/table", "table"),
+            ("/archive", "archive")]
+LEGACY = ["/legacy/gate", "/legacy/witnesses", "/legacy/table", "/legacy/archive"]
 
 
 @pytest.fixture(scope="module")
@@ -78,6 +79,16 @@ def test_bundles_wire_search_palette() -> None:
                  for f in sorted(DIST.rglob("*.js")))
     assert "/api/search" in js
     for marker in ("/table?subject=", "/witnesses?claim=", "/archive?doc="):
+        assert marker in js, marker
+
+
+def test_archive_bundle_wires_server_axes() -> None:
+    """Grand Archive (TS-5) — 서버 축(페이징·facet·contains)을 소비하고
+    dedup lineage(cluster_role)·동일 URL 스택(url_groups)을 렌더한다.
+    클라이언트 전량 필터링 재도입(10만+ 문서 멈춤)을 마커로 봉인."""
+    js = "".join(f.read_text(encoding="utf-8", errors="ignore")
+                 for f in sorted(DIST.rglob("*.js")))
+    for marker in ("/api/archive", "cluster_role", "url_groups", "segment_kinds"):
         assert marker in js, marker
 
 
