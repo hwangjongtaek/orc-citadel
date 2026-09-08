@@ -116,6 +116,8 @@ Blueprint §17을 스펙 수준의 강제 규칙으로 승격한 것이다. 모�
 6. **Idempotency.** 모든 작업은 idempotency key를 가지며 retry해도 동일 graph mutation을 중복 생성하지 않는다. (→ [`04`](./04-ingestion-and-parsing.md), [`11`](./11-observability-and-governance.md))
 7. **Human review as data.** 사람의 교정은 원 모델 출력·수정 결과·이유를 함께 저장하는 학습/평가 데이터다. (→ [`05`](./05-resolution-and-extraction.md), [`10`](./10-evaluation-and-testing.md))
 
+> **구현 규약 노트 (2026-09-08):** 프로토타입 뷰어의 "stdlib only" 규약은 **런타임 한정**으로 개정 — 표시 계층은 `frontend/`(React·Astryx) **저작 시점 도구**로 빌드해 생성물을 커밋하며, 런타임·배포는 여전히 stdlib·무의존이다. 정본: [`09`](./09-api.md) §1.3 뷰어 노트, [specs/ui-overhaul-astryx](../../specs/ui-overhaul-astryx/specs.md).
+
 ## 4. 초기 도메인 스코프
 
 첫 버전 도메인은 **AI 반도체·데이터센터 공급망**이다 (blueprint §4). 온톨로지·골든 데이터셋·소스 커넥터는 이 도메인을 기준으로 구체화한다. 도메인 확장은 온톨로지 버전 migration으로 처리한다.
