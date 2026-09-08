@@ -86,8 +86,9 @@ export function newCampaignCard({urls = MOCKUP_URLS} = {}) {
       ...PROCESS.flatMap(([art, name, role], i) => [
         i ? h('span', {key: `a${i}`, style: {color: 'var(--color-text-secondary)'}}, '→') : null,
         h('div', {key: name, style: {display: 'flex', alignItems: 'center', gap: 8}},
-          h('img', {src: urls.asset(art), alt: '', width: 40, height: 40,
-            style: {imageRendering: 'pixelated', borderRadius: 'var(--radius-inner)'}}),
+          h('img', {src: urls.asset(art), alt: '',
+            style: {width: 40, height: 40, imageRendering: 'pixelated',
+              borderRadius: 'var(--radius-inner)', flex: 'none'}}),
           h('div', {},
             h('div', {style: {fontFamily: 'var(--font-family-heading)', fontSize: 12,
               fontWeight: 600, color: 'var(--color-text-primary)'}}, name),

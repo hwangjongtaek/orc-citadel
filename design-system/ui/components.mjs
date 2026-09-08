@@ -157,8 +157,10 @@ export function emptyState({art, title, description, actions, isCompact,
                             assetBase = './assets/'}) {
   return h(EmptyState, {
     title, description, actions, isCompact,
-    icon: art ? h('img', {src: `${assetBase}${art}`, alt: '', width: 132, height: 132,
-      style: {imageRendering: 'pixelated', opacity: .9}}) : undefined,
+    // 크기는 인라인 style — reset 의 `:where(img){height:auto}` 가 height 속성을
+    // 덮어써 flex/stretch 문맥에서 찌그러지는 함정 방지.
+    icon: art ? h('img', {src: `${assetBase}${art}`, alt: '',
+      style: {width: 132, height: 132, imageRendering: 'pixelated', opacity: .9}}) : undefined,
   });
 }
 

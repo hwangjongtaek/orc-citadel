@@ -72,11 +72,15 @@ const MODELS = [['opus-4-8', '14 · $2.31'], ['sonnet-5', '29 · $0.63'], ['haik
 const STATUS = {done: 'success', running: 'warning', idle: 'neutral'};
 
 function agentCard([fn, wn, state, desc, model, art]) {
+  // alignItems 필수 — 기본 stretch 면 초상(img, reset 이 height:auto 로 만듦)이
+  // 행 높이만큼 세로로 늘어나 찌그러진다. 크기도 속성이 아니라 인라인 style 로.
   return h('div', {key: fn, style: {display: 'flex', gap: 10, padding: '10px 12px',
+    alignItems: 'flex-start',
     border: '1px solid var(--color-border)', borderRadius: 'var(--radius-element)',
     marginBottom: 8, background: state === 'running' ? 'rgba(255,177,59,.05)' : 'transparent'}},
-    h('img', {src: `./assets/${art}`, alt: '', width: 34, height: 34,
-      style: {imageRendering: 'pixelated', borderRadius: 'var(--radius-inner)', flex: 'none'}}),
+    h('img', {src: `./assets/${art}`, alt: '',
+      style: {width: 34, height: 34, imageRendering: 'pixelated',
+        borderRadius: 'var(--radius-inner)', flex: 'none'}}),
     h('div', {style: {minWidth: 0}},
       h('div', {style: {display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap'}},
         h('span', {style: {fontFamily: 'var(--font-family-heading)', fontSize: 12,
