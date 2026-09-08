@@ -296,7 +296,7 @@ Step 16a ── 16b ── 16c  (Step 3 이후 병행, 프런트·Grafana와 독
 | Step 11 | Done | 2026-09-08 | 2026-09-08 | `/council` canonical 전환. 단일 3열(중복 패널 결함 소멸). ui/council.mjs — agentCard(초상 stretch 방식 승격)·loopStrip(12스텝)·turnCard·COUNCIL_ROLES(wire 판정 카탈로그). 8역할 executed/not-run 은 wire 필드 존재로, trace 는 on-request 버튼 1회(로드 자동 fetch 없음). Cost 4타일 전부 — 정직 표기, 모델 ID 미표기(wire 미영속). 계획의 ui/svg/council-loop.mjs 는 SVG 대신 loopStrip 칩 스트립으로 대체(정보 동일·의존 감소) |
 | Step 12 | Pending | | | 14a 선행 권장 |
 | Step 13 | Pending | | | |
-| Step 14 | Pending | | | 병행 트랙 |
+| Step 14 | 14a Done | 2026-09-08 | | 14a: run_metrics.py(테이블 2종·append-only·safe_flush 비차단) + scheduler 런 종료 훅 + nightly_* slo_log 주입·요약 반환, 테스트 10(순수 5 오프라인·pg 5 격리), 기본 경로 스모크 실측. 14b·14c 남음 |
 | Step 16 | Pending | | | 병행 트랙 (데이터 브라우징) |
 | Step 15 | Pending | | | 최종 마감 |
 

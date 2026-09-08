@@ -28,16 +28,38 @@ from orc_citadel.scheduler import build_scheduler_jobs, COLLECT_JOB_ID, SLO06_JO
 JOB_STORE_PATH = _REPO / "data" / "scheduler-jobs.sqlite"
 
 
+def _flush_metrics(job_id: str, summary: dict | None, slo_log) -> None:
+    """런 종료 훅 — run 메트릭 postgres flush (specs/ui-overhaul-astryx 14a).
+
+    **비차단**: safe_flush 는 예외를 전파하지 않는다 — postgres 미가동이어도
+    수집 런은 성공으로 끝나고, 여기서는 flush 결과만 정직하게 로그한다.
+    """
+    from orc_citadel.run_metrics import flush_after_run
+    res = flush_after_run(job_id, summary, slo_log)
+    if res.get("flushed"):
+        print(f"[metrics] flushed run={res['run_id']} metrics={res['metrics']} "
+              f"observations={res['observations']}", flush=True)
+    else:
+        print(f"[metrics] flush 실패(비차단 — 런은 정상): {res.get('error')}",
+              flush=True)
+
+
 def run_collect() -> None:
     """nightly 수집 태스크 — RSS/sitemap 신규만 (arXiv bulk 제외)."""
+    from orc_citadel.slo_observation_log import SloObservationLog
     from scripts.nightly_collect import main as nightly_collect
-    nightly_collect()
+    slo_log = SloObservationLog()
+    summary = nightly_collect(slo_log=slo_log)
+    _flush_metrics("nightly_collect", summary, slo_log)
 
 
 def run_slo06() -> None:
     """nightly SLO-06 태스크 — 무비용 LLM 판정 → 7d 누적 append."""
+    from orc_citadel.slo_observation_log import SloObservationLog
     from scripts.nightly_slo06 import main as nightly_slo06
-    nightly_slo06()
+    slo_log = SloObservationLog()
+    summary = nightly_slo06(slo_log=slo_log)
+    _flush_metrics("nightly_slo06", summary, slo_log)
 
 
 _TASKS = {"run_collect": run_collect, "run_slo06": run_slo06}

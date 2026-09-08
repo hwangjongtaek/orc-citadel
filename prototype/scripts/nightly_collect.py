@@ -23,19 +23,28 @@ sys.path.insert(0, str(_REPO))
 from orc_citadel.collect_large import SOURCES, _stored_urls, collect_rss, collect_sitemap
 
 
-def main() -> None:
+def main(slo_log=None) -> dict:
+    """수집 실행 — 런 요약 반환 (run_metrics flush 입력 셰이프).
+
+    `slo_log`(SloObservationLog) 주입 시 커넥터가 SLO-05 시도/성공을 기록한다 —
+    부재 시 무기록(기존 동작 그대로, 선택 주입).
+    """
     print("== nightly collect (RSS/sitemap 신규만) ==", flush=True)
     total_new = 0
+    sources: dict[str, dict] = {}
     for source_id, (kind, url) in SOURCES.items():
         known = _stored_urls(source_id)
         if kind == "sitemap":
-            c = collect_sitemap(url, source_id, known_urls=known)
+            c = collect_sitemap(url, source_id, slo_log=slo_log, known_urls=known)
         else:
-            c = collect_rss(url, source_id, known_urls=known)
+            c = collect_rss(url, source_id, slo_log=slo_log, known_urls=known)
         print(f"[{source_id}] ({kind}) saved={c['saved']} skipped={c['skipped']} "
               f"errors={c['errors']} (known_urls={len(known)})", flush=True)
+        sources[source_id] = {"saved": c["saved"], "skipped": c["skipped"],
+                              "errors": c["errors"]}
         total_new += c["saved"]
     print(f"== nightly collect 완료: 신규 {total_new}건 ==", flush=True)
+    return {"total_new": total_new, "sources": sources}
 
 
 if __name__ == "__main__":
