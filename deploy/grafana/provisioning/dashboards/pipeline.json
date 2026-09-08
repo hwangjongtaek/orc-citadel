@@ -1,0 +1,153 @@
+{
+  "__comment": "Pipeline Observability (TS-6, plans 14c) — 소스는 pipeline_run_metrics·pipeline_slo_observations 뿐. stage 처리량·quarantine 은 아직 flush 되는 메트릭이 없어 No data 가 정직한 상태다 — 가짜 수치 금지(honest-gap). uid 는 Watchtower 딥링크가 참조한다.",
+  "uid": "citadel-pipeline",
+  "title": "Orc Citadel · Pipeline",
+  "tags": ["orc-citadel", "pipeline"],
+  "timezone": "browser",
+  "editable": false,
+  "schemaVersion": 40,
+  "version": 1,
+  "refresh": "5m",
+  "time": {"from": "now-30d", "to": "now"},
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Flush Freshness — 마지막 런 이후 경과(h)",
+      "description": "nightly flush(run_metrics)가 마지막으로 postgres 에 도달한 뒤 경과 시간. 24h 를 넘으면 nightly 가 죽었거나 flush 가 실패하고 있는 것.",
+      "gridPos": {"h": 6, "w": 6, "x": 0, "y": 0},
+      "datasource": {"type": "postgres", "uid": "citadel-pg"},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "h",
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "orange", "value": 26},
+              {"color": "red", "value": 50}
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "postgres", "uid": "citadel-pg"},
+          "format": "table",
+          "rawSql": "SELECT round((extract(epoch FROM now() - max(recorded_at)) / 3600)::numeric, 1) AS \"경과(h)\" FROM pipeline_run_metrics"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "table",
+      "title": "SLO 관측 — slo05/06/07 ok 비율",
+      "description": "pipeline_slo_observations 누적. ok=true 비율이 떨어지면 해당 SLO 의 detail(jsonb)로 drill-down.",
+      "gridPos": {"h": 6, "w": 9, "x": 6, "y": 0},
+      "datasource": {"type": "postgres", "uid": "citadel-pg"},
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "postgres", "uid": "citadel-pg"},
+          "format": "table",
+          "rawSql": "SELECT slo, kind, count(*) FILTER (WHERE ok) AS ok, count(*) AS total, round(100.0 * count(*) FILTER (WHERE ok) / count(*), 1) AS \"ok %\" FROM pipeline_slo_observations GROUP BY 1, 2 ORDER BY 1, 2"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "table",
+      "title": "소스별 최신 런 — saved · skipped · errors",
+      "description": "가장 최근 run_id 의 소스 축(labels.source_id) 분해.",
+      "gridPos": {"h": 6, "w": 9, "x": 15, "y": 0},
+      "datasource": {"type": "postgres", "uid": "citadel-pg"},
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "postgres", "uid": "citadel-pg"},
+          "format": "table",
+          "rawSql": "SELECT labels->>'source_id' AS source, max(value) FILTER (WHERE metric = 'saved') AS saved, max(value) FILTER (WHERE metric = 'skipped') AS skipped, max(value) FILTER (WHERE metric = 'errors') AS errors FROM pipeline_run_metrics WHERE labels ? 'source_id' AND run_id = (SELECT run_id FROM pipeline_run_metrics ORDER BY recorded_at DESC LIMIT 1) GROUP BY 1 ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "수집 성공률 재료 — saved / skipped / errors 추이",
+      "description": "런별 소스 합산. errors 가 saved 를 잠식하면 수집 성공률 하락 — 소스별 분해는 위 테이블.",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 6},
+      "datasource": {"type": "postgres", "uid": "citadel-pg"},
+      "fieldConfig": {
+        "defaults": {"custom": {"drawStyle": "points", "pointSize": 8}},
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "postgres", "uid": "citadel-pg"},
+          "format": "time_series",
+          "rawSql": "SELECT recorded_at AS \"time\", metric, sum(value) AS value FROM pipeline_run_metrics WHERE metric IN ('saved', 'skipped', 'errors') AND $__timeFilter(recorded_at) GROUP BY 1, 2 ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "신규 문서 유입 — total_new 추이",
+      "description": "런 스칼라(labels 없음). 0 이 이어지면 소스 고갈 또는 dedup 포화.",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 6},
+      "datasource": {"type": "postgres", "uid": "citadel-pg"},
+      "fieldConfig": {
+        "defaults": {"custom": {"drawStyle": "points", "pointSize": 8}},
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "postgres", "uid": "citadel-pg"},
+          "format": "time_series",
+          "rawSql": "SELECT recorded_at AS \"time\", value AS total_new FROM pipeline_run_metrics WHERE metric = 'total_new' AND labels = '{}'::jsonb AND $__timeFilter(recorded_at) ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Stage 처리량 — extract · normalize · load (No data = 미계측)",
+      "description": "stage_* 메트릭은 아직 flush 되지 않는다(수집 단계만 영속). No data 는 정직한 표시 — stage 계측이 배선되면 자동으로 채워진다.",
+      "gridPos": {"h": 7, "w": 12, "x": 0, "y": 14},
+      "datasource": {"type": "postgres", "uid": "citadel-pg"},
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "postgres", "uid": "citadel-pg"},
+          "format": "time_series",
+          "rawSql": "SELECT recorded_at AS \"time\", metric, sum(value) AS value FROM pipeline_run_metrics WHERE metric LIKE 'stage_%' AND $__timeFilter(recorded_at) GROUP BY 1, 2 ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Quarantine 추이 (No data = 미계측)",
+      "description": "quarantined 메트릭은 아직 flush 되지 않는다. No data 는 정직한 표시 — L1 격리 계측이 배선되면 자동으로 채워진다.",
+      "gridPos": {"h": 7, "w": 12, "x": 12, "y": 14},
+      "datasource": {"type": "postgres", "uid": "citadel-pg"},
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "postgres", "uid": "citadel-pg"},
+          "format": "time_series",
+          "rawSql": "SELECT recorded_at AS \"time\", sum(value) AS quarantined FROM pipeline_run_metrics WHERE metric = 'quarantined' AND $__timeFilter(recorded_at) GROUP BY 1 ORDER BY 1"
+        }
+      ]
+    }
+  ]
+}

@@ -124,7 +124,7 @@ def test_watchtower_bundle_wires_metrics_and_grafana() -> None:
     js = "".join(f.read_text(encoding="utf-8", errors="ignore")
                  for f in sorted(DIST.rglob("*.js")))
     for marker in ("/api/watchtower", "run_metrics", "pipeline_run_metrics",
-                   "Grafana", "nightly_slos"):
+                   "Grafana", "nightly_slos", "citadel-pipeline"):
         assert marker in js, marker
 
 

@@ -19,7 +19,7 @@
   를 제외한다. 따라서 원격 viewer 의 curated 존·SLO-06 7d 누적은 **0에서 새로 시작**
   하며, 로컬 실측 이력(ROADMAP §5)과 원격 운영 지표는 서로 다른 모집단이다.
 - **단일 발화 주체 이전**: 운영 nightly(07:07 수집 / 07:37 SLO-06)는 원격 `scheduler`
-  컨테이너가 소유한다. 원격 기동 후 로컬 launchd 는 반드시 정지 (§3.4) — 이중 발화 금지.
+  컨테이너가 소유한다. 원격 기동 후 로컬 launchd 는 반드시 정지 (§3.5) — 이중 발화 금지.
 
 ### 1.1 배포 대상 (확정 · 2026-09-03)
 
@@ -86,14 +86,36 @@ ssh -N -L 8791:127.0.0.1:8791 orchwang-macbookpro     # → 브라우저 http://
 전 인터페이스 공개가 불가피하면 `.env`의 `VIEWER_BIND=0.0.0.0` 변경 후 재배포
 (방화벽 검토 선행). 인프라 스토어(pg/minio/neo4j/opensearch)는 항상 loopback 고정.
 
-### 3.4 로컬 스케줄러 정지 (원격 운영 전환 시 1회)
+### 3.4 Grafana 접근 (파이프라인 모니터링, TS-6)
+viewer 와 동일 정책 — loopback 바인딩(`127.0.0.1:3000`) + SSH 터널:
+```bash
+ssh -N -L 3000:127.0.0.1:3000 orchwang-macbookpro    # → 브라우저 http://localhost:3000
+```
+- 익명 접속은 **Viewer(읽기 전용)**. 대시보드 편집은 `admin` /
+  `.env` 의 `GRAFANA_ADMIN_PASSWORD` 로 로그인 — 단, 대시보드·datasource 는
+  provisioning as code(`deploy/grafana/provisioning/`)가 SoT 라 UI 편집은 영속되지 않는다.
+- 대시보드: `Orc Citadel · Pipeline` (`/d/citadel-pipeline`). 소스는 nightly flush 가
+  쌓는 `pipeline_run_metrics`·`pipeline_slo_observations` 뿐이며, stage 처리량·quarantine
+  패널의 **No data 는 미계측의 정직한 표시**다(honest-gap — 계측 배선 전까지 그대로 둔다).
+- **최초 1회**: read-only DB 계정 적용(첫 flush 로 메트릭 테이블 생성된 이후):
+  ```bash
+  set -a; source .env; set +a
+  docker compose exec -T postgres \
+    psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+         -v grafana_password="$GRAFANA_DB_PASSWORD" \
+    < deploy/grafana/init-readonly.sql
+  ```
+- 이미지(`grafana/grafana-oss` 버전 핀)는 배포 1회 pull 필요. 원격 pull 불가 시
+  로컬에서 `docker save grafana/grafana-oss:<핀버전> | ssh <host> docker load`.
+
+### 3.5 로컬 스케줄러 정지 (원격 운영 전환 시 1회)
 ```bash
 launchctl unload ~/Library/LaunchAgents/com.orc-citadel.nightly.plist
 # plist가 개체 저장소에 없으면: prototype/scripts/com.orc-citadel.nightly.plist 참조
 pgrep -f scheduler_runner.py   # 로컬 잔존 프로세스 없어야 함
 ```
 
-### 3.5 롤백
+### 3.6 롤백
 코드는 rsync 미러이므로 `git checkout <직전 release 커밋>` 후 `deploy.sh` 재실행.
 이전 이미지 태그는 남아있지 않으므로(`:latest` 단일 태그), 코드만 롤백하면 다음
 `up -d`에서 해당 코드로 재빌드된다. 데이터는 volume 보존이라 코드 롤백과 무관.

@@ -116,3 +116,51 @@ def test_env_example_documents_grafana_credentials() -> None:
     env = (REPO / ".env.example").read_text(encoding="utf-8")
     assert "GRAFANA_DB_PASSWORD=" in env
     assert "GRAFANA_ADMIN_PASSWORD=" in env
+
+
+# ── Step 14c: 대시보드 as code + 접근 절차 문서 ──────────────────────────────
+
+
+@pytest.fixture(scope="module")
+def dashboard() -> dict:
+    import json
+    path = GRAFANA / "provisioning" / "dashboards" / "pipeline.json"
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def test_dashboard_identity_and_datasource(dashboard: dict) -> None:
+    """uid 는 Watchtower 딥링크가 참조한다 — 변경하면 프런트도 함께."""
+    assert dashboard["uid"] == "citadel-pipeline"
+    panels = dashboard["panels"]
+    assert panels, "패널이 없다"
+    for p in panels:
+        for target in p.get("targets", []):
+            assert target["datasource"]["uid"] == "citadel-pg", p.get("title")
+
+
+def test_dashboard_covers_mandated_panels(dashboard: dict) -> None:
+    """plans 14c 필수 4주제 — 수집 성공률·freshness·stage 처리량·quarantine 추이.
+
+    stage·quarantine 은 아직 flush 되는 메트릭이 없어 No data 가 정직한 상태 —
+    패널(쿼리)은 있어야 하고, 가짜 수치를 넣으면 안 된다.
+    """
+    import json
+    text = json.dumps(dashboard["panels"], ensure_ascii=False)
+    for marker in ("pipeline_run_metrics", "pipeline_slo_observations",
+                   "errors", "quarantine", "stage"):
+        assert marker in text, marker
+
+
+def test_dashboard_queries_only_no_inline_data(dashboard: dict) -> None:
+    """관측 전용 — 스냅샷/하드코딩 데이터 금지, 전 타깃이 rawSql 쿼리."""
+    assert not dashboard.get("snapshot")
+    for p in dashboard["panels"]:
+        for target in p.get("targets", []):
+            assert target.get("rawSql"), f"{p.get('title')}: rawSql 없는 타깃"
+
+
+def test_deployment_doc_covers_grafana_access() -> None:
+    doc = (REPO / "docs" / "operating" / "deployment.md").read_text(encoding="utf-8")
+    assert "grafana" in doc.lower()
+    assert "3000" in doc, "SSH 터널 포트 안내가 없다"
+    assert "init-readonly.sql" in doc, "read-only 계정 1회 적용 절차가 없다"

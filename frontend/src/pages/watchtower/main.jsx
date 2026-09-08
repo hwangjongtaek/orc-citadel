@@ -106,10 +106,13 @@ function App() {
                           label: `${m} ${num(v)}`})))))))))
             : h(Text, {type: 'supporting'},
                 rm.note || 'run 메트릭 없음 — nightly 런이 돌면 여기 쌓인다 (14a flush)'),
-          grafanaCard({url: null,
+          // 딥링크는 런타임 host 로 조립 — 번들에 오리진 리터럴을 굽지 않는다
+          // (외부 오리진 금지 가드와 SSH 터널 host 양쪽 대응).
+          grafanaCard({
+            url: `${location.protocol}//${location.hostname}:3000/d/citadel-pipeline`,
             note: '런 단위 drill-down(정확도·지연·correlation 분해)은 Grafana 대시보드가 '
               + '담당 — 소스: postgres pipeline_run_metrics · pipeline_slo_observations '
-              + '(nightly flush)'}),
+              + '(nightly flush). loopback 바인딩 — 원격이면 SSH 터널 3000 필요'}),
 
           sectionLabel('Sources · 수집 상태 — raw 존 실측 + fetch.json governance'),
           h(Card, {}, h(Table, {},

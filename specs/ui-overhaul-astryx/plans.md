@@ -205,7 +205,7 @@
 - [x] **Step 11**: Council
 - [x] **Step 12**: Watchtower (+ Grafana 딥링크)
 - [x] **Step 13**: Chronicle
-- [ ] **Step 14**: Grafana 트랙 (14a flush → 14b compose → 14c 대시보드)
+- [x] **Step 14**: Grafana 트랙 (14a flush → 14b compose → 14c 대시보드)
 - [ ] **Step 16**: 데이터 브라우징 트랙 (16a parquet export → 16b DuckDB UI 사이드카 → 16c 가이드 문서)
 - [ ] **Step 15**: legacy 제거 + 마감 기록 (최종)
 - [ ] **Final**: requirements Acceptance Criteria 전수 확인
@@ -296,7 +296,7 @@ Step 16a ── 16b ── 16c  (Step 3 이후 병행, 프런트·Grafana와 독
 | Step 11 | Done | 2026-09-08 | 2026-09-08 | `/council` canonical 전환. 단일 3열(중복 패널 결함 소멸). ui/council.mjs — agentCard(초상 stretch 방식 승격)·loopStrip(12스텝)·turnCard·COUNCIL_ROLES(wire 판정 카탈로그). 8역할 executed/not-run 은 wire 필드 존재로, trace 는 on-request 버튼 1회(로드 자동 fetch 없음). Cost 4타일 전부 — 정직 표기, 모델 ID 미표기(wire 미영속). 계획의 ui/svg/council-loop.mjs 는 SVG 대신 loopStrip 칩 스트립으로 대체(정보 동일·의존 감소) |
 | Step 12 | Done | 2026-09-08 | 2026-09-08 | `/watchtower` canonical 전환. ui/watchtower.mjs(stageCard·failureCard·sloCard·grafanaCard). /api/watchtower 에 run_metrics 표시 필드 추가(최근 런 요약 read-only·pg 미가동 정직 빈 — metrics_connect 주입 테스트 2). KPI 5타일 실측(freshness 일 단위 표기), stage·DLQ 는 wire 미영속 → not-measured/범위 밖 정직 렌더, Run Metrics 테이블(14a 실측), Grafana 카드는 14b 전까지 미배선 표기, Sources 확장 컬럼(last_fetch·governance) |
 | Step 13 | Done | 2026-09-08 | 2026-09-08 | `/chronicle` canonical 전환 — 8공간 이관 완료. ui/chronicle.mjs(axisSlider 듀얼 레인지·presetChips·eventsRail·assertionCard). valid 축 전부 null → 정직 빈 라벨(L3 과제 병기), tx 축 실측 슬라이더 → /table as-of 딥링크(실측 축만 파라미터). preset 3종 실재 assertion 파생(subject 이름 매핑)·as-of 재조회·assertion 상세(bitemporal 4셀·supersedes 체인·이벤트 타임라인)·722 이벤트 핀 레일·?claim= 부트스트랩. bitemporal-plane.svg 재사용(Vite ?raw). 부수 수정: /app/* Cache-Control no-cache — 안정 청크명 + 1h 캐시가 재배포마다 구/신 청크 혼합 빈 화면 유발(Step 11·13 실측 재발) |
-| Step 14 | 14b Done | 2026-09-08 | | 14a: run_metrics.py(테이블 2종·append-only·safe_flush 비차단) + scheduler 런 종료 훅 + nightly_* slo_log 주입·요약 반환, 테스트 10(순수 5 오프라인·pg 5 격리), 기본 경로 스모크 실측. 14b: compose grafana 서비스(oss 11.5.1 핀·loopback 3000·익명 Viewer·analytics/업데이트 콜아웃 차단·provisioning ro 마운트) + datasource·dashboard provider as code + init-readonly.sql(grafana_reader 멱등·메트릭 2테이블 SELECT 한정) + prod 오버레이 restart. 실기동 검증: /api/health ok, 익명 ds/query SELECT 성공·INSERT permission denied. 테스트 10(오프라인 텍스트 계약). 14c 남음 |
+| Step 14 | Done | 2026-09-08 | | 14a: run_metrics.py(테이블 2종·append-only·safe_flush 비차단) + scheduler 런 종료 훅 + nightly_* slo_log 주입·요약 반환, 테스트 10(순수 5 오프라인·pg 5 격리), 기본 경로 스모크 실측. 14b: compose grafana 서비스(oss 11.5.1 핀·loopback 3000·익명 Viewer·analytics/업데이트 콜아웃 차단·provisioning ro 마운트) + datasource·dashboard provider as code + init-readonly.sql(grafana_reader 멱등·메트릭 2테이블 SELECT 한정) + prod 오버레이 restart. 실기동 검증: /api/health ok, 익명 ds/query SELECT 성공·INSERT permission denied. 테스트 10(오프라인 텍스트 계약). 14c: pipeline.json 대시보드 7패널(Freshness stat·SLO ok율·소스별 최신 런·saved/skipped/errors 추이·total_new 추이 실측 + stage·quarantine 미계측 정직 No data), deployment.md §3.4 접근 절차(SSH 터널 3000·init-readonly 1회 적용·이미지 pull 대안), Watchtower grafanaCard 딥링크 배선(런타임 host 조립 /d/citadel-pipeline — 오리진 리터럴 금지 가드 유지). 실기동: 익명 Viewer 로 대시보드 실측 렌더 + Watchtower 카드 클릭 E2E. 함정 재확인: 뷰어 프로세스가 Step 13 no-cache 수정 이전 코드로 잔존 → 재시작으로 해소(핫리로드 없음) |
 | Step 16 | Pending | | | 병행 트랙 (데이터 브라우징) |
 | Step 15 | Pending | | | 최종 마감 |
 
@@ -308,5 +308,5 @@ From requirements:
 - [ ] FR-3: Gate 대시보드 / 1차 내비 4종 / Cmd+K 통합 검색 / evidence 왕복 일관화 / 3클릭 시연
 - [ ] FR-4: 로고 2종 반입·서빙 / crest-hero 참조 전량 교체 / 파생본·레티나 정책 / README 확인 후 반영
 - [ ] FR-5: 공간별 갭 체크리스트(Spire·Council·Witnesses·Archive·Watchtower·Chronicle·War Table) 전수
-- [ ] FR-6: grafana 서비스 / provisioning 커밋 / 메트릭 영속 배선 / 대시보드 1종 / Watchtower 딥링크
+- [x] FR-6: grafana 서비스 / provisioning 커밋 / 메트릭 영속 배선 / 대시보드 1종 / Watchtower 딥링크
 - [ ] FR-7: parquet export 배선 / DuckDB UI 사이드카 / MinIO Console 절차 / 체험 가이드 문서 / `.duckdb` 직접 접근 금지 명문화
