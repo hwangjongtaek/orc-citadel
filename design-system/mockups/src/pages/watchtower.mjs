@@ -86,6 +86,21 @@ const body = h(LayoutContent, {padding: 4},
       h(Text, {type: 'supporting'},
         'fetch(S1) → doc-8f3a…c1 (S2) → parse(S3) → dedup(S4) · 재작성 없이 전 stage 전파'))),
 
+  // FR-6: 운영 drill-down 은 Grafana 가 담당 — Watchtower 는 브리핑용 요약 + 딥링크.
+  h('div', {style: {marginTop: 10, padding: '10px 12px', display: 'flex',
+    alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap',
+    background: 'rgba(255,177,59,.05)', border: '1px solid rgba(255,177,59,.25)',
+    borderRadius: 'var(--radius-element)'}},
+    h('div', {},
+      h(Text, {type: 'label'}, 'Grafana · Pipeline Observability'),
+      h('div', {style: {marginTop: 4}},
+        h(Text, {type: 'supporting'},
+          '런 단위 drill-down(정확도·지연·correlation 분해)은 Grafana 대시보드가 담당 — '
+          + '소스: postgres pipeline_run_metrics · pipeline_slo_observations (nightly flush)'))),
+    h('a', {href: '#', style: {fontFamily: 'var(--font-family-heading)', fontSize: 11.5,
+      fontWeight: 600, color: 'var(--astryx-theme-citadel-signal-amber)',
+      textDecoration: 'none', whiteSpace: 'nowrap'}}, 'Grafana에서 열기 →')),
+
   sectionLabel('Sources · 수집 상태 — 마지막 수집 vs schedule.cron freshness'),
   h(Card, {}, h(Table, {},
     h(TableHeader, {}, h(TableRow, {},
