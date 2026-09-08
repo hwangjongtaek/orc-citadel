@@ -76,3 +76,32 @@ def test_start_script_builds_views_and_starts_ui() -> None:
     assert "start_ui_server" in sh
     # .bak/.new 스냅샷 잔재를 뷰로 만들지 않는다
     assert ".bak" in sh and ".new" in sh
+
+
+# ── Step 16c: 브라우징 가이드 문서 ───────────────────────────────────────────
+
+
+def test_data_browsing_guide_covers_mandated_content() -> None:
+    """plans 16c 계약 — 존→도구 매핑·예제 쿼리 3종·터널 절차·attach 금지."""
+    doc = (REPO / "docs" / "operating" / "data-browsing.md") \
+        .read_text(encoding="utf-8")
+    # 존 → 도구 매핑 전 계층
+    for tool in ("MinIO Console", "DuckDB UI", "Grafana", "Neo4j Browser",
+                 "OpenSearch"):
+        assert tool in doc, tool
+    # 접속 URL 함정 — localhost 강제 (127.0.0.1 은 Origin 검증 401)
+    assert "localhost:4213" in doc
+    # 복붙 예제 쿼리 3종 재료
+    for marker in ("normalized.segments", "dup_clusters", "claim_candidates"):
+        assert marker in doc, marker
+    # 잠금 함정 규칙 명문화
+    assert ".duckdb" in doc and "금지" in doc
+    # prod 터널 절차
+    assert "ssh -N -L" in doc
+
+
+def test_deployment_doc_lists_sidecar_services() -> None:
+    doc = (REPO / "docs" / "operating" / "deployment.md") \
+        .read_text(encoding="utf-8")
+    assert "duckdb-ui" in doc
+    assert "data-browsing.md" in doc, "브라우징 가이드 상호 링크가 없다"

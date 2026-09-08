@@ -35,6 +35,16 @@
 | Docker 런타임 | OrbStack (설치 경위: §2 각주) |
 | viewer 접근 | loopback 바인딩 유지 → SSH 터널 (§3.3) |
 
+### 1.2 compose 서비스 목록
+
+| 서비스 | 역할 | 호스트 포트 (prod) | 비고 |
+|---|---|---|---|
+| postgres / minio / neo4j / opensearch | 인프라 스토어 | 없음 (loopback 도 제거) | `exec`/터널로만 |
+| prototype | viewer (API + 정적 서빙) | `127.0.0.1:8791` | §3.3 |
+| scheduler | nightly dispatch 상주 | 없음 | §4 |
+| grafana | 파이프라인 모니터링 | `127.0.0.1:3000` | §3.4 |
+| duckdb-ui | 존 브라우징 사이드카 | `127.0.0.1:4213` | [data-browsing.md](data-browsing.md) |
+
 ## 2. 최초 1회 프로비저닝 (원격 호스트)
 
 ```bash
