@@ -458,6 +458,18 @@ WITNESS_INIT_JS = r"""(async function witxExtInit(){
       ? body+'<div class="witx-none" style="margin-top:6px">'+esc(cc.note)+'</div>'
       : '<div class="witx-none" style="margin-top:8px">'+esc(cc.note)+'</div>';
   }
+  // 필요한 doc_id 만 /api/archive?doc_ids= 로 채운다 (미실측은 null 로 봉인 —
+  // 같은 문서를 매 렌더마다 다시 묻지 않게).
+  async function ensureArchiveDocs(ids){
+    var miss=ids.filter(function(d,i){
+      return d!=null&&!(d in warchiveDocs)&&ids.indexOf(d)===i;
+    });
+    if(!miss.length) return;
+    var r=await japi('/api/archive?limit='+miss.length+'&doc_ids='
+                     +miss.map(encodeURIComponent).join(','));
+    ((r&&r.normalized_documents)||[]).forEach(function(d){warchiveDocs[d.doc_id]=d;});
+    miss.forEach(function(d){ if(!(d in warchiveDocs)) warchiveDocs[d]=null; });
+  }
   async function wSelect(cid){
     wselected=cid; renderList();
     var c=wclaims.find(function(x){return x.claim_id===cid;})||{claim_id:cid};
@@ -465,6 +477,7 @@ WITNESS_INIT_JS = r"""(async function witxExtInit(){
     wcounter=WITX.counterCards([]); renderCounter();
     var ev=await japi('/api/evidence?claim='+encodeURIComponent(cid));
     var items=(ev&&ev.items)||[];
+    await ensureArchiveDocs(items.map(function(it){return it.source_doc;}));
     renderIndependence(c,items.map(function(it){
       var ad=it.source_doc!=null?warchiveDocs[it.source_doc]:null;
       return {doc_id:it.source_doc,cluster_role:ad?ad.cluster_role:null};
@@ -474,6 +487,7 @@ WITNESS_INIT_JS = r"""(async function witxExtInit(){
     }));
     var docCache={},ids=[];
     provs.forEach(function(p){ var d=docIdOf(p); if(d!=null&&ids.indexOf(d)<0) ids.push(d); });
+    await ensureArchiveDocs(ids);
     await Promise.all(ids.map(function(d){
       return japi('/api/document?doc='+encodeURIComponent(d)).then(function(w){docCache[d]=w;});
     }));
@@ -520,12 +534,13 @@ WITNESS_INIT_JS = r"""(async function witxExtInit(){
         return japi('/api/subject_claims?subject='+encodeURIComponent(s.subject_id))
           .then(function(c){return {subject_id:s.subject_id,items:(c&&c.items)||[]};});
       }));
-      var pair=await Promise.all([japi('/api/chronicle'),japi('/api/archive')]);
+      // /api/archive 는 페이지네이션 응답이다 — 여기서 필요한 건 dedup 수뿐이고,
+      // 문서 메타는 선택한 claim 이 참조하는 doc_id 만 뒤에서 채운다(전량 로드 금지).
+      var pair=await Promise.all([japi('/api/chronicle'),japi('/api/archive?limit=1')]);
       wchron=WITX.joinChronicle(pair[0]&&pair[0].assertions);
       var arch=pair[1]||{};
       wdedup=arch.dedup_clusters!=null?arch.dedup_clusters:0;
       warchiveDocs={};
-      ((arch.normalized_documents)||[]).forEach(function(d){warchiveDocs[d.doc_id]=d;});
       wclaims=[];
       for(const grp of rows){
         for(const it of grp.items){

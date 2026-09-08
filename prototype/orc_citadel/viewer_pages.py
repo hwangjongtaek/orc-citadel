@@ -140,6 +140,10 @@ CSS = """
  .btn{font-family:var(--font-head);font-size:11px;font-weight:600;padding:6px 12px;border-radius:var(--r-md);border:1px solid var(--surface-variant);color:var(--on-surface);background:none;cursor:pointer}
  .btn.primary{border-color:var(--primary);color:var(--primary);background:rgba(69,224,111,.06)}
  .btn.run{border:none;color:var(--citadel-void);background:var(--primary);box-shadow:0 0 0 1px rgba(69,224,111,.4),0 6px 18px -6px rgba(69,224,111,.5)}
+ .btn[disabled]{opacity:.4;cursor:default}
+ /* 페이지네이션 바 — 표 위에서 범위·이동·페이지 크기를 한 줄로. */
+ .pager{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:0 0 10px}
+ .pager select{padding:4px 6px;font-size:12px}
  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:var(--sp-md);margin-bottom:var(--sp-md)}
  /* 그리드는 gap 이 간격을 준다 — 카드의 margin-bottom 이 겹쳐 행 간격만 넓어졌다. */
  .grid>.card{margin-bottom:0}
@@ -1051,11 +1055,14 @@ function esc(s){const d=document.createElement('div');d.textContent=s;return d.i
 # --- Grand Archive — 문서 탐색 (`/archive`). ---
 PAGE_ARCHIVE = shell(
     "/archive",
-    """<h2>Sifter <span class="dim">(source_type facet — source_id 접두사 결정적 파생)</span></h2>
+    """<h2>Sifter <span class="dim">(source_type facet — source_id 접두사 결정적 파생 · 검색 범위 전체 실측)</span></h2>
 <div class="card" id="archive-facets"></div>
 
-<h2>Normalized Documents <span class="dim">(oc.duckdb · read-only · segment 수 포함)</span></h2>
-<div class="card"><table id="docs"></table></div>
+<h2>Normalized Documents <span class="dim">(oc.duckdb · read-only · 서버 페이지네이션 · segment 수 포함)</span></h2>
+<div class="card">
+  <div id="docs-pager" class="pager"></div>
+  <table id="docs"></table>
+</div>
 
 <h2>Codex · 문서 상세</h2>
 <div class="card" id="archive-codex"><span class="muted">문서 행을 선택하세요.</span></div>
@@ -1071,27 +1078,80 @@ const $=s=>document.querySelector(s);
 function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
 const TYPE_TOK=['official','press','gov','research','exchange'];
 const stype=id=>{const h=String(id||'').split('-',1)[0];return TYPE_TOK.includes(h)?h:'source';};
-let docs=[], facet='';
+const num=n=>Number(n||0).toLocaleString();
+// 문서 목록은 서버 페이지네이션이다 — 실측 10만+ 문서를 한 응답·한 DOM 에 쏟아
+// 부어 페이지가 멈추던 것을 한 페이지(limit/offset)로 좁혔다. facet·검색·정렬도
+// 서버 축(/api/archive 파라미터)이라 페이지 밖 문서까지 정확히 반영된다.
+// 확장(aux_ext)은 같은 응답을 ARCHIVE.on() 훅으로 받아 재조회하지 않는다.
+var ARCHIVE=window.ARCHIVE={
+  state:{limit:50,offset:0,source_type:'',source:'',language:'',role:'',q:'',sort:'doc_id'},
+  docs:[],page:{},facets:{},data:null,loaded:false,hooks:[],
+  on(fn){this.hooks.push(fn);if(this.loaded)fn(this.data);},
+  set(patch,keepOffset){if(!keepOffset)patch=Object.assign({offset:0},patch);
+    Object.assign(this.state,patch);return loadArchive();},
+  reload(){return loadArchive();}
+};
+
+function archiveQs(){
+  const p=new URLSearchParams();
+  Object.keys(ARCHIVE.state).forEach(k=>{const v=ARCHIVE.state[k];if(v!==''&&v!=null)p.set(k,v);});
+  return p.toString();
+}
+
+async function loadArchive(){
+  const r=await (await fetch('/api/archive?'+archiveQs())).json();
+  ARCHIVE.data=r; ARCHIVE.loaded=true;
+  ARCHIVE.docs=r.normalized_documents||[];
+  ARCHIVE.page=r.normalized_page||{};
+  ARCHIVE.facets=r.facets||{};
+  renderFacets(); renderDocs(); renderPager(); renderZones(r);
+  ARCHIVE.hooks.forEach(h=>{try{h(r);}catch(e){}});
+  return r;
+}
 
 function renderFacets(){
-  const counts={};
-  docs.forEach(d=>{const t=stype(d.source_id);counts[t]=(counts[t]||0)+1;});
-  $('#archive-facets').innerHTML=Object.entries(counts).map(([t,n])=>
-    `<span class="chip${facet===t?' active':''}" data-t="${esc(t)}" style="${facet===t?'border-color:var(--primary);cursor:pointer':'cursor:pointer'}"><span class="sw" style="background:var(--primary)"></span>${esc(t)} · ${n}</span>`).join('')||'<span class="muted">문서 없음</span>';
-  document.querySelectorAll('#archive-facets .chip').forEach(c=>c.onclick=()=>{facet=facet===c.dataset.t?'':c.dataset.t;renderFacets();renderDocs();});
+  const counts=ARCHIVE.facets.source_type||{}, cur=ARCHIVE.state.source_type;
+  const keys=Object.keys(counts).sort();
+  $('#archive-facets').innerHTML=keys.length?keys.map(t=>
+    `<span class="chip${cur===t?' active':''}" data-t="${esc(t)}" style="${cur===t?'border-color:var(--primary);cursor:pointer':'cursor:pointer'}"><span class="sw" style="background:var(--primary)"></span>${esc(t)} · ${num(counts[t])}</span>`).join('')
+    :'<span class="muted">문서 없음</span>';
+  document.querySelectorAll('#archive-facets .chip').forEach(c=>c.onclick=()=>
+    ARCHIVE.set({source_type:ARCHIVE.state.source_type===c.dataset.t?'':c.dataset.t}));
 }
 
 function renderDocs(){
-  const shown=docs.filter(d=>!facet||stype(d.source_id)===facet);
+  const rows=ARCHIVE.docs;
   $('#docs').innerHTML='<tr><th>doc_id</th><th>source</th><th>type</th><th>title</th><th>segments</th><th>char_len</th><th>parser</th></tr>'+
-    shown.map(d=>`<tr data-doc="${esc(d.doc_id)}" style="cursor:pointer">
+    (rows.length?rows.map(d=>`<tr data-doc="${esc(d.doc_id)}" style="cursor:pointer">
       <td><code>${esc(d.doc_id)}</code></td><td>${esc(d.source_id)}</td><td><span class="badge">${esc(stype(d.source_id))}</span></td>
-      <td>${esc(d.title||'')}</td><td>${d.segments}</td><td>${d.char_len}</td><td><span class="badge">${esc(d.parser_version)}</span></td></tr>`).join('')||'<span class="muted">문서 없음</span>';
-  document.querySelectorAll('#docs tr[data-doc]').forEach(tr=>tr.onclick=()=>codex(tr.dataset.doc));
+      <td>${esc(d.title||'')}</td><td>${d.segments}</td><td>${d.char_len}</td><td><span class="badge">${esc(d.parser_version)}</span></td></tr>`).join('')
+     :'<tr><td colspan="7" class="muted">조건 일치 문서 없음</td></tr>');
+}
+
+function renderPager(){
+  const p=ARCHIVE.page, total=p.total||0, off=p.offset||0, lim=p.limit||50;
+  const from=total?off+1:0, to=off+ARCHIVE.docs.length;
+  const all=(ARCHIVE.data.normalized_counts||{}).documents||0;
+  $('#docs-pager').innerHTML=
+    `<span class="dim mono">${num(from)}–${num(to)} / ${num(total)}${total!==all?` (존 전체 ${num(all)})`:''}</span>`
+    +`<button class="btn" id="pg-prev"${off<=0?' disabled':''}>‹ 이전</button>`
+    +`<button class="btn" id="pg-next"${to>=total?' disabled':''}>다음 ›</button>`
+    +`<span class="dim">rows <select id="pg-lim">${[25,50,100,200].map(n=>`<option value="${n}"${n===lim?' selected':''}>${n}</option>`).join('')}</select></span>`;
+  $('#pg-prev').onclick=()=>ARCHIVE.set({offset:Math.max(0,off-lim)},true);
+  $('#pg-next').onclick=()=>ARCHIVE.set({offset:off+lim},true);
+  $('#pg-lim').onchange=e=>ARCHIVE.set({limit:+e.target.value});
+}
+
+function renderZones(r){
+  $('#raw').innerHTML='<tr><th>source</th><th>문서 수</th></tr>'+
+    ((r.raw_sources||[]).map(s=>`<tr><td>${esc(s.source_id)}</td><td>${num(s.doc_count)}</td></tr>`).join('')
+     ||'<tr><td colspan="2" class="muted">raw 없음</td></tr>');
+  $('#clusters').innerHTML='<p>dedup clusters <b>'+r.dedup_clusters+'</b></p><p class="dim">'+esc(r.format_note)+'</p>';
 }
 
 function codex(docId){
-  const d=docs.find(x=>x.doc_id===docId); if(!d) return;
+  const d=ARCHIVE.docs.find(x=>x.doc_id===docId);
+  if(!d){$('#archive-codex').innerHTML='<span class="muted">현재 페이지 밖 문서 — 검색으로 좁혀 선택하세요.</span>';return;}
   $('#archive-codex').innerHTML=`<div style="font-size:15px;font-weight:700">${esc(d.title||docId)}</div>
     <p class="dim mono">${esc(d.doc_id)} · ${esc(d.parser_version)}</p>
     <div class="conf" style="margin:10px 0">
@@ -1103,12 +1163,17 @@ function codex(docId){
 }
 
 (async()=>{
-  const r=await (await fetch('/api/archive')).json();
-  docs=r.normalized_documents||[];
-  renderFacets(); renderDocs();
-  $('#raw').innerHTML='<tr><th>source</th><th>문서 수</th></tr>'+
-    (r.raw_sources||[]).map(s=>`<tr><td>${esc(s.source_id)}</td><td>${s.doc_count}</td></tr>`).join('')||'<span class="muted">raw 없음</span>';
-  $('#clusters').innerHTML='<p>dedup clusters <b>'+r.dedup_clusters+'</b></p><p class="dim">'+esc(r.format_note)+'</p>';
+  // 행 클릭은 위임 1회 — 페이지마다 행 수만큼 핸들러를 다는 것을 없앤다.
+  $('#docs').addEventListener('click',ev=>{
+    const tr=ev.target.closest('tr[data-doc]');
+    if(tr) codex(tr.dataset.doc);
+  });
+  // 딥링크: ?doc=<doc_id>(Stacks·Witnesses) · ?src=<source_id>(source 드릴다운).
+  const up=new URLSearchParams(location.search), dl=up.get('doc'), src=up.get('src');
+  if(dl) ARCHIVE.state.doc_ids=dl;
+  if(src) ARCHIVE.state.source=src;
+  await loadArchive();
+  if(dl) codex(dl);
 })();
 </script>
     """,

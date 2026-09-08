@@ -109,14 +109,31 @@ def test_archive_ext_js_facets_and_deeplink():
     assert "cluster_role" in js and "language" in js
     assert "publication_time" in js  # 정렬 축
     assert "segment_kinds" in js and "url_groups" in js
-    # contains 검색 join: /api/search documents + /api/archive 필터.
-    assert "/api/search?q=" in js and "/api/archive" in js
+    # contains 검색은 서버 축 — /api/archive?q= (전량 join 폐기: 10만+ 문서를
+    # 클라이언트로 내려 필터링하던 것이 /archive 를 멈추게 했다).
+    assert "/api/archive" in js and "A.set({q:v" in js
+    assert "/api/search?q=" not in js
+    # 확장은 자기 fetch 를 하지 않고 본문 페이지 응답(window.ARCHIVE)을 공유한다.
+    assert "window.ARCHIVE" in js and "A.on(" in js
     # Codex 확장: 메타 + /witnesses?doc= 딥링크 (래퍼).
     assert "/witnesses?doc=" in js
     assert "typeof window.codex==='function'" in js
     # /archive?doc= URL bootstrap.
     assert "URLSearchParams(location.search)" in js
     assert "p.get('doc')" in js
+
+
+def test_archive_page_paginates_and_delegates_clicks():
+    """본문 페이지 계약 — 페이저 앵커·서버 파라미터·행 클릭 위임(핸들러 N개 금지)."""
+    from orc_citadel import viewer_pages as VP
+
+    page = VP.PAGE_ARCHIVE
+    assert 'id="docs-pager"' in page and 'id="pg-prev"' in page and 'id="pg-next"' in page
+    assert "'/api/archive?'+archiveQs()" in page      # 상태 → 쿼리 파라미터
+    assert "state:{limit:50,offset:0" in page          # 기본 한 페이지
+    # 행 클릭은 위임 1회 — 행마다 onclick 을 다는 옛 경로가 돌아오면 안 된다.
+    assert "#docs tr[data-doc]" not in page
+    assert "addEventListener('click'" in page
 
 
 # --- 5. Chronicle dual slider·preset·rail·as-of 상세 ------------------------------
