@@ -189,13 +189,14 @@ def test_masthead_has_explicit_width(pages: dict[str, str]) -> None:
         assert "flex-shrink:0" in mast.group(0), name
 
 
-def test_content_only_pages_keep_readable_width(pages: dict[str, str]) -> None:
-    """좌·우 패널이 없는 페이지(Gate·Watchtower)는 본문만 1200px 로 제한한다 —
-    셸(히어로·헤더)은 전폭으로 나머지 6공간과 동일하다."""
-    for name in ("citadel-gate", "watchtower"):
+def test_all_spaces_share_gate_content_width(pages: dict[str, str]) -> None:
+    """전 공간 본문 1200px 중앙 정렬 — 기존 Gate 폭으로 통일 (2026-09-08 확정).
+
+    Astryx contentWidth 는 패널 행 전체에 걸리므로 3열 공간도 같은 폭이다.
+    마스트헤드(히어로)는 전폭 유지 — 액자 프레임 부활 아님.
+    """
+    for name, cap in HERO_CAP.items():
         html = pages[name]
-        # Layout contentWidth 는 CSS 변수로 발행된다. 본문 폭 제한은 남고,
-        # 마스트헤드 액자 프레임(max-width 정렬)은 사라진다.
         assert "layout-content-width:1200px" in html, name
         mast = re.search(r'style="[^"]*aspect-ratio:8 / 3[^"]*"', html)
         assert mast and "max-width:1200px" not in mast.group(0), name

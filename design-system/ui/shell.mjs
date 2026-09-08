@@ -218,15 +218,12 @@ export function shell({route, eyebrow, context, title, subtitle, hero, alerts = 
             ? {...S.tab, ...S.tab2, ...S.tabOn} : {...S.tab, ...S.tab2}}, name))),
     masthead({title, subtitle, hero, urls}));
 
-  // 8공간 동일 셸: 항상 `fill`(패널·본문 독립 스크롤). 좌·우 패널이 없는
-  // 페이지(Gate·Watchtower)는 본문 폭만 1200px 로 제한해 가독을 지킨다 —
-  // 셸(헤더·히어로)은 전폭으로 나머지 공간과 동일하다.
-  const contentOnly = !slots.start && !slots.end;
-  return h(Layout, {
-    height: 'fill',
-    ...(contentOnly ? {contentWidth: CONTENT_WIDTH} : null),
-    header, ...slots,
-  });
+  // 8공간 동일 셸: 항상 `fill`(패널·본문 독립 스크롤) + **전 공간 본문 1200px
+  // 중앙 정렬** — 기존 Gate 의 본문 폭으로 통일 (2026-09-08 사용자 확정).
+  // Astryx `contentWidth` 는 start|content|end 패널 행 전체에
+  // width:100% · margin-inline:auto · max-width 를 걸므로 3열 공간도 같은
+  // 폭으로 중앙 정렬된다. 헤더·내비·히어로는 전폭 유지.
+  return h(Layout, {height: 'fill', contentWidth: CONTENT_WIDTH, header, ...slots});
 }
 
 /** 섹션 소제목 — 원본 목업 `.panel-head` 의 라벨 조판. */
