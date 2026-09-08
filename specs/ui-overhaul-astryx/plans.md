@@ -283,11 +283,11 @@ Step 16a ── 16b ── 16c  (Step 3 이후 병행, 프런트·Grafana와 독
 
 | Step | Status | Started | Completed | Notes |
 |------|--------|---------|-----------|-------|
-| Step 1 | Pending | | | |
-| Step 2 | Pending | | | |
-| Step 3 | Pending | | | |
+| Step 1 | Done | 2026-09-08 | 2026-09-08 | 09 §1.3 · design README §3 · ROADMAP §5 기록 |
+| Step 2 | Done | 2026-09-08 | 2026-09-08 | ui/ 승격 + rawSvg→svg-node 분리(브라우저-안전), 산출물 diff 0. node_modules 심링크로 단일 react |
+| Step 3 | Done | 2026-09-08 | 2026-09-08 | Vite MPA + /app/* 서빙 + 가드 4종. **번들 실측 69.45KB gzip** (예산 300KB 충족) — Step 5 게이트 선통과 |
 | Step 4 | In Progress | 2026-09-08 | | 목업 레벨 완료 — lockup 반입·배경 투명화·mark/title 분리·favicon 파생·셸/Gate/index 배선 (`scripts/brand_logo_intake.py`). 세로 crest 원본 미도착(mark 크롭으로 충당). 뷰어 셸 교체는 frontend 이관 시 |
-| Step 5 | In Progress | 2026-09-08 | | 목업 선행 완료(셸 2계층 + Gate 대시보드) · frontend 구현은 사용자 확인 후 · 번들 예산 실측 기록 |
+| Step 5 | In Progress | 2026-09-08 | | 목업 선행 완료(셸 2계층·셸 통일·Gate 대시보드·Watchtower Grafana 카드 — 목업 트랙 전체 완료) · gate 엔트리 골격 가동 · 남은 것: 대시보드 본구현(ui 컴포넌트 데이터 바인딩) |
 | Step 6 | Pending | | | Spec 1.1.0 → 1.2.0 |
 | Step 7 | Pending | | | |
 | Step 8 | Pending | | | |
