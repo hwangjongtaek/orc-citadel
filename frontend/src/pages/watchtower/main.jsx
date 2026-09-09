@@ -67,6 +67,12 @@ function kpis(r) {
 // 401 처리한다 (실측, data-browsing.md §3).
 function componentLink(c) {
   if (!c.ui_port) return h(Text, {type: 'supporting'}, c.note || '—');
+  // 미도달이면 링크를 내지 않는다 — 눌러도 열리지 않는 링크는 혼동만 준다.
+  // 도달성은 뷰어 실측이라 같은 호스트 기준 접속 가능성과 일치한다.
+  if (!c.reachable) {
+    return h(Text, {type: 'supporting'},
+      `미가동 — 기동 후 접속 (docker compose up -d ${c.id})`);
+  }
   const host = c.requires_localhost ? 'localhost' : location.hostname;
   const href = `${location.protocol}//${host}:${c.ui_port}${c.ui_path || ''}`;
   return h('div', {style: {display: 'flex', flexDirection: 'column', gap: 2}},
