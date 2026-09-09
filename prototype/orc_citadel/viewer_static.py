@@ -1,17 +1,21 @@
-"""뷰어 정적 자산 서빙 — `/assets/*`.
+"""뷰어 정적 자산 서빙 — `/assets/*` · `/app/*`.
 
 자산은 리포에 **이미 있는 것을 참조한다. 복제하지 않는다.**
 
     /assets/img/<file>        docs/mockups/assets/          히어로·초상·빈상태 (19MB)
     /assets/theme-citadel.css design-system/theme-citadel/dist/theme.css
+    /assets/astryx.css        docs/mockups/astryx.css       Astryx 컴포넌트 CSS (StyleX 컴파일)
+    /assets/reset.css         docs/mockups/reset.css
     /assets/fonts/<path>      design-system/fonts/dist/     woff2 + @font-face
+    /app/<path>               frontend/dist/                React 프런트 산출물 (커밋됨)
 
-세 갈래로 나뉜 이유: 위 셋은 각각 다른 패키지의 산출물이고, 히어로 PNG 는 19MB
-라 뷰어 쪽으로 복사하면 리포와 이미지가 그만큼 무거워진다. 컨테이너에는
+갈래로 나뉜 이유: 위는 각각 다른 패키지의 산출물이고, 히어로 PNG 는 19MB 라
+뷰어 쪽으로 복사하면 리포와 이미지가 그만큼 무거워진다. 컨테이너에는
 `prototype/` 만 COPY 되므로(§Dockerfile) 위 경로는 바인드 마운트로 주입한다 —
-`VIEWER_ASSETS_*` 환경변수로 덮어쓸 수 있다.
+`VIEWER_ASSETS_*`/`VIEWER_APP_DIST` 환경변수로 덮어쓸 수 있다.
 
-read-only (불변식 §3-3).
+`/app/*` 는 specs/ui-overhaul-astryx TS-1 의 프런트 산출물 서빙 계약이다 —
+canonical 라우트 전환은 공간 이관 커밋에서 일어난다. read-only (불변식 §3-3).
 """
 
 from __future__ import annotations
@@ -31,6 +35,9 @@ _MIME = {
     ".css": "text/css; charset=utf-8",
     ".woff2": "font/woff2",
     ".txt": "text/plain; charset=utf-8",
+    # frontend dist (커밋 산출물) 전용 — 소스 트리는 dist 밖이라 노출되지 않는다.
+    ".html": "text/html; charset=utf-8",
+    ".js": "text/javascript; charset=utf-8",
 }
 
 
@@ -63,20 +70,29 @@ def _serve(path: Path | None) -> tuple[Path, str] | None:
 
 @dataclass(frozen=True)
 class StaticRoots:
-    """`/assets/*` URL 공간 → 실제 파일 경로."""
+    """`/assets/*`·`/app/*` URL 공간 → 실제 파일 경로."""
 
     img: Path
     theme_css: Path
     fonts: Path
+    astryx_css: Path | None = None
+    reset_css: Path | None = None
+    app: Path | None = None
 
     def resolve(self, url_path: str) -> tuple[Path, str] | None:
         """URL 경로를 (파일, MIME) 로. 서빙 대상이 아니면 None (호출자가 404)."""
         if url_path == "/assets/theme-citadel.css":
             return _serve(self.theme_css)
+        if url_path == "/assets/astryx.css":
+            return _serve(self.astryx_css)
+        if url_path == "/assets/reset.css":
+            return _serve(self.reset_css)
         if url_path.startswith("/assets/img/"):
             return _serve(_safe_child(self.img, url_path[len("/assets/img/"):]))
         if url_path.startswith("/assets/fonts/"):
             return _serve(_safe_child(self.fonts, url_path[len("/assets/fonts/"):]))
+        if url_path.startswith("/app/") and self.app is not None:
+            return _serve(_safe_child(self.app, url_path[len("/app/"):]))
         return None
 
 
@@ -97,6 +113,9 @@ def default_roots() -> StaticRoots | None:
         "img": os.getenv("VIEWER_ASSETS_IMG"),
         "theme": os.getenv("VIEWER_ASSETS_THEME"),
         "fonts": os.getenv("VIEWER_ASSETS_FONTS"),
+        "astryx": os.getenv("VIEWER_ASSETS_ASTRYX"),
+        "reset": os.getenv("VIEWER_ASSETS_RESET"),
+        "app": os.getenv("VIEWER_APP_DIST"),
     }
     repo = _repo_root()
 
@@ -113,4 +132,15 @@ def default_roots() -> StaticRoots | None:
     fonts = pick("fonts", "/app/static/fonts", "design-system/fonts/dist")
     if not (img and theme and fonts):
         return None
-    return StaticRoots(img=img, theme_css=theme, fonts=fonts)
+    # 아래는 선택 갈래 — 없으면 해당 URL 만 404 (기존 페이지는 계속 동작).
+    astryx = pick("astryx", "/app/static/astryx.css", "docs/mockups/astryx.css")
+    reset = pick("reset", "/app/static/reset.css", "docs/mockups/reset.css")
+    app = pick("app", "/app/static/app-dist", "frontend/dist")
+    return StaticRoots(img=img, theme_css=theme, fonts=fonts,
+                       astryx_css=astryx, reset_css=reset, app=app)
+
+
+def app_root() -> Path | None:
+    """frontend dist 의 해석 결과 (없으면 None) — 라우트 전환·테스트용."""
+    roots = default_roots()
+    return roots.app if roots else None

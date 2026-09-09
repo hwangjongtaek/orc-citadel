@@ -57,3 +57,40 @@ def test_watchtower_slo_is_honest_not_measured():
     assert eb["violations"] == 0
     assert eb["measured_count"] == 0
     assert eb["violation_ratio"] is None
+
+
+# --- run 메트릭 표시 필드 (specs/ui-overhaul-astryx Step 12 — TS-6) ----------------
+
+def test_watchtower_run_metrics_honest_when_pg_down():
+    """postgres 미가동 → run_metrics 는 정직 빈 (가짜 런 없음, §6.2)."""
+    def broken():
+        raise RuntimeError("pg down")
+    self = types.SimpleNamespace(raw_dir="", metrics_connect=broken)
+    r = _watch(self)
+    rm = r["run_metrics"]
+    assert rm["available"] is False and rm["runs"] == []
+    assert "pipeline_run_metrics" in rm["source_tables"]
+    assert rm["note"]
+
+
+def test_watchtower_run_metrics_recent_runs_shape():
+    """가동 시 최근 런 요약 — run_id·job_id·metrics 스칼라 분해 (표시용 read-only)."""
+    class FakeCursor:
+        def execute(self, sql, params=None):
+            self._sql = sql
+        def fetchall(self):
+            if "GROUP BY" in self._sql:  # 최근 런 목록
+                return [("run-1", "nightly_collect", "2026-09-08T07:07:00+00:00")]
+            return [("run-1", "total_new", 3.0), ("run-1", "saved", 2.0)]
+    class FakeConn:
+        def cursor(self):
+            return FakeCursor()
+        def close(self):
+            pass
+    self = types.SimpleNamespace(raw_dir="", metrics_connect=lambda: FakeConn())
+    r = _watch(self)
+    rm = r["run_metrics"]
+    assert rm["available"] is True
+    (run,) = rm["runs"]
+    assert run["run_id"] == "run-1" and run["job_id"] == "nightly_collect"
+    assert run["metrics"] == {"total_new": 3.0, "saved": 2.0}

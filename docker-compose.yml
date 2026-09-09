@@ -1,5 +1,5 @@
 # design 01 §6.1 배포 토폴로지 (Docker Compose, 단일 호스트) — 부분 구현.
-# api/worker는 FastAPI 코드 확보 후, grafana는 메트릭 소스 확보 후 추가한다.
+# api/worker는 FastAPI 코드 확보 후 추가한다.
 # 크리덴셜은 .env 에서 주입한다 (.env.example 참고).
 
 services:
@@ -68,6 +68,45 @@ services:
       timeout: 3s
       retries: 20
 
+  # 파이프라인 모니터링 사이드카 (specs/ui-overhaul-astryx TS-6, design 11 §2.2).
+  # - 관측 전용: postgres 는 read-only 계정(grafana_reader)으로만 접속 —
+  #   deploy/grafana/init-readonly.sql 을 1회 적용해야 datasource 가 살아난다.
+  # - 접근 정책은 viewer 와 동일: loopback + SSH 터널. 익명은 Viewer(읽기)만,
+  #   편집은 admin 로그인(GRAFANA_ADMIN_PASSWORD).
+  # - 대시보드·datasource 는 provisioning as code — UI 편집은 영속되지 않는다.
+  grafana:
+    image: grafana/grafana-oss:11.5.1
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?}
+      # 오프라인 런타임 유지 — 원격 콜아웃 차단 (외부 CDN 금지 규약과 동일 방향).
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      # provisioning yaml 이 grafana 의 env 보간으로 소비한다.
+      GRAFANA_DB_PASSWORD: ${GRAFANA_DB_PASSWORD:?}
+      POSTGRES_DB: ${POSTGRES_DB:?}
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # 데이터 존 브라우징 사이드카 (specs/ui-overhaul-astryx TS-7, Step 16b).
+  # - parquet 스냅샷(16a)만 read-only 로 읽는다 — 존 `.duckdb` 는 마운트하지
+  #   않는다 (뷰어 RW 잠금 함정 원천 차단, §3-3 존 오염 불가).
+  # - 접근 정책은 viewer·grafana 와 동일: loopback + SSH 터널.
+  duckdb-ui:
+    build: ./deploy/duckdb-ui
+    ports:
+      - "127.0.0.1:4213:4213"
+    volumes:
+      - ./prototype/data/parquet:/data/parquet:ro
+
   # 선택 실행: docker compose --profile prototype up -d --build
   # 호스트 publish는 docker-compose.prod.yml 가 소유 — 이중 바인딩은
   # OrbStack 포트 포워더를 교착시킨다 (0.0.0.0 + 127.0.0.1 병존 시 dead 포트).
@@ -89,3 +128,4 @@ volumes:
   minio-data:
   neo4j-data:
   opensearch-data:
+  grafana-data:

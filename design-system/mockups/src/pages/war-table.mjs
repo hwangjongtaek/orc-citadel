@@ -1,11 +1,12 @@
 /** War Table · 그래프 탐색 — 목업 3+1 (Campaign Map | 그래프 | Evidence Inspector | Chronicle). */
 
 import {LayoutContent, LayoutPanel, LayoutFooter} from '@astryxdesign/core/Layout';
-import {shell} from '../shell.mjs';
+import {shell} from '../../../ui/shell.mjs';
 import {
   h, Card, Badge, VStack, HStack, Text, sectionLabel, confidence, coverage,
-  relationLegend, evidenceCard, rawSvg, id, panelHead,
-} from '../ui.mjs';
+  relationLegend, evidenceCard, id, panelHead,
+} from '../../../ui/components.mjs';
+import {rawSvg} from '../../../ui/svg-node.mjs';
 
 export const title = 'War Table · 그래프 탐색 — Orc Citadel';
 

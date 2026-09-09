@@ -114,12 +114,17 @@ def _measure_candidates(judge):
     find_conflict_candidates(all_claims, judge=judge)
 
 
-def main() -> None:
+def main(slo_log=None) -> dict:
+    """SLO-06 실측 + 7d 누적 — 런 요약 반환 (run_metrics flush 입력 셰이프).
+
+    `slo_log` 주입 시 호출자가 원시 관측을 소유한다(런 종료 flush 용) — 부재 시
+    자체 생성(기존 동작 그대로, 선택 주입).
+    """
     _load_env()
     print("== nightly SLO-06 실측 + 7d 누적 ==", flush=True)
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    slo_log = SloObservationLog()
+    slo_log = slo_log if slo_log is not None else SloObservationLog()
     inner = ClaudeJudge(slo_log=slo_log)
     print(f"judge provider={getattr(inner._client, 'provider', None)!r} "
           f"model={getattr(inner._client, 'model', None)!r} cap={LLM_CAP}", flush=True)
@@ -143,6 +148,7 @@ def main() -> None:
               f"measured={res['measured']}", flush=True)
     print(f"[usage] {inner.usage()}", flush=True)
     print("== nightly SLO-06 완료 ==", flush=True)
+    return {"schema_n": len(entries)}
 
 
 if __name__ == "__main__":

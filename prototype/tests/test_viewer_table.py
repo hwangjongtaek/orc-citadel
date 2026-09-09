@@ -12,7 +12,6 @@ import types
 from orc_citadel.curated_zone import CuratedZone
 from orc_citadel.pipeline_runner import run_pipeline
 from orc_citadel.viewer import Handler
-from orc_citadel.viewer_pages import PAGE_TABLE
 
 HTML = b"""<html><head>
 <title>NVIDIA Conference Call</title>
@@ -106,8 +105,3 @@ def test_provenance_trail_for_claim_evidence():
     steps = {s["step"] for s in r["trail"]}
     assert "claim" in steps and "document" in steps
 
-
-def test_table_page_has_three_plus_one_panels():
-    """`/table` HTML 이 목업 3+1 패널 앵커를 포함한다."""
-    for panel_id in ("campaign-map", "war-canvas", "inspector", "chronicle-rail"):
-        assert f'id="{panel_id}"' in PAGE_TABLE

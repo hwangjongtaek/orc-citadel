@@ -181,6 +181,12 @@
 
 가장 최신이 위로. 스펙·설계 변경을 기록한다 (구현 세부 커밋은 git 이력).
 
+### 2026-09-09
+- **UI 전면 개편 완결 (specs/ui-overhaul-astryx — 16 steps 전체 Done).** 8공간 전부 `frontend/` React 산출물이 canonical 표시 계층으로 전환 완료(브리핑 가치 순 Gate → Witnesses → War Table → Archive → Spire → Council → Watchtower → Chronicle, 공간당 TDD 선작성·browser E2E 실측). **인라인 표시 계층 제거:** `viewer_pages.py`·`*_ext.py`(4,652줄)와 `/legacy/*` 라우트 일괄 삭제 — 뷰어는 API 서버 + 정적 서빙으로 축소, dist 부재는 폴백 없이 정직 503. **FR-6 Grafana:** run 메트릭 postgres flush(`run_metrics.py`, append-only·비차단) + compose 사이드카(oss 11.5.1 핀·loopback·익명 Viewer·read-only DB 계정) + pipeline 대시보드 7패널(미계측 stage·quarantine 은 No data 정직 표기) + Watchtower 딥링크. **FR-7 데이터 브라우징:** parquet 스냅샷 export(원자 교체·잠금 폴백·105k 문서 0.6s 실측) + DuckDB UI 사이드카(parquet 만 ro 마운트 — `.duckdb` attach 금지 명문화) + `docs/operating/data-browsing.md` 가이드. **운영 함정 실측 봉인:** `/app/*` no-cache(안정 청크명 + 캐시가 재배포마다 구/신 청크 혼합 빈 화면 유발), DuckDB UI 는 `localhost` Origin 강제(127.0.0.1 은 401). wire 계약 무변경 → **Spec 1.1.0 유지**.
+
+### 2026-09-08
+- **UI 전면 개편 착수 (specs/ui-overhaul-astryx) — SDD 확정 + 목업 트랙 완료 + 불변식 개정.** 목업↔실UI 갭의 근본 원인(별개 코드베이스)을 없애기 위해 표시 계층을 Astryx React 프런트로 단일화하는 SDD(requirements·specs·plans, FR-1~7/TS-1~7/16 steps) 확정. 주요 결정: `frontend/` Vite MPA + `design-system/ui/` 컴포넌트 1벌(목업=앱) · dist 커밋(런타임 node 배제) · 브리핑-우선 IA(1차 4공간 + 운영·감사 2차, Gate=브리핑 대시보드, ⌘K 통합 검색) · Grafana 사이드카(11 §2.2 정합, run 메트릭 postgres flush 선행) · 데이터 존 브라우징(parquet 스냅샷 + DuckDB UI — 뷰어 `.duckdb` 쓰기 잠금 회피). **목업 선행 완료:** 셸 2계층 내비·8공간 셸 통일(문서형 특례 폐지)·Gate 브리핑 대시보드·신규 로고 반입(lockup 투명화·mark/title 분리·favicon)·Watchtower Grafana 딥링크 카드. **불변식 개정:** 뷰어 "stdlib only" → "런타임 stdlib · 표시 계층 저작 도구 node 허용"(09 §1.3 정본, design README §3 노트). wire 계약 무변경 → **Spec 1.1.0 유지** (`/api/search` scope 확장 시 1.2.0 예정).
+
 ### 2026-09-07
 - **A30 원격 배포·실전 검증 + 후속 (a) — 재시작 보충 실증, max_tokens 8192 상향 배선.** `deploy.sh` 재배포로 A30 코드 원격 반영. **재시작 보충 실전 실증:** 재기동 배너 `next_run_at=09-07 07:07`(과거 시각 보존 — 구코드면 익일 리셋) → 기동 직후 당일 collect·SLO-06 **즉시 보충 발화**. 직전(9/6) 구코드 런은 grace 보충(호스트 기상 20:52 발화)은 작동했으나 SLO-06 29건 전부 fail(output_tokens 평균 512 — 잘림 실측 재현). **A30 배포 후 런: 30건 중 pass 2** — usage 평균 2,031/2,048 로 **새 예산도 소진**(glm-4.7-flash reasoning 이 예상 초과). 로컬 동일 엔드포인트 실측: 예산 8192 에서 contradiction 판정 1,457 토큰으로 **유효 JSON 생성 확인** → **`LLM_MAX_TOKENS=8192` 상향** (예산은 상한일 뿐 과금·비용은 실사용 토큰 기준). 결함 추가 발견: prod 오버레이가 `LLM_MAX_TOKENS` 를 컨테이너에 미전달 → `docker-compose.prod.yml` scheduler 환경에 배선 + `.env.production.example` 갱신 (원격 .env 에 8192 주입 후 재배포). **Spec 1.1.0 유지**. 다음: 익일 07:37 런에서 pass_rate 회복 확인 → 7d 유효 표본 축적.
 

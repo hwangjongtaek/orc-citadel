@@ -51,6 +51,8 @@ function page(title, body) {
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>${title}</title>
+<link rel="icon" type="image/png" href="./assets/favicon-32.png" />
+<link rel="apple-touch-icon" href="./assets/apple-touch-180.png" />
 <link rel="stylesheet" href="./fonts/fonts.css" />
 <link rel="stylesheet" href="./reset.css" />
 <link rel="stylesheet" href="./astryx.css" />

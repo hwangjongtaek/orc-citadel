@@ -1,8 +1,10 @@
 /** Signal Spire · 알림 센터 — Triggers·Campaigns·Scope | Alert Feed | Subscriptions. */
 
 import {LayoutContent, LayoutPanel} from '@astryxdesign/core/Layout';
-import {shell} from '../shell.mjs';
-import {h, Card, Badge, Text, sectionLabel, id, panelHead, grid} from '../ui.mjs';
+import {shell} from '../../../ui/shell.mjs';
+import {h, panelHead} from '../../../ui/components.mjs';
+import {filterRow, triggerRow, feedTabs, alertCard, subscriptionCard,
+  newSubscriptionSlot} from '../../../ui/spire.mjs';
 
 export const title = 'Signal Spire · 알림 센터 — Orc Citadel';
 
@@ -66,116 +68,35 @@ const SUBSCRIPTIONS = [
     [['in_app', '']], ['confidence_thr', 'contradicting'], '0.20'],
 ];
 
-function filterRow(label, count, on) {
-  return h('div', {key: label, style: {display: 'flex', alignItems: 'center',
-    justifyContent: 'space-between', gap: 8, padding: '7px 10px',
-    borderRadius: 'var(--radius-inner)',
-    background: on ? 'rgba(69,224,111,.07)' : 'transparent'}},
-    h(Text, {type: 'supporting'}, label),
-    h('span', {style: {fontFamily: 'var(--font-family-code)', fontSize: 11,
-      color: count ? 'var(--color-text-primary)' : 'var(--color-text-secondary)'}}, count));
-}
-
 const filters = h(LayoutPanel, {width: 288, hasDivider: true, padding: 0, label: 'Triggers'},
   panelHead('Triggers', '점화 유형 · 5'),
   h('div', {style: {padding: '8px 12px'}},
     TRIGGERS.map(([t, ko, n]) =>
-      h('div', {key: t, style: {display: 'flex', alignItems: 'center',
-        justifyContent: 'space-between', gap: 8, padding: '7px 4px'}},
-        h('div', {style: {minWidth: 0}}, id(t),
-          h('div', {}, h(Text, {type: 'supporting'}, ko))),
-        h(Badge, {variant: n ? 'warning' : 'neutral', label: String(n)})))),
+      h('div', {key: t}, triggerRow({trigger: t, description: ko, fired: n})))),
   panelHead('Campaigns'),
   h('div', {style: {padding: '8px 12px'}},
-    CAMPAIGNS.map(([c, n], i) => filterRow(c, n, i === 0))),
+    CAMPAIGNS.map(([c, n], i) =>
+      h('div', {key: c}, filterRow({label: c, count: n, on: i === 0})))),
   panelHead('Scope'),
   h('div', {style: {padding: '8px 12px'}},
-    SCOPE.map(([s, n], i) => filterRow(s, n, i === 0))));
-
-function alertCard(a) {
-  return h('div', {key: a.dedup, style: {border: '1px solid var(--color-border)',
-    borderLeft: `3px solid ${a.tone === 'error' ? 'var(--color-error)'
-      : a.tone === 'success' ? 'var(--color-accent)'
-      : 'var(--astryx-theme-citadel-signal-amber)'}`,
-    borderRadius: 'var(--radius-element)', padding: 14, marginBottom: 12,
-    background: a.unread ? 'rgba(255,177,59,.03)' : 'transparent'}},
-    h('div', {style: {display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap'}},
-      h(Badge, {variant: a.tone, label: a.trigger}),
-      h(Badge, {variant: a.severity === 'material' ? 'warning' : 'neutral', label: a.severity}),
-      a.unread ? h(Badge, {variant: 'info', label: '안읽음'}) : null,
-      h('div', {style: {flex: 1}}), id(a.at)),
-    h('div', {style: {marginTop: 10}}, h(Text, {}, a.headline)),
-    h('div', {style: {marginTop: 6}}, id(`${a.campaign} · ${a.target}`)),
-
-    h('div', {style: {display: 'flex', alignItems: 'center', gap: 12, margin: '12px 0',
-      padding: '10px 12px', background: 'var(--color-background-muted)',
-      borderRadius: 'var(--radius-inner)'}},
-      h('div', {}, h('div', {style: {fontFamily: 'var(--font-family-heading)',
-        fontSize: 18, fontWeight: 600, color: 'var(--color-text-secondary)'}}, a.before),
-        h(Text, {type: 'label'}, 'Before')),
-      h('span', {style: {fontFamily: 'var(--font-family-code)', fontSize: 12,
-        color: a.tone === 'error' ? 'var(--color-error)' : 'var(--color-accent)'}}, a.delta),
-      h('div', {}, h('div', {style: {fontFamily: 'var(--font-family-heading)',
-        fontSize: 18, fontWeight: 600, color: 'var(--color-text-primary)'}}, a.after),
-        h(Text, {type: 'label'}, a.afterLabel))),
-
-    h(Text, {type: 'supporting'}, `근거: ${a.basis}`),
-    h('div', {style: {display: 'grid', gridTemplateColumns: 'repeat(2,minmax(0,1fr))',
-      gap: 8, marginTop: 10}},
-      a.meta.map(([k, v]) => h('div', {key: k},
-        h(Text, {type: 'label'}, k), h('div', {}, id(v))))),
-    h('div', {style: {marginTop: 10, display: 'flex', alignItems: 'center', gap: 8,
-      flexWrap: 'wrap'}},
-      h(Badge, {variant: 'neutral', label: a.fireNote})),
-    h('div', {style: {marginTop: 4}}, id(`dedup: ${a.dedup}`)),
-    h('div', {style: {marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap'}},
-      ...['War Table에서 보기', 'Hall of Witnesses', '확인 처리'].map(t =>
-        h('span', {key: t, style: {padding: '6px 12px', fontSize: 11,
-          fontFamily: 'var(--font-family-heading)', fontWeight: 600,
-          border: '1px solid var(--color-border)', borderRadius: 'var(--radius-element)',
-          color: 'var(--color-text-secondary)'}}, t))));
-}
+    SCOPE.map(([s, n], i) =>
+      h('div', {key: s}, filterRow({label: s, count: n, on: i === 0})))));
 
 const feed = h(LayoutContent, {padding: 0},
   panelHead('Alert Feed', 'A사 공급망 다변화 · 안읽음 3 / 5'),
-  h('div', {style: {display: 'flex', gap: 6, padding: '10px 16px',
-    borderBottom: '1px solid var(--color-border)'}},
-    ...['안읽음', '전체', '확인됨'].map((t, i) =>
-      h('span', {key: t, style: {padding: '5px 12px', fontSize: 11.5,
-        fontFamily: 'var(--font-family-heading)', fontWeight: 600,
-        borderRadius: 'var(--radius-element)',
-        background: i === 0 ? 'rgba(69,224,111,.08)' : 'transparent',
-        color: i === 0 ? 'var(--color-accent)' : 'var(--color-text-secondary)'}}, t)),
-    h('div', {style: {flex: 1}}),
-    h(Text, {type: 'supporting'}, '최신순 · 1회 점화 · dedup 적용')),
-  h('div', {style: {padding: 16}}, ALERTS.map(alertCard)));
+  feedTabs({tabs: ['안읽음', '전체', '확인됨'], active: 0,
+    note: '최신순 · 1회 점화 · dedup 적용'}),
+  h('div', {style: {padding: 16}},
+    ALERTS.map(a => h('div', {key: a.dedup}, alertCard(a)))));
 
 const subscriptions = h(LayoutPanel, {width: 340, hasDivider: true, padding: 0,
   label: 'Subscriptions'},
   panelHead('Subscriptions', 'Campaign 구독 · 3'),
   h('div', {style: {padding: 16}},
     SUBSCRIPTIONS.map(([name, ids, on, channels, triggers, threshold]) =>
-      h('div', {key: ids, style: {border: '1px solid var(--color-border)',
-        borderRadius: 'var(--radius-element)', padding: 12, marginBottom: 10}},
-        h('div', {style: {display: 'flex', alignItems: 'center',
-          justifyContent: 'space-between', gap: 8}},
-          h(Text, {type: 'supporting'}, name),
-          h(Badge, {variant: on ? 'success' : 'neutral', label: on ? 'ON' : 'OFF'})),
-        h('div', {style: {marginTop: 4}}, id(ids)),
-        h('div', {style: {marginTop: 8}}, h(Text, {type: 'label'}, 'Channels')),
-        h('div', {style: {display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 4}},
-          channels.map(([c, v]) =>
-            h(Badge, {key: c, variant: 'neutral', label: v ? `${c} ${v}` : c}))),
-        h('div', {style: {marginTop: 8}}, h(Text, {type: 'label'}, 'Active Triggers')),
-        h('div', {style: {display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 4}},
-          triggers.map(t => h(Badge, {key: t, variant: 'blue', label: t}))),
-        h('div', {style: {display: 'flex', alignItems: 'baseline',
-          justifyContent: 'space-between', marginTop: 8}},
-          h(Text, {type: 'supporting'}, 'confidence Δ 임계'),
-          id(threshold)))),
-    h('div', {style: {padding: '10px 12px', border: '1px dashed var(--color-border)',
-      borderRadius: 'var(--radius-element)', textAlign: 'center'}},
-      h(Text, {type: 'supporting'}, '새 구독 · New Subscription'))));
+      h('div', {key: ids},
+        subscriptionCard({name, ids, on, channels, triggers, threshold}))),
+    newSubscriptionSlot()));
 
 export const render = () => shell({
   route: 'signal-spire',

@@ -1,11 +1,20 @@
-/** Hall of Witnesses · 증거 검사 — claim 목록 | Evidence·Provenance | 원문 왕복. */
+/**
+ * Hall of Witnesses · 증거 검사 목업 — ui/witnesses 공용 컴포넌트 + fixture.
+ * 구조 정의는 [ui/witnesses.mjs](../../../ui/witnesses.mjs) 가 정본 (specs TS-5).
+ * 원문 패널만 목업 전용 서사(두 문서 대조)라 bespoke 로 남긴다 — 앱은
+ * documentSegments(실데이터)로 같은 자리를 채운다.
+ */
 
 import {LayoutContent, LayoutPanel, LayoutFooter} from '@astryxdesign/core/Layout';
-import {shell} from '../shell.mjs';
+import {shell} from '../../../ui/shell.mjs';
 import {
-  h, Card, Badge, VStack, HStack, Text, sectionLabel, confidence, sectionLabel as sl,
-  evidenceCard, sourceSpan, trail, id, panelHead,
-} from '../ui.mjs';
+  h, Badge, HStack, Text, sectionLabel, confidence,
+  evidenceCard, id, panelHead,
+} from '../../../ui/components.mjs';
+import {
+  claimRow, modalityChips, claimFocus, independenceNote, provenanceTrail,
+  roundTripFooter,
+} from '../../../ui/witnesses.mjs';
 
 export const title = 'Hall of Witnesses · 증거 검사 — Orc Citadel';
 
@@ -17,72 +26,41 @@ const CLAIMS = [
   ['C사 계약은 발표에 그치지 않고 실제 집행되었다.', 'claim-262 · executed', 'Asserted', '0.52'],
 ];
 
-const MODALITY = [
-  ['fact', 'success'], ['asserted', 'neutral'],
-  ['opinion', 'yellow'], ['prediction', 'purple'],
-];
-
 /** provenance trail 5 hop — 결과에서 원문까지 (03 §8 · ADR-305). */
 const TRAIL = [
-  ['① Graph Element', 'evd-456 · SUPPORTS claim-123',
-    [['type', 'Evidence'], ['rel', 'supports']]],
-  ['② Extraction Record', 'ext-01J9Q7F2K3XZ',
-    [['model_id', 'seer-extract-v3'], ['prompt_hash', 'a91f…d20'],
-     ['schema', 'v0.4.2'], ['preproc', 'pp-1.7']]],
-  ['③ Normalized Document', 'doc-2291 · v2',
-    [['parser', 'html2md-4.1'], ['lang', 'en'], ['offset map', 'bidirectional']]],
-  ['④ Source Span', 'seg-2291-p42-s3',
-    [['char_start', '1180'], ['char_end', '1244'], ['loc', 'p.42 · para 3']]],
-  ['⑤ Immutable Raw', 'raw/2024/a-corp/10-K/content.bin',
-    [['content_hash', 'sha256:7c4a…e1b9']]],
+  {step: '① Graph Element', value: 'evd-456 · SUPPORTS claim-123',
+   fields: [['type', 'Evidence'], ['rel', 'supports']]},
+  {step: '② Extraction Record', value: 'ext-01J9Q7F2K3XZ',
+   fields: [['model_id', 'seer-extract-v3'], ['prompt_hash', 'a91f…d20'],
+            ['schema', 'v0.4.2'], ['preproc', 'pp-1.7']]},
+  {step: '③ Normalized Document', value: 'doc-2291 · v2',
+   fields: [['parser', 'html2md-4.1'], ['lang', 'en'], ['offset map', 'bidirectional']]},
+  {step: '④ Source Span', value: 'seg-2291-p42-s3',
+   fields: [['char_start', '1180'], ['char_end', '1244'], ['loc', 'p.42 · para 3']]},
+  {step: '⑤ Immutable Raw', value: 'raw/2024/a-corp/10-K/content.bin',
+   fields: [['content_hash', 'sha256:7c4a…e1b9']]},
 ];
-
-function claimRow([text, meta, modality, conf, active]) {
-  return h('div', {key: meta, style: {
-    border: `1px solid ${active ? 'var(--color-accent)' : 'var(--color-border)'}`,
-    background: active ? 'rgba(69,224,111,.05)' : 'transparent',
-    borderRadius: 'var(--radius-element)', padding: 12, marginBottom: 10}},
-    h(Text, {type: 'supporting'}, text),
-    h('div', {style: {display: 'flex', alignItems: 'center',
-      justifyContent: 'space-between', gap: 8, marginTop: 8}},
-      id(meta),
-      h(HStack, {gap: 1},
-        h(Badge, {variant: modality === 'Fact' ? 'success' : 'neutral', label: modality}),
-        h('span', {style: {fontFamily: 'var(--font-family-heading)', fontSize: 13,
-          fontWeight: 600, color: 'var(--color-text-primary)'}}, conf))));
-}
 
 const claimList = h(LayoutPanel, {width: 292, hasDivider: true, padding: 0, label: 'Claims'},
   panelHead('Claims', '조사 내 · 6'),
   h('div', {style: {padding: 16}},
-    CLAIMS.map(claimRow),
+    CLAIMS.map(([text, meta, modality, conf, active]) =>
+      claimRow({text, meta, modality, conf, active})),
     sectionLabel('Modality'),
-    h('div', {style: {display: 'flex', flexWrap: 'wrap', gap: 6}},
-      MODALITY.map(([m, v]) => h(Badge, {key: m, variant: v, label: m})))));
+    modalityChips()));
 
 const evidencePanel = h(LayoutContent, {padding: 0},
   panelHead('Evidence & Provenance', 'claim-123 · 왕복 추적'),
   h('div', {style: {padding: 16}},
-    h('div', {style: {border: '1px solid var(--color-accent)',
-      background: 'rgba(69,224,111,.05)', borderRadius: 'var(--radius-element)',
-      padding: 12, marginBottom: 16}},
-      h(HStack, {gap: 2},
-        h(Badge, {variant: 'success', label: 'Claim · asserted'}),
-        h(Text, {type: 'supporting'}, 'valid 2025-01-01 →')),
-      h('div', {style: {marginTop: 8}},
-        h(Text, {}, 'A사는 AI 가속기 부품을 B사에 주로 의존한다.')),
-      h('div', {style: {marginTop: 8}},
-        id('id claim-123 · predicate depends_on · subj A사 · obj B사'))),
+    claimFocus({badgeLabel: 'Claim · asserted', validLabel: 'valid 2025-01-01 →',
+      text: 'A사는 AI 가속기 부품을 B사에 주로 의존한다.',
+      meta: 'id claim-123 · predicate depends_on · subj A사 · obj B사'}),
 
     confidence('0.61', '7', '2'),
 
-    h('div', {style: {marginTop: 16, padding: '10px 12px',
-      border: '1px solid var(--color-border)', borderRadius: 'var(--radius-element)'}},
-      h(Text, {type: 'label'}, '독립성 보정'),
-      h('div', {style: {marginTop: 4}},
-        h(Text, {type: 'supporting'},
-          '지지 근거 5건 중 4건이 동일 보도자료(doc-5540)에서 파생(dup_cluster: dc-77). '
-          + '유효 독립 출처 2건으로 집계. 근거 수만으로 confidence 를 부풀리지 않음.'))),
+    independenceNote(
+      '지지 근거 5건 중 4건이 동일 보도자료(doc-5540)에서 파생(dup_cluster: dc-77). '
+      + '유효 독립 출처 2건으로 집계. 근거 수만으로 confidence 를 부풀리지 않음.'),
 
     sectionLabel('Supporting Evidence · 지지'),
     evidenceCard({
@@ -102,19 +80,7 @@ const evidencePanel = h(LayoutContent, {padding: 0},
       + 'supersedes 판정은 Council 이 별도 심의.'),
 
     sectionLabel('Provenance Trail · evd-456 → 원문'),
-    h('div', {style: {display: 'grid', gap: 8}},
-      TRAIL.map(([step, value, fields]) =>
-        h('div', {key: step, style: {border: '1px solid var(--color-border)',
-          borderRadius: 'var(--radius-element)', padding: '10px 12px'}},
-          h(Text, {type: 'label'}, step),
-          h('div', {style: {marginTop: 4}}, id(value)),
-          h('div', {style: {display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 6}},
-            fields.map(([k, v]) =>
-              h('span', {key: k, style: {fontSize: 10,
-                color: 'var(--color-text-secondary)'}},
-                `${k} `,
-                h('b', {style: {fontFamily: 'var(--font-family-code)',
-                  color: 'var(--color-text-primary)', fontWeight: 400}}, v)))))))));
+    provenanceTrail(TRAIL)));
 
 const docPanel = h(LayoutPanel, {width: 384, hasDivider: true, padding: 0, label: '원문'},
   panelHead('doc-2291 · v2', 'seg-2291-p42-s3'),
@@ -152,15 +118,7 @@ const docPanel = h(LayoutPanel, {width: 384, hasDivider: true, padding: 0, label
       h('div', {style: {marginTop: 4}},
         h(Badge, {variant: 'error', label: 'contradicts · evd-789'})))));
 
-const roundTrip = h(LayoutFooter, {hasDivider: true},
-  h('div', {style: {display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap'}},
-    h(Text, {type: 'label'}, 'Round-trip'),
-    ...['① Claim 선택', '② Evidence · Trail', '③ 원문 span 하이라이트']
-      .flatMap((s, i) => [
-        i ? h('span', {key: `a${i}`, style: {color: 'var(--color-text-secondary)'}}, '→') : null,
-        h(Text, {key: s, type: 'supporting'}, s)]),
-    h('div', {style: {flex: 1}}),
-    h(Badge, {variant: 'success', label: '결과 → 원문 3-hop 이내 · provenance 완전'})));
+const roundTrip = h(LayoutFooter, {hasDivider: true}, roundTripFooter());
 
 export const render = () => shell({
   route: 'hall-of-witnesses',

@@ -18,7 +18,6 @@ import pytest
 from orc_citadel.curated_zone import CuratedZone
 from orc_citadel.pipeline_runner import run_pipeline
 from orc_citadel.viewer import Handler
-from orc_citadel import viewer_pages as VP
 
 
 @pytest.fixture
@@ -92,65 +91,18 @@ def test_gate_cards_material_exists():
     t = json.loads(Handler._api_table(self, {}))
     assert all({"coverage", "predicates", "value",
                 "independent_source_count"} <= set(s) for s in t["subjects"])
-    assert 'id="gate-spaces"' in VP.PAGE_GATE
-    assert 'id="gate-cards"' in VP.PAGE_GATE
 
 
-# --- Archive: facet + 상세 패널 -------------------------------------------------
+# --- Spire: 정직 빈 피드 유지 ---------------------------------------------------
 
-def test_archive_has_facet_and_codex():
-    assert 'id="archive-facets"' in VP.PAGE_ARCHIVE
-    assert 'id="archive-codex"' in VP.PAGE_ARCHIVE
-
-
-# --- Chronicle: as-of 상태 카드 + War Table 딥링크 ------------------------------
-
-def test_chronicle_has_state_cards_and_deeplink():
-    assert 'id="chron-state"' in VP.PAGE_CHRONICLE
-    assert 'id="chron-deeplink"' in VP.PAGE_CHRONICLE
-
-
-# --- Spire: 트리거 필터 행 (정직 빈 피드 유지) ----------------------------------
-
-def test_spire_trigger_filter_rows():
-    assert 'id="spire-triggers"' in VP.PAGE_SPIRE
+def test_spire_honest_empty_feed():
     # honest-gap 유지: alerts=[] 정직 빈 피드는 계속 유효.
     self = types.SimpleNamespace(facade=_facade())
     r = json.loads(Handler._api_spire(self, {}))
     assert r["alerts"] == [] and len(r["trigger_catalog"]) == 5
 
 
-# --- War Table: URL as-of 파라미터 부트스트랩 ----------------------------------
 
-def test_table_url_asof_bootstrap():
-    assert "URLSearchParams" in VP.PAGE_TABLE
-    assert "as_of_valid" in VP.PAGE_TABLE or "valid_at" in VP.PAGE_TABLE
-
-
-
-# --- 인라인 JS 문법 가드 (node --check) --------------------------------------
-# 라이브 스모크에서 chronicle 스크립트의 `qs` 재선언(SyntaxError)이 패널을 통째로
-# blank 시켰다. Python 테스트는 인라인 JS를 실행하지 못해 놓친다 — 각 페이지의
-# <script> 블록을 node 로 parse 만 시켜 문법 회귀를 봉인한다.
-import re
-import shutil
-import subprocess
-
-
-@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-@pytest.mark.parametrize("page", [
-    VP.PAGE_GATE, VP.PAGE_TABLE, VP.PAGE_WATCHTOWER, VP.PAGE_SPIRE,
-    VP.PAGE_ARCHIVE, VP.PAGE_CHRONICLE, VP.PAGE_WITNESSES, VP.PAGE_COUNCIL,
-])
-def test_page_inline_js_parses(page, tmp_path):
-    scripts = re.findall(r"<script>(.*?)</script>", page, flags=re.S)
-    assert scripts, "본문에 <script> 가 있어야 한다"
-    for i, js in enumerate(scripts):
-        f = tmp_path / f"page_{i}.js"
-        f.write_text(js, encoding="utf-8")
-        r = subprocess.run(["node", "--check", str(f)],
-                           capture_output=True, text=True)
-        assert r.returncode == 0, f"JS 문법 오류 (script {i}):\n{r.stderr}"
 
 
 # --- Wave 1 remaining-gaps: backend API 스키마 스모크 --------------------------

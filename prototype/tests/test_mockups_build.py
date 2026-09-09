@@ -21,14 +21,18 @@ PAGES = [
 
 # 공간 페이지가 반드시 실어야 하는 핵심 정보 블록 (원본 목업 대비 재현 확인).
 REQUIRED = {
-    "citadel-gate": ["New Campaign", "Campaigns · 진행 중 조사", "Watchtower", "공간 빠른 진입"],
+    # 브리핑-우선 대시보드 (specs/ui-overhaul-astryx TS-3): KPI · 결론 카드 ·
+    # 변화 피드 · New Campaign 비활성(read-only) · 공간 빠른 진입.
+    "citadel-gate": ["Conclusions · 주요 결론", "Recent Changes · 최근 변화",
+                     "New Campaign", "read-only 프로토타입", "공간 빠른 진입"],
     "war-table": ["Campaign Map", "Temporal Evidence Graph", "Evidence Inspector",
                   "Chronicle", "supports", "contradicts", "superseded"],
     "hall-of-witnesses": ["Claims", "Evidence &amp; Provenance", "Provenance Trail",
                           "독립성 보정", "Round-trip"],
     "council-chamber": ["Warchief&#x27;s Council", "Investigation Loop",
                         "Stopping · Cost · Audit", "Audit Agent"],
-    "watchtower": ["Stage Throughput", "Correlation ID", "Dead-letter", "SLO"],
+    "watchtower": ["Stage Throughput", "Correlation ID", "Dead-letter", "SLO",
+                   "Grafana", "pipeline_run_metrics"],
     "grand-archive": ["Sifter", "Stacks", "Codex", "Dedup Cluster"],
     "chronicle-vault": ["Bitemporal Plane", "AS-OF Snapshot", "Supersession"],
     "signal-spire": ["Triggers", "Alert Feed", "Subscriptions", "dedup:"],
@@ -88,6 +92,44 @@ def test_every_space_is_linked_from_shell(pages: dict[str, str]) -> None:
         assert f'href="./{slug}.html"' in pages["war-table"], slug
 
 
+def test_index_cards_show_space_heroes(pages: dict[str, str]) -> None:
+    """index 공간 카드는 준비된 히어로 삽화 8종을 썸네일로 싣는다."""
+    html = pages["index"]
+    heroes = ["gate-hero.png", "war-table-hero.png", "hall-of-witnesses-hero.png",
+              "signal-spire-hero.png", "grand-archive-hero.png",
+              "council-chamber-hero.png", "watchtower-hero.png",
+              "chronicle-vault-hero.png"]
+    missing = [f for f in heroes if f not in html]
+    assert not missing, f"index 카드 미포함 삽화: {missing}"
+
+
+def test_shell_nav_is_two_tiered(pages: dict[str, str]) -> None:
+    """브리핑-우선 IA (specs TS-3) — 1차 4공간 + '운영 · 감사' 2차 그룹 + ⌘K 힌트."""
+    html = pages["war-table"]
+    assert "운영 · 감사" in html
+    assert "⌘K" in html
+    # 2차 그룹 강등 후에도 8공간 링크 전부 유지 (test_every_space_is_linked_from_shell 보완).
+    assert 'href="./watchtower.html"' in html
+
+
+def test_brand_logo_wired(pages: dict[str, str]) -> None:
+    """신규 로고 반입(FR-4) — 셸 워드마크 mark+title 이미지 + head favicon."""
+    html = pages["war-table"]  # 셸 공통 요소는 아무 공간 페이지에서나 보인다
+    # GNB 는 타이틀 레터링만 노출한다 — 오크 얼굴 mark 제외 (2026-09-08 확정).
+    assert "logo-title.png" in html
+    assert "logo-mark.png" not in html
+    assert 'rel="icon"' in html and "favicon-32.png" in html
+    # 크기는 인라인 style 로 잡아야 한다 — reset.css `:where(img){height:auto}` 가
+    # height *속성*을 덮어써 로고가 자연 크기(1129px)로 커지는 회귀 방지.
+    # 글자 이미지라 mark+title 조합 때(22px)보다 키운다.
+    assert "height:30px" in html
+    # mark 는 Gate 브랜드 블록·index 에서만 계속 쓴다.
+    assert "logo-mark.png" in pages["citadel-gate"]
+    # 교체 완료 후 구 crest-hero 참조는 남지 않는다 (파일은 이력 보존 차원에서 유지)
+    for name, page in pages.items():
+        assert "crest-hero.png" not in page, name
+
+
 def test_assets_referenced_exist(pages: dict[str, str]) -> None:
     """히어로·초상·빈상태 PNG 참조가 전부 실제 파일로 존재한다."""
     source = DIST / "assets"
@@ -102,10 +144,10 @@ def test_assets_referenced_exist(pages: dict[str, str]) -> None:
 # 히어로는 전부 1920×720 (8:3). 원본처럼 132px 고정 밴드에 cover 로 넣으면
 # 세로 23% 만 보여 장면이 안 읽힌다. 히어로가 있는 페이지는 전부 8:3 을 지키되,
 # 상한으로 본문 공간을 지킨다 — 상한이 없으면 2560px 뷰포트에서 960px 를 먹는다.
+# 8공간 동일 셸 — 문서형(액자 히어로·360px) 특례는 Gate·Watchtower 만 다르게
+# 보이는 문제로 폐지했다 (2026-09-08 사용자 피드백).
 HERO_CAP = {
-    # 문서형 — 좌·우 패널이 없어 세로를 더 쓸 수 있다.
-    "citadel-gate": 360, "watchtower": 360,
-    # 앱셸 — 3열 본문에 세로를 남긴다. 그래도 원본 132px 보다 훨씬 잘 읽힌다.
+    "citadel-gate": 300, "watchtower": 300,
     "war-table": 300, "hall-of-witnesses": 300, "council-chamber": 300,
     "grand-archive": 300, "chronicle-vault": 300, "signal-spire": 300,
 }
@@ -130,30 +172,34 @@ def test_pages_without_hero_use_flat_band(pages: dict[str, str], name: str) -> N
     """
     html = pages[name]
     assert "height:132px" in html, f"{name}: 평평한 밴드가 아니다"
-    assert "aspect-ratio:8 / 3" not in html
-    assert "crest-hero.png" not in html or name == "index"
+    # 마스트헤드 히어로 밴드(8:3 + 상한 300px 조합)가 없어야 한다 — 본문 카드의
+    # 8:3 썸네일(index 공간 카드)은 무관하므로 상한 마커로 판별한다.
+    assert "max-height:300px" not in html, f"{name}: 마스트헤드가 히어로 밴드다"
 
 
 def test_masthead_has_explicit_width(pages: dict[str, str]) -> None:
     """LayoutHeader 의 flex 자식이라 width 를 안 주면 폭이 접히고,
     그러면 aspect-ratio 가 접힌 폭 기준으로 계산돼 히어로가 조각으로 나온다.
-
-    문서형은 본문 폭(CONTENT_WIDTH)에 맞춰 `calc(100% - 48px)` 로 좁힌다 —
-    넓을수록 8:3 상한에 더 많이 걸려 세로가 잘리므로 좁히는 쪽이 그림이 더 보인다.
     """
     for name in HERO_CAP:
         mast = re.search(r'style="[^"]*aspect-ratio:8 / 3[^"]*"', pages[name])
         assert mast, name
-        assert re.search(r"width:(100%|calc\(100% - 48px\))", mast.group(0)), name
+        assert "width:100%" in mast.group(0), name
         # `height:'fill'` 인 앱셸에서 헤더가 눌려 히어로가 더 잘리는 것을 막는다.
         assert "flex-shrink:0" in mast.group(0), name
 
 
-def test_document_pages_align_banner_with_content(pages: dict[str, str]) -> None:
-    """문서형 배너는 본문 폭(1200px)에 정렬된다 — 뷰어와 같은 규칙."""
-    for name in ("citadel-gate", "watchtower"):
-        mast = re.search(r'style="[^"]*aspect-ratio:8 / 3[^"]*"', pages[name])
-        assert mast and "max-width:1200px" in mast.group(0), name
+def test_all_spaces_share_gate_content_width(pages: dict[str, str]) -> None:
+    """전 공간 본문 1200px 중앙 정렬 — 기존 Gate 폭으로 통일 (2026-09-08 확정).
+
+    Astryx contentWidth 는 패널 행 전체에 걸리므로 3열 공간도 같은 폭이다.
+    마스트헤드(히어로)는 전폭 유지 — 액자 프레임 부활 아님.
+    """
+    for name, cap in HERO_CAP.items():
+        html = pages[name]
+        assert "layout-content-width:1200px" in html, name
+        mast = re.search(r'style="[^"]*aspect-ratio:8 / 3[^"]*"', html)
+        assert mast and "max-width:1200px" not in mast.group(0), name
 
 
 def test_scope_root_is_html_not_body(pages: dict[str, str]) -> None:

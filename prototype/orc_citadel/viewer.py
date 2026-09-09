@@ -21,9 +21,6 @@ from orc_citadel import viewer_static
 from orc_citadel.api_facade import ApiFacade
 from orc_citadel.curated_zone import CuratedZone
 from orc_citadel.graph_service import GraphService
-from orc_citadel.viewer_pages import (PAGE_ARCHIVE, PAGE_CHRONICLE, PAGE_COUNCIL,
-                                      PAGE_GATE, PAGE_SPIRE, PAGE_TABLE,
-                                      PAGE_WATCHTOWER, PAGE_WITNESSES)
 
 # 컨테이너에서는 VIEWER_HOST=0.0.0.0 으로 외부 바인딩 (docker-compose.yml).
 HOST, PORT = os.environ.get("VIEWER_HOST", "127.0.0.1"), 8791
@@ -268,6 +265,49 @@ _STYPE_SQL = ("CASE WHEN split_part(source_id, '-', 1) IN ("
 ARCHIVE_LIMIT_DEFAULT, ARCHIVE_LIMIT_MAX = 50, 500
 _ARCHIVE_SORTS = {"doc_id": "doc_id",
                   "publication": "publication_time DESC NULLS LAST, doc_id"}
+
+
+def _recent_run_metrics(connect=None, limit: int = 5) -> dict:
+    """pipeline_run_metrics 최근 런 요약 (read-only 표시용 — TS-6).
+
+    run 단위 drill-down 은 Grafana 몫 — 여기는 최근 런 스칼라 요약만.
+    postgres 미가동/드라이버 부재는 정직 빈 (§6.2 — 가짜 런 없음).
+    """
+    tables = ["pipeline_run_metrics", "pipeline_slo_observations"]
+    conn = None
+    try:
+        if connect is not None:
+            conn = connect()
+        else:
+            import psycopg
+            from orc_citadel.postgres_mutation_log import build_dsn
+            conn = psycopg.connect(build_dsn())
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT run_id, job_id, MIN(recorded_at) AS started "
+            "FROM pipeline_run_metrics GROUP BY run_id, job_id "
+            "ORDER BY started DESC LIMIT %s", (limit,))
+        heads = cur.fetchall()
+        runs = []
+        for run_id, job_id, started in heads:
+            cur.execute(
+                "SELECT run_id, metric, value FROM pipeline_run_metrics "
+                "WHERE run_id = %s AND labels = '{}'::jsonb".replace("{}", "{" + "}"),
+                (run_id,))
+            metrics = {m: v for _, m, v in cur.fetchall()}
+            runs.append({"run_id": run_id, "job_id": job_id,
+                         "recorded_at": str(started), "metrics": metrics})
+        return {"available": True, "runs": runs, "source_tables": tables}
+    except Exception as exc:
+        return {"available": False, "runs": [], "source_tables": tables,
+                "note": f"run 메트릭 조회 불가 — postgres 미가동/미영속 "
+                        f"(honest-gap §6.2): {exc}"}
+    finally:
+        if conn is not None and connect is None:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 def _qs_int(raw, default: int, lo: int, hi: int) -> int:
@@ -696,7 +736,10 @@ class Handler(BaseHTTPRequestHandler):
                 },
             })
         return {"sources": sources, "freshness": _freshness(norm_db),
-                "intake": intake, "slo": _slo_panel()}
+                "intake": intake, "slo": _slo_panel(),
+                # 표시용 run 메트릭 요약 (TS-6) — drill-down 은 Grafana 몫.
+                "run_metrics": _recent_run_metrics(
+                    getattr(self, "metrics_connect", None))}
 
     @_j
     def _api_spire(self, qs):
@@ -1053,25 +1096,32 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body); return
 
 
-        if parsed.path.startswith("/assets/"):
+        if parsed.path.startswith("/assets/") or parsed.path.startswith("/app/"):
             self._serve_asset(parsed.path); return
 
-        page = _page_for(parsed.path)
-        if page is None:
-            # 미지정 경로가 Gate HTML 200 을 돌려주던 것을 바로잡는다 —
-            # 오타 링크·없는 자산이 조용히 성공하면 디버깅이 어렵다.
-            body = b"404 Not Found"
-            self.send_response(404)
+        # 공간 라우트는 frontend dist 가 유일한 표시 계층이다 (TS-1 — 인라인
+        # 페이지·/legacy/* 는 8공간 이관 완료로 제거, Step 15). dist 는 커밋
+        # 대상이라 부재는 빌드/배포 결손 — 조용한 대체 화면 없이 정직 503.
+        dist_entry = _MIGRATED.get(parsed.path)
+        if dist_entry is not None:
+            # 인스턴스 → 클래스 속성 순 (테스트가 인스턴스에 roots 를 주입한다)
+            roots = getattr(self, "static_roots", None)
+            if roots is not None and roots.resolve(f"/app/{dist_entry}") is not None:
+                self._serve_asset(f"/app/{dist_entry}"); return
+            body = ("503: frontend dist 없음 — frontend 에서 `npm run build` "
+                    "후 커밋한다 (frontend/dist 는 커밋 대상)").encode()
+            self.send_response(503)
             self.send_header("Content-Type", "text/plain; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers(); self.wfile.write(body); return
 
-        body = page.encode()
-        self.send_response(200)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
+        # 미지정 경로가 Gate HTML 200 을 돌려주던 것을 바로잡는다 —
+        # 오타 링크·없는 자산이 조용히 성공하면 디버깅이 어렵다.
+        body = b"404 Not Found"
+        self.send_response(404)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+        self.end_headers(); self.wfile.write(body)
 
     def _serve_asset(self, url_path: str) -> None:
         """`/assets/*` — 리포의 자산을 참조 서빙한다 (복제하지 않음)."""
@@ -1088,27 +1138,29 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", mime)
         self.send_header("Content-Length", str(len(data)))
-        # 생성물은 내용이 바뀌면 파일명이 아니라 내용이 바뀐다 — 짧게만 캐시한다.
-        self.send_header("Cache-Control", "public, max-age=3600")
+        # dist 번들(/app/*)은 청크 이름이 안정(해시 없음)이라, 캐시된 구 공유
+        # 청크 + 새 엔트리 혼합이 빈 화면을 만든다 (재배포마다 실측 재발) —
+        # no-cache 로 매 요청 재검증한다. 공용 자산은 짧게 캐시 유지.
+        if url_path.startswith("/app/"):
+            self.send_header("Cache-Control", "no-cache")
+        else:
+            self.send_header("Cache-Control", "public, max-age=3600")
         self.end_headers()
         self.wfile.write(data)
 
 
-_PAGES = {
-    "/": PAGE_GATE,           # Citadel Gate (진입 대시보드)
-    "/table": PAGE_TABLE,     # War Table 3+1 (Campaign Map · 캔버스 · Inspector · Chronicle)
-    "/witnesses": PAGE_WITNESSES,  # 증거 검사 · 원문 왕복
-    "/council": PAGE_COUNCIL,      # 조사 보고서 조회
-    "/watchtower": PAGE_WATCHTOWER,  # 수집 관제
-    "/spire": PAGE_SPIRE,            # 알림 센터
-    "/archive": PAGE_ARCHIVE,        # 문서 탐색
-    "/chronicle": PAGE_CHRONICLE,    # 시간 탐색
+# canonical 라우트 → frontend dist 엔트리 (8공간 이관 완료 — TS-1).
+_MIGRATED = {
+    "/": "gate.html",
+    "/witnesses": "witnesses.html",
+    "/table": "table.html",
+    "/archive": "archive.html",
+    "/spire": "spire.html",
+    "/council": "council.html",
+    "/watchtower": "watchtower.html",
+    "/chronicle": "chronicle.html",
 }
 
-
-def _page_for(path: str) -> str | None:
-    """라우트 → 페이지 HTML. 미지정 경로는 None (호출자가 404)."""
-    return _PAGES.get(path)
 
 def main() -> None:
     Handler.facade = _build()

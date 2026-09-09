@@ -1,10 +1,11 @@
 /** Chronicle Vault · 시간 탐색 — 두 축 설명 | Bitemporal Plane | AS-OF Snapshot | Chronicle rail. */
 
 import {LayoutContent, LayoutPanel, LayoutFooter} from '@astryxdesign/core/Layout';
-import {shell} from '../shell.mjs';
+import {shell} from '../../../ui/shell.mjs';
 import {
-  h, Card, Badge, Text, sectionLabel, confidence, rawSvg, id, panelHead, grid,
-} from '../ui.mjs';
+  h, Card, Badge, Text, sectionLabel, confidence, id, panelHead, grid,
+} from '../../../ui/components.mjs';
+import {rawSvg} from '../../../ui/svg-node.mjs';
 
 export const title = 'Chronicle Vault · 시간 탐색 — Orc Citadel';
 

@@ -1,8 +1,8 @@
 /** 빈 상태 아트 — 각 공간의 no-data 상태를 한데 모아 확인하는 참조 페이지. */
 
 import {LayoutContent} from '@astryxdesign/core/Layout';
-import {shell} from '../shell.mjs';
-import {h, Card, Text, emptyState, grid} from '../ui.mjs';
+import {shell} from '../../../ui/shell.mjs';
+import {h, Card, Text, emptyState, grid} from '../../../ui/components.mjs';
 
 export const title = '빈 상태 아트 · Empty States — Orc Citadel';
 

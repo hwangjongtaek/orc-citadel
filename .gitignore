@@ -27,3 +27,6 @@ prototype/data/
 
 # Node (design-system 테마 저작 도구 — 런타임 아님)
 node_modules/
+# design-system/ui 는 자체 의존을 두지 않고 mockups 의 것을 심링크로 공유한다
+# (단일 react 인스턴스 보장). 심링크 파일 자체는 커밋한다.
+!design-system/ui/node_modules

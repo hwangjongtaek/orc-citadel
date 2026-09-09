@@ -25,6 +25,23 @@ services:
   opensearch:
     ports: !override []
 
+  grafana:
+    # loopback 바인딩은 base 상속 (127.0.0.1:3000) — SSH 터널로 접근.
+    restart: unless-stopped
+
+  duckdb-ui:
+    # loopback 바인딩은 base 상속 (127.0.0.1:4213) — SSH 터널로 접근.
+    # proddata 의 parquet subpath 만 read-only — .duckdb 는 볼 수 없다.
+    # 전제: 첫 스냅샷(스케줄러 런 또는 수동 1회)이 parquet/ 를 만든 뒤 기동.
+    restart: unless-stopped
+    volumes: !override
+      - type: volume
+        source: proddata
+        target: /data/parquet
+        read_only: true
+        volume:
+          subpath: parquet
+
   prototype:
     # viewer — prod 포트 바인딩도 loopback 기본. 외부 공개는 VIEWER_BIND=0.0.0.0
     image: orc-citadel-prototype:latest

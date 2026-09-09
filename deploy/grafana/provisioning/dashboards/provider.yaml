@@ -1,0 +1,13 @@
+# 대시보드 provisioning provider (TS-6) — 이 디렉터리의 *.json 을 로드한다.
+# 대시보드는 as-code 가 SoT: UI 편집은 영속되지 않는다 (allowUiUpdates false).
+apiVersion: 1
+
+providers:
+  - name: citadel
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    updateIntervalSeconds: 30
+    options:
+      path: /etc/grafana/provisioning/dashboards
+      foldersFromFilesStructure: false
