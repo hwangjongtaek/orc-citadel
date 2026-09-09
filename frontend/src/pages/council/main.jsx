@@ -23,6 +23,7 @@ import {Palette, usePaletteHotkey} from '../../lib/palette.jsx';
 const urls = APP_URLS;
 const jfetch = (p) => fetch(p)
   .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`${p} → ${r.status}`))));
+const num = (n) => Number(n || 0).toLocaleString();
 
 const SIGNAL_TONE = {high_confidence: 'success', contradicted: 'error',
                      low_evidence: 'warning', normal: 'neutral'};
@@ -58,20 +59,23 @@ function useCouncil() {
   }, []);
 
   // trace 는 on-request 계산이다 — 로드 시 자동 fetch 없음, 버튼 클릭 시 1회.
-  const runTrace = React.useCallback(() => {
+  // useLlm(W2 옵트인) — 문장 종합만 LLM, 결론·근거는 결정적 그대로.
+  const runTrace = React.useCallback((useLlm) => {
     if (!subjectId) return;
     setTracing(true);
-    jfetch(`/api/investigate?subject=${encodeURIComponent(subjectId)}`)
+    jfetch(`/api/investigate?subject=${encodeURIComponent(subjectId)}`
+           + (useLlm ? '&mode=llm' : ''))
       .then(setTrace).catch(setError).finally(() => setTracing(false));
   }, [subjectId]);
 
   // 조사 지시 (W1) — 자유 질문을 서버가 entity name 으로 해소해 조사한다.
   // 해소된 known subject 가 랭킹에 있으면 보고서도 그 대상으로 전환.
-  const runQuestion = React.useCallback((q) => {
+  const runQuestion = React.useCallback((q, useLlm) => {
     const question = (q || '').trim();
     if (!question) return;
     setTracing(true);
-    jfetch(`/api/investigate?question=${encodeURIComponent(question)}`)
+    jfetch(`/api/investigate?question=${encodeURIComponent(question)}`
+           + (useLlm ? '&mode=llm' : ''))
       .then((res) => {
         setTrace(res);
         const hit = (res.resolved || []).find((x) => x.known);
@@ -90,6 +94,7 @@ function App() {
   const s = useCouncil();
   const [paletteOpen, setPaletteOpen] = React.useState(false);
   const [question, setQuestion] = React.useState('');
+  const [useLlm, setUseLlm] = React.useState(false);
   usePaletteHotkey(setPaletteOpen);
 
   const names = React.useMemo(() => new Map(
@@ -115,7 +120,7 @@ function App() {
           border: '1px solid var(--color-border)',
           borderRadius: 'var(--radius-inner)', fontSize: 12,
           color: 'var(--color-text-primary)', outline: 'none'}}),
-      h('button', {onClick: () => s.runQuestion(question),
+      h('button', {onClick: () => s.runQuestion(question, useLlm),
         disabled: s.tracing || !question.trim(),
         style: {width: '100%', padding: '8px 10px', cursor: 'pointer',
           border: '1px solid var(--color-accent)',
@@ -125,6 +130,14 @@ function App() {
           fontWeight: 600, color: 'var(--color-accent)',
           opacity: s.tracing || !question.trim() ? .5 : 1}},
         s.tracing ? '조사 중…' : '조사 지시 (on-request · read-only)'),
+      // W2 옵트인 — 문장 종합만 LLM. 결론 봉투·근거·audit 는 결정적 그대로.
+      h('label', {style: {display: 'flex', alignItems: 'center', gap: 6,
+        marginTop: 8, cursor: 'pointer', fontSize: 11.5,
+        color: 'var(--color-text-secondary)'}},
+        h('input', {type: 'checkbox', checked: useLlm, disabled: s.tracing,
+          onChange: (e) => setUseLlm(e.target.checked),
+          style: {accentColor: 'var(--color-accent)'}}),
+        'LLM 종합 — 문장만 LLM 생성 (비결정적 · 토큰 실측 표기)'),
       t && t.question ? h('div', {style: {marginTop: 8}},
         h('div', {style: {display: 'flex', flexWrap: 'wrap', gap: 6}},
           (t.resolved || []).map((rv, i) =>
@@ -233,7 +246,9 @@ function App() {
         : (t.statements || []).length
           ? t.statements.map((st, i) =>
               h('div', {key: i},
-                turnCard({agent: 'Synthesis Agent', model: st.modality || null,
+                turnCard({agent: t.mode === 'llm'
+                    ? `LLM Synthesis · ${(t.llm && t.llm.model) || ''}`
+                    : 'Synthesis Agent', model: st.modality || null,
                   body: st.text || '',
                   evidence: st.claim_ref
                     ? `claim_ref ${st.claim_ref}` : 'claim_ref 없음 (prediction/opinion)'}),
@@ -252,7 +267,8 @@ function App() {
     label: 'Stopping · Cost · Audit'},
     panelHead('Stopping · Cost · Audit', 'read-only'),
     h('div', {style: {padding: 16}},
-      h('button', {onClick: s.runTrace, disabled: s.tracing || !s.subjectId,
+      h('button', {onClick: () => s.runTrace(useLlm),
+        disabled: s.tracing || !s.subjectId,
         style: {width: '100%', padding: '9px 12px', cursor: 'pointer',
           border: '1px solid var(--color-accent)', background: 'rgba(69,224,111,.08)',
           borderRadius: 'var(--radius-element)',
@@ -286,9 +302,15 @@ function App() {
             'A·B·C 는 보고서 dimensions — trace 실행 시 terminated_by 를 병기'),
 
       sectionLabel('비용 · Cost'),
+      // LLM 종합(mode=llm) 실행 시에만 토큰 실측 — usd 는 단가 미확정이라 '—'
+      // 유지 (§6.2). 결정적 경로는 LLM 미사용이라 전부 '—'.
       grid(2, 8,
-        ...[['—', 'llm usd'], ['—', 'tool calls'], ['—', 'tokens in'],
-            ['—', 'tokens out']].map(([v, c]) =>
+        ...(() => {
+          const lu = (t && t.llm && t.llm.used && t.llm.usage) || null;
+          return [['—', 'llm usd'], [lu ? '1' : '—', 'llm calls'],
+                  [lu ? num(lu.input_tokens) : '—', 'tokens in'],
+                  [lu ? num(lu.output_tokens) : '—', 'tokens out']];
+        })().map(([v, c]) =>
           h('div', {key: c, style: {padding: '8px 10px',
             border: '1px solid var(--color-border)',
             borderRadius: 'var(--radius-inner)'}},
@@ -299,8 +321,14 @@ function App() {
               marginTop: 2}}, c)))),
       h('div', {style: {marginTop: 8}},
         h(Text, {type: 'supporting'},
-          (r && r.execution && r.execution.note)
-          || '조사 실행(쓰기)은 범위 밖 — 비용·턴 로그 미영속 (honest-gap §6.2)')),
+          t && t.llm && t.llm.used
+            ? `LLM 종합 실측 — ${t.llm.model || t.llm.provider} · `
+              + `폐기 ${t.llm.discarded} · 차단 ${t.llm.blocked} · `
+              + '단가 미확정이라 usd 미표기 (§6.2)'
+            : t && t.llm && !t.llm.used
+              ? `LLM 종합 미수행 — ${t.llm.error}`
+              : (r && r.execution && r.execution.note)
+                || '조사 실행(쓰기)은 범위 밖 — 비용·턴 로그 미영속 (honest-gap §6.2)')),
 
       sectionLabel('Audit Agent · 역추적 감사'),
       !at ? h(Text, {type: 'supporting'},

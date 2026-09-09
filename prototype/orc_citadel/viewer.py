@@ -649,8 +649,43 @@ class Handler(BaseHTTPRequestHandler):
         # Planner 산출 — 지식/공백 구분된 subclaim 트리 노출 (07 §3.2).
         planned_view = [{"id": sc.id, "text": sc.text, "known": sc.known,
                          "gap_reason": sc.gap_reason} for sc in planned.subclaims]
-        # Audit §3.9 — 문장 → claim → source span 역추적 trace 노출 (연결률 = 1.0).
-        audit_trace = self.facade.zone and Audit().trace(rep.statements, z)
+        # LLM 종합 (W2, mode=llm 옵트인) — 문장 표현만 LLM, 결론 봉투·근거는
+        # 결정적 산출 그대로. 실패·미설정은 결정적 문장 유지 + 정직 표기.
+        statements = list(rep.statements)
+        llm_view = None
+        if (qs.get("mode") or "").strip() == "llm":
+            from orc_citadel import llm_investigation as li
+
+            client = getattr(self, "llm_client", None) or li.default_client()
+            ev = li.evidence_rows(z, seed) if seed else []
+            if client is None:
+                llm_view = {"used": False,
+                            "error": "LLM 미설정 (LLM_* env) — 결정적 문장 유지"}
+            elif not ev:
+                llm_view = {"used": False,
+                            "error": "근거 claim 없음 — LLM 종합 생략"}
+            else:
+                name = next((e["canonical_name"] for e in z.entities()
+                             if e["entity_id"] == seed), seed)
+                out = li.LlmSynthesis(client).synthesize(
+                    name, question or seed, ev)
+                if out is None or not out["statements"]:
+                    llm_view = {"used": False,
+                                "error": "LLM 호출 실패/산출 없음 — 결정적 문장 유지"}
+                else:
+                    # ADR-703 — LLM 문장도 §3.9 역추적, 미통과는 응답에서 차단.
+                    tr = Audit().trace(out["statements"], z)
+                    kept = [st for st, row in zip(out["statements"], tr["trace"])
+                            if row["verified"]]
+                    statements = kept
+                    llm_view = {"used": True, "model": out["model"],
+                                "provider": out["provider"],
+                                "usage": out["usage"],
+                                "discarded": out["discarded"],
+                                "blocked": len(out["statements"]) - len(kept)}
+        # Audit §3.9 — 최종 문장(결정적 또는 LLM 교체분) 기준 역추적 trace.
+        audit_trace = self.facade.zone and Audit().trace(statements, z)
+        audit = Audit().verify_from_trace(audit_trace) if audit_trace else rep.audit
         # Investigation 대시보드 (11 §2.2 D8) — coverage·독립 증거·비용·latency.
         from orc_citadel.investigation_dashboard import investigation_dashboard, Coverage
         indep = inv.coverage and graph_view["independence_summary"].get(
@@ -678,9 +713,12 @@ class Handler(BaseHTTPRequestHandler):
             "counter_evidence": list(inv.counter_evidence),
             "retrieved": list(inv.retrieved)[:10],
             "conclusion": rep.conclusion,
-            "statements": rep.statements,
+            "statements": statements,
             "open_questions": rep.open_questions,
-            "audit": rep.audit,
+            "audit": audit,
+            # LLM 종합 (W2) — 옵트인 시에만. 결론·근거 계층은 결정적 그대로.
+            "mode": "llm" if (llm_view and llm_view["used"]) else "deterministic",
+            "llm": llm_view,
             # 확장: audit_trace {trace,blocked_statements,verifiable,linked,linkage_ratio}.
             "audit_trace": audit_trace,
             "dashboard": dashboard,

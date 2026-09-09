@@ -112,7 +112,9 @@ def test_council_bundle_wires_report_and_trace() -> None:
     for marker in ("/api/council", "/api/investigate", "planned_subclaims",
                    "audit_trace", "terminated_by",
                    # 조사 지시 (W1) — 자유 질문 입구 + 해소 결과(known/gap) 렌더.
-                   "investigate?question=", "resolved"):
+                   "investigate?question=", "resolved",
+                   # LLM 종합 (W2) — mode=llm 옵트인 + 토큰 실측 표기.
+                   "mode=llm", "LLM 종합"):
         assert marker in js, marker
 
 
