@@ -182,6 +182,7 @@
 가장 최신이 위로. 스펙·설계 변경을 기록한다 (구현 세부 커밋은 git 이력).
 
 ### 2026-09-09
+- **Watchtower Components 패널 — 동반 구성요소 도달성 실측·접속 일원화.** `/api/watchtower` 에 `components` 신설(`component_status.py`): compose 동반 6종(postgres·minio·neo4j·opensearch·grafana·duckdb-ui)의 도달성을 뷰어 프로세스 **TCP 연결 수락 실측**으로 판정(가짜 up 없음 — 미가동은 unreachable 그대로, 앱 헬스 아님 명시). 호스트 해석은 컨테이너(compose 서비스 DNS) ↔ 로컬(127.0.0.1) 자동 폴백 — prod/로컬 동일 카탈로그. Watchtower 에 상태 Badge + 접속 링크 패널(런타임 host 조립 — 오리진 리터럴 금지 가드 유지, DuckDB UI 는 `localhost` 강제 함정 표기). 스위트 1318.
 - **UI 전면 개편 완결 (specs/ui-overhaul-astryx — 16 steps 전체 Done).** 8공간 전부 `frontend/` React 산출물이 canonical 표시 계층으로 전환 완료(브리핑 가치 순 Gate → Witnesses → War Table → Archive → Spire → Council → Watchtower → Chronicle, 공간당 TDD 선작성·browser E2E 실측). **인라인 표시 계층 제거:** `viewer_pages.py`·`*_ext.py`(4,652줄)와 `/legacy/*` 라우트 일괄 삭제 — 뷰어는 API 서버 + 정적 서빙으로 축소, dist 부재는 폴백 없이 정직 503. **FR-6 Grafana:** run 메트릭 postgres flush(`run_metrics.py`, append-only·비차단) + compose 사이드카(oss 11.5.1 핀·loopback·익명 Viewer·read-only DB 계정) + pipeline 대시보드 7패널(미계측 stage·quarantine 은 No data 정직 표기) + Watchtower 딥링크. **FR-7 데이터 브라우징:** parquet 스냅샷 export(원자 교체·잠금 폴백·105k 문서 0.6s 실측) + DuckDB UI 사이드카(parquet 만 ro 마운트 — `.duckdb` attach 금지 명문화) + `docs/operating/data-browsing.md` 가이드. **운영 함정 실측 봉인:** `/app/*` no-cache(안정 청크명 + 캐시가 재배포마다 구/신 청크 혼합 빈 화면 유발), DuckDB UI 는 `localhost` Origin 강제(127.0.0.1 은 401). wire 계약 무변경 → **Spec 1.1.0 유지**.
 
 ### 2026-09-08

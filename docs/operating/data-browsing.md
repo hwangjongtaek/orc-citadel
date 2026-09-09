@@ -16,6 +16,10 @@
 
 접근 정책은 전부 viewer 와 동일 — **loopback 바인딩 + SSH 터널**. 인증 신설 없음.
 
+> 뷰어 **Watchtower(`/watchtower`)의 Components 패널**이 위 도구들의 도달성
+> (뷰어 프로세스 TCP 연결 실측)과 접속 링크를 한곳에 제공한다 — 링크는 접속
+> host 로 런타임 조립되며, DuckDB UI 만 `localhost` 강제(§3 Origin 함정).
+
 ## 2. ⚠ 규칙: `.duckdb` 직접 attach 금지
 
 외부 도구(DuckDB CLI·UI·DBeaver 등)로 `oc.duckdb`·`curated.duckdb` 를 **직접

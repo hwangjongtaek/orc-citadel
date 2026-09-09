@@ -125,6 +125,16 @@ def test_watchtower_bundle_wires_metrics_and_grafana() -> None:
         assert marker in js, marker
 
 
+def test_watchtower_bundle_wires_component_access() -> None:
+    """Watchtower 구성요소 패널 — /api/watchtower components(도달성 실측)를
+    소비하고, duckdb-ui localhost 강제(requires_localhost)·미도달 정직 표기
+    (unreachable)를 렌더한다. 오리진 리터럴 없이 런타임 host 조립."""
+    js = "".join(f.read_text(encoding="utf-8", errors="ignore")
+                 for f in sorted(DIST.rglob("*.js")))
+    for marker in ("reachable", "unreachable", "requires_localhost", "ui_port"):
+        assert marker in js, marker
+
+
 def test_chronicle_bundle_wires_bitemporal_axes() -> None:
     """Chronicle (TS-5) — /api/chronicle bounds·events 실측을 소비하고 as-of
     딥링크(as_of_valid·as_of_tx)와 supersedes 체인을 만든다. valid 축 실측
