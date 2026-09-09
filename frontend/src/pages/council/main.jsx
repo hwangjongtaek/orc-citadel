@@ -23,6 +23,7 @@ import {Palette, usePaletteHotkey} from '../../lib/palette.jsx';
 const urls = APP_URLS;
 const jfetch = (p) => fetch(p)
   .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`${p} → ${r.status}`))));
+const num = (n) => Number(n || 0).toLocaleString();
 
 const SIGNAL_TONE = {high_confidence: 'success', contradicted: 'error',
                      low_evidence: 'warning', normal: 'neutral'};
@@ -46,25 +47,54 @@ function useCouncil() {
 
   React.useEffect(() => {
     if (!subjectId) return;
-    setReport(null); setTrace(null);
+    setReport(null);
     jfetch(`/api/council?subject=${encodeURIComponent(subjectId)}`)
       .then(setReport).catch(setError);
   }, [subjectId]);
 
+  // 수동 subject 전환 — 이전 trace 는 다른 대상 것이라 비운다. 질문 조사가
+  // 해소한 subject 로 전환할 때는 trace 를 유지해야 해서 effect 가 아니라 여기서.
+  const selectSubject = React.useCallback((sid) => {
+    setTrace(null); setSubjectId(sid);
+  }, []);
+
   // trace 는 on-request 계산이다 — 로드 시 자동 fetch 없음, 버튼 클릭 시 1회.
-  const runTrace = React.useCallback(() => {
+  // useLlm(W2 옵트인) — 문장 종합만 LLM, 결론·근거는 결정적 그대로.
+  const runTrace = React.useCallback((useLlm) => {
     if (!subjectId) return;
     setTracing(true);
-    jfetch(`/api/investigate?subject=${encodeURIComponent(subjectId)}`)
+    jfetch(`/api/investigate?subject=${encodeURIComponent(subjectId)}`
+           + (useLlm ? '&mode=llm' : ''))
       .then(setTrace).catch(setError).finally(() => setTracing(false));
   }, [subjectId]);
 
-  return {table, subjectId, setSubjectId, report, trace, tracing, runTrace, error};
+  // 조사 지시 (W1) — 자유 질문을 서버가 entity name 으로 해소해 조사한다.
+  // 해소된 known subject 가 랭킹에 있으면 보고서도 그 대상으로 전환.
+  const runQuestion = React.useCallback((q, useLlm) => {
+    const question = (q || '').trim();
+    if (!question) return;
+    setTracing(true);
+    jfetch(`/api/investigate?question=${encodeURIComponent(question)}`
+           + (useLlm ? '&mode=llm' : ''))
+      .then((res) => {
+        setTrace(res);
+        const hit = (res.resolved || []).find((x) => x.known);
+        if (hit && table
+            && table.subjects.some((s) => s.subject_id === hit.subject_id)) {
+          setSubjectId(hit.subject_id);
+        }
+      }).catch(setError).finally(() => setTracing(false));
+  }, [table]);
+
+  return {table, subjectId, selectSubject, report, trace, tracing,
+          runTrace, runQuestion, error};
 }
 
 function App() {
   const s = useCouncil();
   const [paletteOpen, setPaletteOpen] = React.useState(false);
+  const [question, setQuestion] = React.useState('');
+  const [useLlm, setUseLlm] = React.useState(false);
   usePaletteHotkey(setPaletteOpen);
 
   const names = React.useMemo(() => new Map(
@@ -76,13 +106,57 @@ function App() {
   const roleState = (role) => !t ? 'idle'
     : (role.wire && role.wire(t) ? 'executed' : 'not-run');
 
-  // 좌 — Subjects 선택 + Warchief's Council 8 Agent
+  // 조사 지시 (W1) — 질문 입력 → 서버 entity 해소 → trace. 해소 결과는
+  // known/gap 그대로 표기 — 지식 밖 질문은 산출 없이 gap (§6.2).
+  const directive = h(React.Fragment, {},
+    panelHead('조사 지시 · Directive', '질문 → entity 해소 → trace'),
+    h('div', {style: {padding: '10px 12px'}},
+      h('input', {value: question, disabled: s.tracing,
+        onChange: (e) => setQuestion(e.target.value),
+        onKeyDown: (e) => { if (e.key === 'Enter') s.runQuestion(question); },
+        placeholder: '예: NVIDIA 신제품 발표를 조사',
+        style: {width: '100%', boxSizing: 'border-box', padding: '8px 10px',
+          marginBottom: 8, background: 'var(--color-background-muted)',
+          border: '1px solid var(--color-border)',
+          borderRadius: 'var(--radius-inner)', fontSize: 12,
+          color: 'var(--color-text-primary)', outline: 'none'}}),
+      h('button', {onClick: () => s.runQuestion(question, useLlm),
+        disabled: s.tracing || !question.trim(),
+        style: {width: '100%', padding: '8px 10px', cursor: 'pointer',
+          border: '1px solid var(--color-accent)',
+          background: 'rgba(69,224,111,.08)',
+          borderRadius: 'var(--radius-element)',
+          fontFamily: 'var(--font-family-heading)', fontSize: 12,
+          fontWeight: 600, color: 'var(--color-accent)',
+          opacity: s.tracing || !question.trim() ? .5 : 1}},
+        s.tracing ? '조사 중…' : '조사 지시 (on-request · read-only)'),
+      // W2 옵트인 — 문장 종합만 LLM. 결론 봉투·근거·audit 는 결정적 그대로.
+      h('label', {style: {display: 'flex', alignItems: 'center', gap: 6,
+        marginTop: 8, cursor: 'pointer', fontSize: 11.5,
+        color: 'var(--color-text-secondary)'}},
+        h('input', {type: 'checkbox', checked: useLlm, disabled: s.tracing,
+          onChange: (e) => setUseLlm(e.target.checked),
+          style: {accentColor: 'var(--color-accent)'}}),
+        'LLM 종합 — 문장만 LLM 생성 (비결정적 · 토큰 실측 표기)'),
+      t && t.question ? h('div', {style: {marginTop: 8}},
+        h('div', {style: {display: 'flex', flexWrap: 'wrap', gap: 6}},
+          (t.resolved || []).map((rv, i) =>
+            h(Badge, {key: i, variant: rv.known ? 'success' : 'warning',
+              label: `${rv.surface || rv.subject_id} · ${rv.known ? 'known' : 'gap'}`}))),
+        !(t.resolved || []).some((rv) => rv.known)
+          ? h('div', {style: {marginTop: 6}},
+              h(Text, {type: 'supporting'},
+                '지식에 없는 대상 — gap 정직 표기, 조사 산출 없음 (§6.2)'))
+          : null) : null));
+
+  // 좌 — 조사 지시 + Subjects 선택 + Warchief's Council 8 Agent
   const council = h(LayoutPanel, {width: 320, hasDivider: true, padding: 0,
     label: "Warchief's Council"},
+    directive,
     panelHead('Subjects', `랭킹 · ${((s.table && s.table.subjects) || []).length}`),
     h('div', {style: {padding: '10px 12px'}},
       ((s.table && s.table.subjects) || []).map((sub) =>
-        h('div', {key: sub.subject_id, onClick: () => s.setSubjectId(sub.subject_id),
+        h('div', {key: sub.subject_id, onClick: () => s.selectSubject(sub.subject_id),
           style: {cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8,
             justifyContent: 'space-between', padding: '7px 10px', marginBottom: 4,
             border: `1px solid ${sub.subject_id === s.subjectId
@@ -172,7 +246,9 @@ function App() {
         : (t.statements || []).length
           ? t.statements.map((st, i) =>
               h('div', {key: i},
-                turnCard({agent: 'Synthesis Agent', model: st.modality || null,
+                turnCard({agent: t.mode === 'llm'
+                    ? `LLM Synthesis · ${(t.llm && t.llm.model) || ''}`
+                    : 'Synthesis Agent', model: st.modality || null,
                   body: st.text || '',
                   evidence: st.claim_ref
                     ? `claim_ref ${st.claim_ref}` : 'claim_ref 없음 (prediction/opinion)'}),
@@ -191,7 +267,8 @@ function App() {
     label: 'Stopping · Cost · Audit'},
     panelHead('Stopping · Cost · Audit', 'read-only'),
     h('div', {style: {padding: 16}},
-      h('button', {onClick: s.runTrace, disabled: s.tracing || !s.subjectId,
+      h('button', {onClick: () => s.runTrace(useLlm),
+        disabled: s.tracing || !s.subjectId,
         style: {width: '100%', padding: '9px 12px', cursor: 'pointer',
           border: '1px solid var(--color-accent)', background: 'rgba(69,224,111,.08)',
           borderRadius: 'var(--radius-element)',
@@ -225,9 +302,15 @@ function App() {
             'A·B·C 는 보고서 dimensions — trace 실행 시 terminated_by 를 병기'),
 
       sectionLabel('비용 · Cost'),
+      // LLM 종합(mode=llm) 실행 시에만 토큰 실측 — usd 는 단가 미확정이라 '—'
+      // 유지 (§6.2). 결정적 경로는 LLM 미사용이라 전부 '—'.
       grid(2, 8,
-        ...[['—', 'llm usd'], ['—', 'tool calls'], ['—', 'tokens in'],
-            ['—', 'tokens out']].map(([v, c]) =>
+        ...(() => {
+          const lu = (t && t.llm && t.llm.used && t.llm.usage) || null;
+          return [['—', 'llm usd'], [lu ? '1' : '—', 'llm calls'],
+                  [lu ? num(lu.input_tokens) : '—', 'tokens in'],
+                  [lu ? num(lu.output_tokens) : '—', 'tokens out']];
+        })().map(([v, c]) =>
           h('div', {key: c, style: {padding: '8px 10px',
             border: '1px solid var(--color-border)',
             borderRadius: 'var(--radius-inner)'}},
@@ -238,8 +321,14 @@ function App() {
               marginTop: 2}}, c)))),
       h('div', {style: {marginTop: 8}},
         h(Text, {type: 'supporting'},
-          (r && r.execution && r.execution.note)
-          || '조사 실행(쓰기)은 범위 밖 — 비용·턴 로그 미영속 (honest-gap §6.2)')),
+          t && t.llm && t.llm.used
+            ? `LLM 종합 실측 — ${t.llm.model || t.llm.provider} · `
+              + `폐기 ${t.llm.discarded} · 차단 ${t.llm.blocked} · `
+              + '단가 미확정이라 usd 미표기 (§6.2)'
+            : t && t.llm && !t.llm.used
+              ? `LLM 종합 미수행 — ${t.llm.error}`
+              : (r && r.execution && r.execution.note)
+                || '조사 실행(쓰기)은 범위 밖 — 비용·턴 로그 미영속 (honest-gap §6.2)')),
 
       sectionLabel('Audit Agent · 역추적 감사'),
       !at ? h(Text, {type: 'supporting'},
