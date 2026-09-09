@@ -62,6 +62,21 @@ function kpis(r) {
   ];
 }
 
+// 구성요소 접속 링크 — 런타임 host 조립 (오리진 리터럴 금지 가드 + SSH 터널
+// 대응). duckdb-ui 는 localhost 강제 — ui 확장 Origin 검증이 127.0.0.1 을
+// 401 처리한다 (실측, data-browsing.md §3).
+function componentLink(c) {
+  if (!c.ui_port) return h(Text, {type: 'supporting'}, c.note || '—');
+  const host = c.requires_localhost ? 'localhost' : location.hostname;
+  const href = `${location.protocol}//${host}:${c.ui_port}${c.ui_path || ''}`;
+  return h('div', {style: {display: 'flex', flexDirection: 'column', gap: 2}},
+    h('a', {href, target: '_blank', rel: 'noopener',
+      style: {fontFamily: 'var(--font-family-heading)', fontSize: 11.5,
+        fontWeight: 600, color: 'var(--astryx-theme-citadel-signal-amber)',
+        textDecoration: 'none', whiteSpace: 'nowrap'}}, `${c.name} 열기 →`),
+    c.note ? h(Text, {type: 'supporting'}, c.note) : null);
+}
+
 function App() {
   const [r, setR] = React.useState(null);
   const [error, setError] = React.useState(null);
@@ -113,6 +128,26 @@ function App() {
             note: '런 단위 drill-down(정확도·지연·correlation 분해)은 Grafana 대시보드가 '
               + '담당 — 소스: postgres pipeline_run_metrics · pipeline_slo_observations '
               + '(nightly flush). loopback 바인딩 — 원격이면 SSH 터널 3000 필요'}),
+
+          sectionLabel('Components · citadel 동반 구성요소 — 도달성 실측·접속'),
+          h(Card, {}, h(Table, {},
+            h(TableHeader, {}, h(TableRow, {},
+              ...['구성요소', '계층', 'Port', '상태', '접속']
+                .map((c) => h(TableHeaderCell, {key: c}, c)))),
+            h(TableBody, {}, (r.components || []).map((c) =>
+              h(TableRow, {key: c.id},
+                h(TableCell, {}, h(Text, {}, c.name)),
+                h(TableCell, {}, h(Text, {type: 'supporting'}, c.layer)),
+                h(TableCell, {}, id(String(c.port))),
+                h(TableCell, {}, h(Badge, {
+                  variant: c.reachable ? 'success' : 'error',
+                  label: c.reachable ? 'reachable' : 'unreachable'})),
+                h(TableCell, {}, componentLink(c))))))),
+          h('div', {style: {marginTop: 6}},
+            h(Text, {type: 'supporting'},
+              '상태는 뷰어 프로세스의 TCP 연결 수락 실측 — 앱 레벨 헬스 판정이 '
+              + '아니다. 전 구성요소 loopback 바인딩 — 원격 접속은 해당 포트 SSH '
+              + '터널 필요. 존 원형 브라우징 안내: docs/operating/data-browsing.md')),
 
           sectionLabel('Sources · 수집 상태 — raw 존 실측 + fetch.json governance'),
           h(Card, {}, h(Table, {},

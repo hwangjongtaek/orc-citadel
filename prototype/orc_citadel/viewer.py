@@ -17,7 +17,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import unquote, urlparse
 
-from orc_citadel import viewer_static
+from orc_citadel import component_status, viewer_static
 from orc_citadel.api_facade import ApiFacade
 from orc_citadel.curated_zone import CuratedZone
 from orc_citadel.graph_service import GraphService
@@ -739,7 +739,9 @@ class Handler(BaseHTTPRequestHandler):
                 "intake": intake, "slo": _slo_panel(),
                 # 표시용 run 메트릭 요약 (TS-6) — drill-down 은 Grafana 몫.
                 "run_metrics": _recent_run_metrics(
-                    getattr(self, "metrics_connect", None))}
+                    getattr(self, "metrics_connect", None)),
+                # 동반 구성요소 접속 패널 — 도달성 TCP 실측 (component_status).
+                "components": component_status.probe_components()}
 
     @_j
     def _api_spire(self, qs):

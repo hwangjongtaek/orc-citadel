@@ -59,6 +59,30 @@ def test_watchtower_slo_is_honest_not_measured():
     assert eb["violation_ratio"] is None
 
 
+# --- 동반 구성요소 접속 패널 (Watchtower — 사이드카 도달성 실측) --------------------
+
+def test_watchtower_components_are_probed_not_hardcoded(monkeypatch):
+    """components 는 프로브 실측 결과를 그대로 낸다 — 응답에서 상태를 가공하지 않음."""
+    canned = [{"id": "grafana", "name": "Grafana", "layer": "관측", "port": 3000,
+               "ui_port": 3000, "ui_path": "/d/citadel-pipeline",
+               "requires_localhost": False, "note": None, "reachable": False}]
+    monkeypatch.setattr(
+        "orc_citadel.component_status.probe_components", lambda: canned)
+    self = types.SimpleNamespace(raw_dir="")
+    r = _watch(self)
+    assert r["components"] == canned
+
+
+def test_watchtower_components_default_catalog():
+    """기본 카탈로그 6종이 응답에 나열된다 (도달성 값은 환경 종속 — 형태만 가드)."""
+    self = types.SimpleNamespace(raw_dir="")
+    r = _watch(self)
+    ids = {c["id"] for c in r["components"]}
+    assert ids == {"postgres", "minio", "neo4j", "opensearch",
+                   "grafana", "duckdb-ui"}
+    assert all(isinstance(c["reachable"], bool) for c in r["components"])
+
+
 # --- run 메트릭 표시 필드 (specs/ui-overhaul-astryx Step 12 — TS-6) ----------------
 
 def test_watchtower_run_metrics_honest_when_pg_down():
