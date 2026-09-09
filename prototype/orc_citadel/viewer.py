@@ -21,9 +21,6 @@ from orc_citadel import viewer_static
 from orc_citadel.api_facade import ApiFacade
 from orc_citadel.curated_zone import CuratedZone
 from orc_citadel.graph_service import GraphService
-from orc_citadel.viewer_pages import (PAGE_ARCHIVE, PAGE_CHRONICLE, PAGE_COUNCIL,
-                                      PAGE_GATE, PAGE_SPIRE, PAGE_TABLE,
-                                      PAGE_WATCHTOWER, PAGE_WITNESSES)
 
 # 컨테이너에서는 VIEWER_HOST=0.0.0.0 으로 외부 바인딩 (docker-compose.yml).
 HOST, PORT = os.environ.get("VIEWER_HOST", "127.0.0.1"), 8791
@@ -1102,31 +1099,29 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path.startswith("/assets/") or parsed.path.startswith("/app/"):
             self._serve_asset(parsed.path); return
 
-        # 이관된 공간은 frontend dist 를 canonical 로 서빙한다 (TS-1).
+        # 공간 라우트는 frontend dist 가 유일한 표시 계층이다 (TS-1 — 인라인
+        # 페이지·/legacy/* 는 8공간 이관 완료로 제거, Step 15). dist 는 커밋
+        # 대상이라 부재는 빌드/배포 결손 — 조용한 대체 화면 없이 정직 503.
         dist_entry = _MIGRATED.get(parsed.path)
         if dist_entry is not None:
             # 인스턴스 → 클래스 속성 순 (테스트가 인스턴스에 roots 를 주입한다)
             roots = getattr(self, "static_roots", None)
             if roots is not None and roots.resolve(f"/app/{dist_entry}") is not None:
                 self._serve_asset(f"/app/{dist_entry}"); return
-            # dist 미존재 → 아래 인라인 페이지로 폴백 (롤백 안전)
-
-        page = _page_for(parsed.path)
-        if page is None:
-            # 미지정 경로가 Gate HTML 200 을 돌려주던 것을 바로잡는다 —
-            # 오타 링크·없는 자산이 조용히 성공하면 디버깅이 어렵다.
-            body = b"404 Not Found"
-            self.send_response(404)
+            body = ("503: frontend dist 없음 — frontend 에서 `npm run build` "
+                    "후 커밋한다 (frontend/dist 는 커밋 대상)").encode()
+            self.send_response(503)
             self.send_header("Content-Type", "text/plain; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers(); self.wfile.write(body); return
 
-        body = page.encode()
-        self.send_response(200)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
+        # 미지정 경로가 Gate HTML 200 을 돌려주던 것을 바로잡는다 —
+        # 오타 링크·없는 자산이 조용히 성공하면 디버깅이 어렵다.
+        body = b"404 Not Found"
+        self.send_response(404)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+        self.end_headers(); self.wfile.write(body)
 
     def _serve_asset(self, url_path: str) -> None:
         """`/assets/*` — 리포의 자산을 참조 서빙한다 (복제하지 않음)."""
@@ -1154,28 +1149,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
 
-_PAGES = {
-    "/": PAGE_GATE,           # Citadel Gate (진입 대시보드) — dist 미존재 시 폴백
-    "/table": PAGE_TABLE,     # War Table 3+1 (Campaign Map · 캔버스 · Inspector · Chronicle)
-    "/witnesses": PAGE_WITNESSES,  # 증거 검사 · 원문 왕복
-    "/council": PAGE_COUNCIL,      # 조사 보고서 조회
-    "/watchtower": PAGE_WATCHTOWER,  # 수집 관제
-    "/spire": PAGE_SPIRE,            # 알림 센터
-    "/archive": PAGE_ARCHIVE,        # 문서 탐색
-    "/chronicle": PAGE_CHRONICLE,    # 시간 탐색
-    # 이관 기간 롤백 경로 (specs/ui-overhaul-astryx TS-1) — 이관 완료 시 일괄 제거.
-    "/legacy/gate": PAGE_GATE,
-    "/legacy/witnesses": PAGE_WITNESSES,
-    "/legacy/table": PAGE_TABLE,
-    "/legacy/archive": PAGE_ARCHIVE,
-    "/legacy/spire": PAGE_SPIRE,
-    "/legacy/council": PAGE_COUNCIL,
-    "/legacy/watchtower": PAGE_WATCHTOWER,
-    "/legacy/chronicle": PAGE_CHRONICLE,
-}
-
-# canonical 라우트 → frontend dist 엔트리. 공간을 이관할 때마다 추가한다.
-# dist 를 못 찾으면 _PAGES 인라인으로 폴백한다 — 롤백은 여기서 한 줄 제거.
+# canonical 라우트 → frontend dist 엔트리 (8공간 이관 완료 — TS-1).
 _MIGRATED = {
     "/": "gate.html",
     "/witnesses": "witnesses.html",
@@ -1187,10 +1161,6 @@ _MIGRATED = {
     "/chronicle": "chronicle.html",
 }
 
-
-def _page_for(path: str) -> str | None:
-    """라우트 → 페이지 HTML. 미지정 경로는 None (호출자가 404)."""
-    return _PAGES.get(path)
 
 def main() -> None:
     Handler.facade = _build()

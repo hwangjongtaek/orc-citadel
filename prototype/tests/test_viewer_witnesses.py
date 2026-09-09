@@ -10,12 +10,10 @@ import json
 import types
 
 import pytest
-from pathlib import Path
 
 from orc_citadel.curated_zone import CuratedZone
 from orc_citadel.pipeline_runner import run_pipeline
 from orc_citadel.viewer import Handler
-from orc_citadel.viewer_pages import PAGE_COUNCIL, PAGE_WITNESSES
 
 HTML = b"""<html><head>
 <title>NVIDIA Conference Call</title>
@@ -103,9 +101,3 @@ def test_council_report_read_only():
     assert "open_questions" in r and "signal" in r
     assert r["execution"]["available"] is False  # 조사 실행은 쓰기 → 범위 밖 정직
 
-
-def test_witnesses_page_has_three_panels_and_roundtrip():
-    for anchor in ("witness-claims", "witness-prov", "witness-doc", "roundtrip"):
-        assert f'id="{anchor}"' in PAGE_WITNESSES
-    for anchor in ("council-subjects", "council-report", "council-stop"):
-        assert f'id="{anchor}"' in PAGE_COUNCIL

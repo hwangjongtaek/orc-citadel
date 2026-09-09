@@ -24,9 +24,6 @@ ENTRIES = ["gate", "witnesses", "table", "archive", "spire", "council",
 MIGRATED = [("/", "gate"), ("/witnesses", "witnesses"), ("/table", "table"),
             ("/archive", "archive"), ("/spire", "spire"), ("/council", "council"),
             ("/watchtower", "watchtower"), ("/chronicle", "chronicle")]
-LEGACY = ["/legacy/gate", "/legacy/witnesses", "/legacy/table", "/legacy/archive",
-          "/legacy/spire", "/legacy/council", "/legacy/watchtower",
-          "/legacy/chronicle"]
 
 
 @pytest.fixture(scope="module")
@@ -153,8 +150,12 @@ def test_migrated_routes_serve_frontend_dist(route: str, entry: str) -> None:
 
 
 @pytest.mark.parametrize("route,entry", MIGRATED)
-def test_migrated_routes_fall_back_to_inline_without_dist(route: str, entry: str) -> None:
-    """dist 가 없으면 인라인으로 폴백 — 롤백 안전 경로."""
+def test_missing_dist_is_honest_503(route: str, entry: str) -> None:
+    """dist 부재 = 빌드/배포 결손 — 조용한 대체 화면 없이 정직 503 (Step 15).
+
+    인라인 폴백·`/legacy/*` 는 이관 완료로 제거됐다. dist 는 커밋 대상이라
+    정상 체크아웃에서는 이 분기를 탈 일이 없다.
+    """
     import dataclasses
 
     from orc_citadel.viewer_static import default_roots
@@ -162,19 +163,36 @@ def test_migrated_routes_fall_back_to_inline_without_dist(route: str, entry: str
 
     roots = dataclasses.replace(default_roots(), app=None)
     status, headers, body = _get(route, roots)
-    assert status == 200
-    assert f"/app/js/{entry}.js".encode() not in body
+    assert status == 503
+    assert b"npm run build" in body
 
 
-@pytest.mark.parametrize("route", LEGACY)
-def test_legacy_routes_kept(route: str) -> None:
-    """이관 기간 롤백 경로 — `/legacy/<space>` 가 구 인라인 페이지를 서빙한다."""
+def test_legacy_routes_removed() -> None:
+    """`/legacy/<space>` 롤백 경로는 이관 완료(8/8)로 일괄 제거 — 404."""
     from test_viewer_static import _get
 
-    status, headers, body = _get(route)
-    assert status == 200
-    assert headers["Content-Type"].startswith("text/html")
-    assert body.lower().startswith(b"<!doctype html>")
+    status, _headers, _body = _get("/legacy/gate")
+    assert status == 404
+
+
+def test_referenced_img_assets_exist() -> None:
+    """번들·엔트리가 참조하는 /assets/img/* 파일이 실재한다 (깨진 아트 가드).
+
+    인라인 페이지 시절 test_viewer_static 의 동명 가드를 dist 판으로 이식 —
+    표시 계층이 dist 로 단일화되며(Step 15) 검사 대상도 dist 가 됐다.
+    """
+    from orc_citadel.viewer_static import default_roots
+
+    roots = default_roots()
+    assert roots is not None
+    names: set[str] = set()
+    for f in list(DIST.rglob("*.js")) + [DIST / f"{e}.html" for e in ENTRIES]:
+        text = f.read_text(encoding="utf-8", errors="ignore")
+        names |= set(re.findall(r"/assets/img/([A-Za-z0-9_.-]+\.(?:png|svg|webp))",
+                                text))
+    assert names, "이미지 참조가 하나도 없다 — 추출 정규식 회귀 의심"
+    missing = sorted(n for n in names if not (roots.img / n).exists())
+    assert not missing, missing
 
 
 def test_viewer_serves_app_dist() -> None:

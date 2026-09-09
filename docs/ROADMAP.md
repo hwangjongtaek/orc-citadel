@@ -181,6 +181,9 @@
 
 가장 최신이 위로. 스펙·설계 변경을 기록한다 (구현 세부 커밋은 git 이력).
 
+### 2026-09-09
+- **UI 전면 개편 완결 (specs/ui-overhaul-astryx — 16 steps 전체 Done).** 8공간 전부 `frontend/` React 산출물이 canonical 표시 계층으로 전환 완료(브리핑 가치 순 Gate → Witnesses → War Table → Archive → Spire → Council → Watchtower → Chronicle, 공간당 TDD 선작성·browser E2E 실측). **인라인 표시 계층 제거:** `viewer_pages.py`·`*_ext.py`(4,652줄)와 `/legacy/*` 라우트 일괄 삭제 — 뷰어는 API 서버 + 정적 서빙으로 축소, dist 부재는 폴백 없이 정직 503. **FR-6 Grafana:** run 메트릭 postgres flush(`run_metrics.py`, append-only·비차단) + compose 사이드카(oss 11.5.1 핀·loopback·익명 Viewer·read-only DB 계정) + pipeline 대시보드 7패널(미계측 stage·quarantine 은 No data 정직 표기) + Watchtower 딥링크. **FR-7 데이터 브라우징:** parquet 스냅샷 export(원자 교체·잠금 폴백·105k 문서 0.6s 실측) + DuckDB UI 사이드카(parquet 만 ro 마운트 — `.duckdb` attach 금지 명문화) + `docs/operating/data-browsing.md` 가이드. **운영 함정 실측 봉인:** `/app/*` no-cache(안정 청크명 + 캐시가 재배포마다 구/신 청크 혼합 빈 화면 유발), DuckDB UI 는 `localhost` Origin 강제(127.0.0.1 은 401). wire 계약 무변경 → **Spec 1.1.0 유지**.
+
 ### 2026-09-08
 - **UI 전면 개편 착수 (specs/ui-overhaul-astryx) — SDD 확정 + 목업 트랙 완료 + 불변식 개정.** 목업↔실UI 갭의 근본 원인(별개 코드베이스)을 없애기 위해 표시 계층을 Astryx React 프런트로 단일화하는 SDD(requirements·specs·plans, FR-1~7/TS-1~7/16 steps) 확정. 주요 결정: `frontend/` Vite MPA + `design-system/ui/` 컴포넌트 1벌(목업=앱) · dist 커밋(런타임 node 배제) · 브리핑-우선 IA(1차 4공간 + 운영·감사 2차, Gate=브리핑 대시보드, ⌘K 통합 검색) · Grafana 사이드카(11 §2.2 정합, run 메트릭 postgres flush 선행) · 데이터 존 브라우징(parquet 스냅샷 + DuckDB UI — 뷰어 `.duckdb` 쓰기 잠금 회피). **목업 선행 완료:** 셸 2계층 내비·8공간 셸 통일(문서형 특례 폐지)·Gate 브리핑 대시보드·신규 로고 반입(lockup 투명화·mark/title 분리·favicon)·Watchtower Grafana 딥링크 카드. **불변식 개정:** 뷰어 "stdlib only" → "런타임 stdlib · 표시 계층 저작 도구 node 허용"(09 §1.3 정본, design README §3 노트). wire 계약 무변경 → **Spec 1.1.0 유지** (`/api/search` scope 확장 시 1.2.0 예정).
 
