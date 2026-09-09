@@ -613,6 +613,8 @@ class Handler(BaseHTTPRequestHandler):
         from orc_citadel.graph_service import GraphService
 
         subj = unquote(qs.get("subject", ""))
+        # 자유 질문 (W1 조사 지시 입구) — Planner 가 entity name 으로 해소한다.
+        question = unquote(qs.get("question", "").replace("+", "%20")).strip()
         facade = self.facade
         z = facade.zone
         # ABOUT 그래프 재구축 (read-only 조회용).
@@ -628,14 +630,22 @@ class Handler(BaseHTTPRequestHandler):
                       "payload": {"type": "ABOUT", "from": a["subject_id"],
                                   "to": a["claim_id"], "props": {}}}])
         # Planner — 질문 → subclaim 트리 분해 (07 §3.2), known/gap 라벨.
+        # question 이 오면 entity name 해소로 subject_id 를 찾고, 아니면 기존
+        # subject= 경로 그대로 (subject id 자체가 질문).
         planner = InvestigationPlanner(z)
-        planned = planner.plan(subj)
+        planned = planner.plan(question or subj)
+        # 조사 seed — subject 파라미터 우선, 없으면 해소된 known subject 첫 항.
+        seed = subj or next(
+            (sc.subject_id for sc in planned.subclaims if sc.known), "")
         subclaims = [Subclaim(sc.id, sc.text, subject_id=sc.subject_id)
                      for sc in planned.subclaims]
         inv = InvestigationRunner(z, g).run(subclaims)
-        rep = Synthesizer(z).synthesize(inv, subj)
+        rep = Synthesizer(z).synthesize(inv, seed or question)
         # War Table — 조사 subgraph(진행식 disclosure 시드, 06 §8.1) 노출.
-        graph_view = facade.get_investigation_graph(subj, hops=1)
+        # 해소 실패(seed 없음)는 가공 없이 빈 subgraph (§6.2).
+        graph_view = facade.get_investigation_graph(seed, hops=1) if seed else {
+            "subgraph": {"entities": [], "relationships": []},
+            "relation_paths": [], "independence_summary": {}}
         # Planner 산출 — 지식/공백 구분된 subclaim 트리 노출 (07 §3.2).
         planned_view = [{"id": sc.id, "text": sc.text, "known": sc.known,
                          "gap_reason": sc.gap_reason} for sc in planned.subclaims]
@@ -646,14 +656,18 @@ class Handler(BaseHTTPRequestHandler):
         indep = inv.coverage and graph_view["independence_summary"].get(
             "independent_source_count", 0)
         dashboard = investigation_dashboard(
-            investigation_id=f"inv-{subj[:16]}",
+            investigation_id=f"inv-{(seed or question)[:16]}",
             coverage=Coverage(covered=int(round(inv.coverage * len(planned.subclaims))),
                               planned=len(planned.subclaims),
                               gaps=inv.gaps),
             independent_evidence=indep,
             elapsed_ms=0)
         return {
-            "subject_id": subj,
+            "subject_id": seed,
+            "question": question or None,
+            # 질문 → subject 해소 결과 — known 없으면 지식 밖 질문 (정직 표기).
+            "resolved": [{"subject_id": sc.subject_id, "surface": sc.surface,
+                          "known": sc.known} for sc in planned.subclaims],
             "computed": "on-request, non-persistent",
             "planned_subclaims": planned_view,
             "coverage": inv.coverage,

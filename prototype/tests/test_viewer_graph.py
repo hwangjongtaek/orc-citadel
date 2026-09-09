@@ -82,6 +82,46 @@ def test_investigate_response_exposes_planned_subclaims():
     assert any(p["known"] for p in planned)
 
 
+def test_investigate_accepts_free_text_question():
+    """`?question=` — 자유 질문을 entity name 으로 해소해 조사한다 (W1).
+
+    파이프라인이 만든 entities 표면형('NVIDIA')이 질문에 등장 → org-id 해소 →
+    known subject 를 seed 로 조사·보고서·subgraph 가 채워진다.
+    """
+    facade = _build_facade()
+    subj = facade.zone.assertions()[0]["subject_id"]
+    self = types.SimpleNamespace(facade=facade)
+    resp = json.loads(Handler._api_investigate(
+        self, {"question": "NVIDIA 신제품 발표를 조사하라"}))
+    assert resp["question"] == "NVIDIA 신제품 발표를 조사하라"
+    assert any(r["known"] and r["subject_id"] == subj for r in resp["resolved"])
+    # 해소된 known subject 가 조사 seed — 기존 subject= 경로와 같은 산출 형태.
+    assert resp["subject_id"] == subj
+    assert any(e["id"] == subj for e in resp["subgraph"]["entities"])
+
+
+def test_investigate_unresolved_question_is_honest_empty():
+    """해소 실패 질문 — 가공 없이 gap·빈 산출 (§6.2), 500 아님."""
+    facade = _build_facade()
+    self = types.SimpleNamespace(facade=facade)
+    resp = json.loads(Handler._api_investigate(
+        self, {"question": "알수없는대상 동향 조사"}))
+    assert resp["resolved"] and not any(r["known"] for r in resp["resolved"])
+    assert resp["coverage"] == 0.0
+    assert resp["statements"] == []
+    assert resp["subgraph"]["entities"] == []
+
+
+def test_investigate_subject_param_still_works():
+    """기존 `?subject=` 계약 유지 — question 미지정 시 동작 불변."""
+    facade = _build_facade()
+    subj = facade.zone.assertions()[0]["subject_id"]
+    self = types.SimpleNamespace(facade=facade)
+    resp = json.loads(Handler._api_investigate(self, {"subject": subj}))
+    assert resp["subject_id"] == subj
+    assert resp["question"] is None
+
+
 def test_investigate_response_exposes_audit_trace():
     """_api_investigate 가 §3.9 역추적 trace(연결률 = 1.0)를 응답에 노출."""
     facade = _build_facade()

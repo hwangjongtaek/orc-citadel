@@ -107,3 +107,78 @@ def test_determinism():
     a = p.plan("NVDA announces?")
     b = p.plan("NVDA announces?")
     assert a == b
+
+
+# --- 질문 → entity name 해소 (조사 지시 입구 — W1) -------------------------------
+#
+# 실데이터 subject 는 `org-<해시>` 라 대문자 약어 추출로는 지식에 닿을 수 없다.
+# 질문의 표면형(canonical_name·surface_forms — 한글 포함)을 zone entities 로
+# 결정적 해소해 subject_id 에 잇는다. 미해소는 기존대로 gap 정직 표기.
+
+
+def _zone_with_named_entity() -> CuratedZone:
+    """실데이터형: subject 가 org-해시, entities 에 name/surface 가 있는 zone."""
+    from orc_citadel.assertions import materialize
+    from orc_citadel.extract_claims import ClaimCandidate
+    from orc_citadel.resolve import Entity
+    from datetime import datetime, timezone
+
+    z = CuratedZone(":memory:")
+    z.initialize()
+    z.persist_entity(Entity(
+        entity_id="org-1111111111", mention_type="ORG",
+        canonical_name="NVIDIA Corp", surface_forms=("NVIDIA", "엔비디아")))
+    z.persist_entity(Entity(
+        entity_id="org-2222222222", mention_type="ORG",
+        canonical_name="BN", surface_forms=("BN",)))
+    cc = ClaimCandidate(
+        claim_candidate_id="clm-o", doc_id="doc-o", predicate="announces",
+        subject_id="org-1111111111", object_id=None, object_literal="x",
+        modality="asserted", polarity="positive", confidence=0.8,
+        seg_order=0, char_start=0, char_end=4, surface_fragment="x",
+        event_type_hint=None, status="promoted")
+    z.persist_claim(cc)
+    z.persist_assertion(materialize(
+        cc, observed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        mutation="mut-o"))
+    return z
+
+
+def test_question_resolves_entity_name_to_subject_id():
+    """질문의 'NVIDIA' 표면형 → org-id 해소, 어세션 존재 → known."""
+    plan = InvestigationPlanner(_zone_with_named_entity()).plan(
+        "NVIDIA 신제품 발표를 조사하라")
+    sc = next(s for s in plan.subclaims if s.subject_id == "org-1111111111")
+    assert sc.known is True and sc.gap_reason is None
+
+
+def test_question_resolves_korean_surface_form():
+    """한글 표면형('엔비디아') — 조사가 붙어도 해소된다."""
+    plan = InvestigationPlanner(_zone_with_named_entity()).plan(
+        "엔비디아가 발표한 내용을 조사")
+    assert any(s.subject_id == "org-1111111111" and s.known
+               for s in plan.subclaims)
+
+
+def test_resolution_requires_word_boundary():
+    """짧은 표면형('BN')이 다른 단어(RBNZ) 안에서 오탐하지 않는다."""
+    plan = InvestigationPlanner(_zone_with_named_entity()).plan(
+        "RBNZ 금리 결정을 조사")
+    assert not any(s.subject_id == "org-2222222222" for s in plan.subclaims)
+
+
+def test_unresolved_question_stays_honest_gap():
+    """지식에 없는 질문 — 해소 실패는 gap 그대로 (§6.2, 사전 지식 추가 금지)."""
+    plan = InvestigationPlanner(_zone_with_named_entity()).plan(
+        "알수없는회사 동향 조사")
+    assert plan.subclaims
+    assert all(not s.known and s.gap_reason for s in plan.subclaims)
+
+
+def test_resolved_entity_dedupes_acronym_extraction():
+    """'NVIDIA' 가 name 해소되면 약어 추출로 중복 subclaim 을 내지 않는다."""
+    plan = InvestigationPlanner(_zone_with_named_entity()).plan(
+        "NVIDIA announces?")
+    ids = [s.subject_id for s in plan.subclaims]
+    assert ids.count("org-1111111111") == 1
+    assert "NVIDIA" not in ids

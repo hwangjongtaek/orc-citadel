@@ -110,7 +110,9 @@ def test_council_bundle_wires_report_and_trace() -> None:
     js = "".join(f.read_text(encoding="utf-8", errors="ignore")
                  for f in sorted(DIST.rglob("*.js")))
     for marker in ("/api/council", "/api/investigate", "planned_subclaims",
-                   "audit_trace", "terminated_by"):
+                   "audit_trace", "terminated_by",
+                   # 조사 지시 (W1) — 자유 질문 입구 + 해소 결과(known/gap) 렌더.
+                   "investigate?question=", "resolved"):
         assert marker in js, marker
 
 
