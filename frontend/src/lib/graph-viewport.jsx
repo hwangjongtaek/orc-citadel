@@ -10,6 +10,10 @@ const PINCH_MAX_DELTA = 50;
 
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
 
+// 트랙패드 물리 클릭은 누르는 동안 커서가 수 px 드리프트한다 — 임계가 낮으면
+// 버튼·claim 클릭이 드래그로 오인되어 삼켜진다 (2026-09-10 실측 재현).
+const DRAG_THRESHOLD = 6;
+
 const controlStyle = {
   width: 32,
   height: 32,
@@ -114,12 +118,16 @@ export function useGraphViewport() {
 
   const onPointerDown = React.useCallback((event) => {
     if (event.button !== 0) return;
-    event.currentTarget.setPointerCapture(event.pointerId);
+    // 컨트롤 버튼에서 시작한 press 는 드래그 후보가 아니다 — 클릭을 그대로 살린다.
+    if (event.target.closest && event.target.closest('button')) return;
+    // capture 는 임계 초과 시점으로 미룬다 — pointerdown 에서 잡으면 pointerup 이
+    // 컨테이너로 재타깃되어 자식 클릭이 깨질 수 있다.
     dragRef.current = {
       pointerId: event.pointerId,
       clientX: event.clientX,
       clientY: event.clientY,
       view: viewRef.current,
+      captured: false,
     };
     suppressClickRef.current = false;
   }, []);
@@ -131,7 +139,12 @@ export function useGraphViewport() {
     if (!bounds.width || !bounds.height) return;
     const deltaX = event.clientX - drag.clientX;
     const deltaY = event.clientY - drag.clientY;
-    if (Math.abs(deltaX) > 3 || Math.abs(deltaY) > 3) suppressClickRef.current = true;
+    if (!drag.captured) {
+      if (Math.abs(deltaX) <= DRAG_THRESHOLD && Math.abs(deltaY) <= DRAG_THRESHOLD) return;
+      event.currentTarget.setPointerCapture(event.pointerId);
+      drag.captured = true;
+      suppressClickRef.current = true;
+    }
     const {scale} = paintMetrics(bounds, drag.view);
     updateView(() => clampView({
       x: drag.view.x - deltaX / scale,
