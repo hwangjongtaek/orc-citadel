@@ -53,6 +53,8 @@ services:
       - ./docs/mockups/assets:/app/static/img:ro
       - ./design-system/theme-citadel/dist/theme.css:/app/static/theme-citadel.css:ro
       - ./design-system/fonts/dist:/app/static/fonts:ro
+      # 8공간 라우트의 유일한 표시 계층 — 없으면 viewer 가 정직 503 (dist 는 커밋 대상).
+      - ./frontend/dist:/app/static/app-dist:ro
     environment:
       VIEWER_HOST: 0.0.0.0
       POSTGRES_HOST: postgres

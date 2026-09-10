@@ -65,3 +65,23 @@ def test_no_credential_literals_in_compose(prod_compose: str,
         if m:
             assert m.group(1).startswith("${"), \
                 f"{service}: {env} 가 리터럴이다 — ${{{env}}} 보간이어야 한다"
+
+
+# ── frontend dist 마운트 (2026-09-10 prod 실측 결손 2) ────────────────────────
+#
+# viewer 는 컨테이너에서 /app/static/app-dist 를 먼저 찾는다 (viewer_static.pick).
+# compose 가 frontend/dist 를 안 물리면 8공간 라우트 전부가 정직 503 —
+# 이미지에는 prototype/ 만 들어가므로 마운트가 유일한 경로다.
+
+
+def _compose_texts() -> dict[str, str]:
+    return {name: (REPO / name).read_text(encoding="utf-8")
+            for name in ("docker-compose.yml", "docker-compose.prod.yml")}
+
+
+@pytest.mark.parametrize("compose_file", ["docker-compose.yml",
+                                          "docker-compose.prod.yml"])
+def test_viewer_mounts_frontend_dist(compose_file: str) -> None:
+    block = _service_block(_compose_texts()[compose_file], "prototype")
+    assert re.search(r"\./frontend/dist:/app/static/app-dist:ro", block), \
+        f"{compose_file}: prototype 에 frontend/dist 마운트가 없다 (8공간 라우트 503)"
