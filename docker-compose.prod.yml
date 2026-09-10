@@ -58,6 +58,20 @@ services:
       POSTGRES_HOST: postgres
       MINIO_HOST: minio
       NEO4J_URI: bolt://neo4j:7687
+      # 자격증명 — 호스트 DNS 만 주입하면 클라이언트가 로컬 개발 기본값으로
+      # 폴백해 조용히 인증 실패한다 (2026-09-10 prod 실측: run_metrics flush
+      # 상시 실패 → 메트릭 테이블 미생성). 값의 SoT 는 원격 .env.
+      POSTGRES_USER: ${POSTGRES_USER:?}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+      POSTGRES_DB: ${POSTGRES_DB:?}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?}
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:?}
+      LLM_PROVIDER: ${LLM_PROVIDER:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -88,6 +102,14 @@ services:
       POSTGRES_HOST: postgres
       MINIO_HOST: minio
       NEO4J_URI: bolt://neo4j:7687
+      # 자격증명 — prototype 과 동일 사유 (자격증명 없으면 로컬 기본값 폴백 →
+      # prod postgres 인증 실패, flush 조용한 실패). 값의 SoT 는 원격 .env.
+      POSTGRES_USER: ${POSTGRES_USER:?}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+      POSTGRES_DB: ${POSTGRES_DB:?}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?}
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:?}
       LLM_PROVIDER: ${LLM_PROVIDER:-anthropic}
       LLM_MODEL: ${LLM_MODEL:-}
       LLM_API_KEY: ${LLM_API_KEY:-}
