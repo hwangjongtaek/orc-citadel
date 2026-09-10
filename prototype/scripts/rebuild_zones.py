@@ -49,10 +49,22 @@ def _log(msg: str) -> None:
 
 
 def _swap(new: pathlib.Path, live: pathlib.Path) -> None:
-    """성공한 산출물만 교체하고 직전 파일은 .bak 으로 남긴다."""
+    """성공한 산출물만 교체하고 직전 파일은 .bak 으로 남긴다.
+
+    DuckDB WAL 사이드카(`<file>.wal`)도 짝지어 옮긴다 — 구 live 의 WAL 이
+    새 DB 옆에 남으면 DuckDB 가 남의 WAL 을 재생하려다 CatalogException 으로
+    죽는다 (2026-09-10 prod viewer 크래시 루프 실측).
+    """
+
+    def _move_with_wal(src: pathlib.Path, dst: pathlib.Path) -> None:
+        shutil.move(str(src), str(dst))
+        wal = src.parent / (src.name + ".wal")
+        if wal.exists():
+            shutil.move(str(wal), str(dst.parent / (dst.name + ".wal")))
+
     if live.exists():
-        shutil.move(str(live), str(live.with_suffix(live.suffix + ".bak")))
-    shutil.move(str(new), str(live))
+        _move_with_wal(live, live.with_suffix(live.suffix + ".bak"))
+    _move_with_wal(new, live)
 
 
 def build_normalized(metas, path: pathlib.Path) -> dict:
