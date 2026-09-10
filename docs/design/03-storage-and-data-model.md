@@ -1,6 +1,6 @@
 # 03 · 저장 계층·데이터 모델 (Grand Archive · Chronicle · Hall of Witnesses)
 
-> **상태:** ✅ Stable · **Spec:** 1.0.0 · **Blueprint 매핑:** §6.4, §6.5, §7.1, §17
+> **상태:** ✅ Stable · **Spec:** 1.2.0 · **Blueprint 매핑:** §6.4, §6.5, §7.1, §17
 > 상위 규약: [`README.md`](./README.md) · 관련: [`02-ontology`](./02-ontology.md), [`06-graph`](./06-graph-service.md)
 
 Lakehouse 저장 계층(raw/normalized/curated), 테이블 스키마, ID 체계 적용, **append-only mutation log**, **bitemporal 모델**, **provenance chain**을 확정한다. 본 계층이 시스템의 **Source of Truth**이며 그래프·검색 인덱스는 여기서 재구축된다 (불변식 §3-1).
@@ -147,6 +147,15 @@ blueprint §8.3. 복제 기사를 하나의 근원으로 축소한다.
 | `dedup_method` | `content_hash`/`minhash`/`embedding`/`llm` |
 
 - **독립 증거 수 계산의 근거.** 500개 복제 기사는 1개 근원 + N개 독립 추가로 카운트한다 (blueprint §8.3, §11).
+
+### 4.4 Durable investigation 운영 메타데이터
+
+기존 curated evidence를 대상으로 한 비동기 조사는 PostgreSQL의 `investigations`·`jobs`·`steps`에만 기록한다. `investigations`는 question, subject_id, scope, mode, owner, version tuple, correlation_id, status, coverage, termination, report JSONB, audit_trace JSONB와 UTC timestamps를 가진다. `jobs`는 단일 investigation에 1:1로 연결되고 `queued|running|succeeded|failed|cancelled`, `cancel_requested`, worker lease/claim token, error JSONB를 가진다. `steps`는 `(investigation_id, step_id)` unique의 append-only `PLAN|RUN|SYNTHESIZE|AUDIT` 기록이다.
+
+- 동일 `Idempotency-Key`는 최초 `inv-`/`job-`을 반환하고 행을 늘리지 않는다.
+- claim은 `FOR UPDATE SKIP LOCKED`와 lease token으로 원자화한다. 만료된 `running`만 재claim하며 이전 claim token의 완료는 거부한다.
+- report·audit_trace는 완료와 함께 영속해 재시작 뒤에도 동일하게 조회한다.
+- 이 운영 write는 graph mutation·curated write가 아니며, 조사 전후 두 zone의 상태는 불변이다.
 
 ## 5. ID·Idempotency 요약
 

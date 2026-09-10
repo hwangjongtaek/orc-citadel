@@ -4,9 +4,9 @@
 > 프로젝트 진행 중 스키마·계약·의사결정의 **Single Source of Truth(SSOT)** 역할을 한다.
 > 진행 내역은 [`docs/ROADMAP.md`](../ROADMAP.md)에서 관리한다.
 
-- **Spec version:** `1.1.0` (BIS sitemap 커넥터·`sitemap` 소스 kind 추가 — 2026-08-19, 1.0.0 호환 증분)
+- **Spec version:** `1.2.0` (durable asynchronous read-only investigation — 2026-09-10)
 - **Ontology version 기준선:** `1.0.0` (→ [`02-ontology.md`](./02-ontology.md))
-- **최종 갱신:** 2026-08-19
+- **최종 갱신:** 2026-09-10
 
 ## 1. 문서 지도
 
@@ -153,3 +153,4 @@ Blueprint §17을 스펙 수준의 강제 규칙으로 승격한 것이다. 모�
 | ADR-000 | 설계 SSOT를 `docs/design/`에 12개 문서로 분할, 백본(01–03)이 하위 스펙의 기준 | blueprint 전 영역을 구현 계약으로 분해하되 참조 일관성 확보 | Accepted |
 | ADR-001 | ID는 `<prefix>-<ULID>`, Document만 내용 기반 sha256 | 시간 정렬 + document idempotency (§16 Phase 0 완료 조건) | Accepted |
 | ADR-002 | 버전 5축(ontology/schema/prompt/model/extraction_code_version) 필수 부착 | 재현성·회귀 테스트 (blueprint §9.5) | Accepted |
+| ADR-003 | investigation 운영 메타데이터는 PostgreSQL에 영속하되 graph·curated zone은 read-only 유지 | 기존 evidence 기반 비동기 조사와 지식 변경 경계 분리 | Accepted |

@@ -1,6 +1,6 @@
 # 11 · 관측·거버넌스 (Watchtower · Signal Spire)
 
-> **상태:** ✅ Stable · **Spec:** 1.0.0 · **Blueprint 매핑:** §11, §13, §14
+> **상태:** ✅ Stable · **Spec:** 1.2.0 · **Blueprint 매핑:** §11, §13, §14
 > 상위 규약: [README](./README.md) · 관련: [01-architecture](./01-architecture.md), [03-storage](./03-storage-and-data-model.md), [04-ingestion](./04-ingestion-and-parsing.md)
 
 Watchtower(Observability)와 Signal Spire(Alerting)의 계약, 그리고 출처 신뢰도·독립성 모델과 안전·거버넌스 규칙을 확정한다. 본 문서는 파이프라인 **전 stage를 관통하는 correlation·SLO·감사** 계약(→ [01](./01-architecture.md) §3-3, §4)과, 저장 계층의 삭제 전파·provenance 게이트(→ [03](./03-storage-and-data-model.md) §8)를 운영 절차로 구체화한다.
@@ -107,9 +107,10 @@ blueprint §14의 대시보드 목록을 지표 계약으로 확정한다.
 | D7 | Graph 규모·성능 | 노드·엣지 수, graph query p50/p95/p99 | graph service(→ [06](./06-graph-service.md)) | War Table |
 | D8 | Investigation | investigation별 evidence coverage, 독립 증거 수(§1.4), 비용·latency | agent runtime(→ [07](./07-llm-and-agents.md)) | Council Chamber |
 
-- 모든 대시보드 metric은 `correlation_id`·`version_tuple`로 분해(drill-down) 가능해야 한다(D6 회귀 분석의 전제).
+- durable investigation은 자체 `corr-`과 version tuple을 PostgreSQL investigation·job·append-only step에 보존한다. D8은 재시작 뒤에도 report/audit_trace·coverage·termination을 같은 investigation ID로 drill-down한다. worker 실행 오류는 job `error_json`으로, LLM fallback 오류는 report `llm.error`로 정직하게 남긴다.
+- graph·curated zone mutation count는 durable read-only investigation 전후 불변이어야 한다.
 
-> **구현 (Phase 3 — Investigation 대시보드, 2026-08-12):** `investigation_dashboard.py` — D8(Council Chamber) 지표 계산. `investigation_dashboard(investigation_id, Coverage(covered·planned·gaps), independent_evidence, budget, elapsed_ms)` → investigation별 **evidence coverage**(covered/planned + gap 목록 — planned 0이면 honest-gap §6.2 measured=False)·**독립 증거 수**(11 §1.4 dup 보정)·**cost**(InvestigationBudget token/step)·**latency_ms**(10 §1.4 cost_per_inv·latency_p95 계약). read-only·결정적·investigation_id 분해(drill-down). `viewer._api_investigate`에 `dashboard` D8 노출. **스키마·계약 변경 없음 → Spec 그대로(0.1.9).** TDD — `test_investigation_dashboard` 신규 5개(coverage·독립·budget token/latency·honest-gap·read-only) + `test_viewer_graph` 신규 1개(D8 노출) — 스위트 588→**594개 통과**(회귀 0). 다음: Phase 3 DoD ①② 통합 검증 + 완결 블록업.
+> **구현 (W3, 2026-09-10):** D8의 on-request viewer trace를 PostgreSQL-backed durable job으로 교체했다. `investigation_store.py`는 job/status/report와 `PLAN|RUN|SYNTHESIZE|AUDIT` trace를, `investigation_worker.py`는 독립 read-only DuckDB path를 소유한다. queue claim·RUN heartbeat lease·cancel request는 `FOR UPDATE SKIP LOCKED`와 claim token으로 감사 가능하게 제어한다.
 - 초기 구성은 PostgreSQL + Grafana, 확장 시 ClickHouse + Grafana (→ [01](./01-architecture.md) §5, 승격 트리거: 분석 쿼리 지연).
 
 > **구현 메모 (Phase 4 — ClickHouse 분석 승격, 2026-08-12):** `analytics_promotion.py` — 01 §5 분석·관측 계층의 **승격 트리거(분석 쿼리 지연)**를 봉인 (ClickHouse 미설치 — executor mock 주입, #14 mock/실측 격리와 동일). `measure_analytics_latency(queries, executor)` — 분석 쿼리 경로별 지연 분포 → `p95`(정렬 인덱스, neo4j_q4_harness 와 동일 결정법)·`avg·max·n_queries`. `evaluate_analytics_promotion(latency_stats)` — **`ANALYTICS_SLO_MS=200ms` p95 초과 시 `escalate_clickhouse=True`** (01 §5 승격 트리거 — Q4/Q6 게이트와 동일 성격, `classified="slo-gate"` CI 비차단 nightly 승격 평가). 미측정(None/p95 부재) → `escalate=False`·`classified="not-measured"` — honest-gap(§6.2: 미측정이 승격 불필요의 근거가 아님). `aggregate_metrics(rows, key_fn)` — **OLAP 집계**(ClickHouse 가 대체 승격하는 분석 부하의 실제 형태), `correlation_id`·`version_tuple` 로 drill-down(§2.2). read-only(불변식 §3-3)·결정적. **스키마·계약 변경 없음 → Spec 그대로(0.1.9).** TDD — `test_analytics_promotion` 신규 19개(p95·측정 결정성/executor·승격 트리거 경계/비차단·honest-gap·OLAP 집계·read-only·결정성) — 스위트 670→**689개 통과**(회귀 0). 다음: 100만 처리 시간·비용 공개 + SLO graph 반영(01·10, DoD ①②).
@@ -332,3 +333,4 @@ report sentence | alert → claim → evidence (source_span)
 | ADR-1105 | 독립 증거 수는 `dup_clusters` 기반 root source 축소로 보정 | 동일 근원 복제의 confidence 과대평가 차단(blueprint §8.3, §11) | Accepted |
 | ADR-1106 | SLO 목표치는 placeholder로 두고 실측 후 확정(측정 창·상태 명시) | 측정 기반 운영, 근거 없는 목표 배제(blueprint §20) | Accepted |
 | ADR-1107 | Retention을 `retention_class` enum(`standard`/`sensitive_pii`/`legal_hold`/`ephemeral`)으로 확정 — source config 기본값 + `documents` override에 저장, 클래스별 TTL 만료 시 Watchtower sweeper가 §5.2 삭제 전파 자동 트리거, `legal_hold`은 삭제 요청보다 우선 | 개인정보·민감정보 최소화 및 삭제 전파 계약 명시, 법적 보존 의무 충돌 방지(blueprint §13) | Accepted |
+| ADR-1108 | investigation 실행 메타데이터·오류·Audit report를 PostgreSQL에 영속하고 worker 재시작 뒤에도 동일 ID로 조회 | D8 관측·재시작 복구·취소 경계 감사, graph/curated write와 분리 | Accepted |

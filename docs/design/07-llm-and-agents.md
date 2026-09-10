@@ -1,6 +1,6 @@
 # 07 · LLM·에이전트 (Warchief's Council · Seers)
 
-> **상태:** ✅ Stable · **Spec:** 1.0.0 · **Blueprint 매핑:** §9
+> **상태:** ✅ Stable · **Spec:** 1.2.0 · **Blueprint 매핑:** §9
 > 상위 규약: [README](./README.md) · 관련: [01-architecture](./01-architecture.md), [05-resolution](./05-resolution-and-extraction.md), [06-graph](./06-graph-service.md), [08-search](./08-search-and-graphrag.md)
 
 LLM·에이전트 계층(Seers, Warchief's Council)의 사용 영역, 모델 계층화·라우팅, Agent 명세, 조사 루프(investigation loop), evidence-first 생성 계약, prompt/모델 버전 관리, structured output 계약을 정의한다. 본 문서는 blueprint §9를 구현 계약으로 확정하며, README §3 설계 불변식(특히 §3-3 agent는 graph mutate 직접 금지, §3-5 evidence-first)과 [01-architecture](./01-architecture.md) Agent Runtime 경계(§3, S9, ADR-103)를 위반할 수 없다.
@@ -250,6 +250,8 @@ blueprint §9.4 파이프라인을 **상태 기계(state machine)**로 확정한
 
 > **Prototype 구현 노트 (2026-08-03, S43–S47):** 조사 루프의 read-only 지형을 prototype으로 확인했다 — Graph Explorer(§3.3)·Counter-Evidence(§3.6)·Synthesis/Audit(§3.8/§3.9)의 출력(vector: subgraph/independence, hypotheses/negative_queries/contradiction_candidates, evidence-first report/audit violations)이 커리티드 존·소비 계층(S28–S31) 위에서 결정적·read-only로 동작(불변식 §3-3). evidence coverage(§4.2)와 종료 조건(coverage ≥ 0.80·no_new_evidence·budget)도 구현(S43/S46). LLM routing·expected_info_gain 보정치(§2.3, ADR-706)·task budget token 활용은 Phase 1 실측에서 조정. 계약 변경 없음 — 구현은 이 정본을 충실 반영.
 
+> **구현 (W3 — durable asynchronous read-only investigation, 2026-09-10):** `investigation_store.py`가 PostgreSQL investigation/job/step/report를 소유하고, 별도 단일-host `investigation_worker.py`가 worker 소유 read-only DuckDB path에서 기존 Planner → InvestigationRunner → Synthesizer/Audit를 실행한다. 최소 step `PLAN|RUN|SYNTHESIZE|AUDIT`는 `(inv_id, step_id)` 멱등 append이며, `FOR UPDATE SKIP LOCKED` claim + lease token이 경쟁 worker와 고아 running 재claim을 제어한다. worker는 장기 RUN 중 heartbeat로 lease를 갱신하고, `cancel_requested`는 stage 경계에서 확인해 late completion을 차단한다. LLM 실패는 결정적 report를 보존하고 `llm.error`로 기록한다. graph·curated zone mutation은 없다.
+
 > **구현 (Phase 3 — 조사 budget·종료 조건 + LLM routing, 2026-08-12):** `investigation_budget.py` — §4.3 조합 종료 + §2.3·ADR-706 routing **구현 가능화** (placeholder 초기 기본값). `InvestigationBudget(max_steps·max_tokens)` — step/token 예산 추적, 소진 시 **hard stop(D)** (max_steps=0 즉시 소진, max_tokens=0 비활성). `evaluate_stop(coverage·new_independent_evidence_rate·unresolved_contradictions·budget·steps)` — **STOP=(A∧B∧C)∨D**: A coverage ≥ 0.9 · B 신규 독립 증거율 < ε=0.05 · C 미해결 모순 = 0 · D budget 소진은 항상 hard stop(≈ ADR-706 δ=0.02 confidence 수렴은 보조 신호). `route_llm(task, result_confidence, budget_remaining, next_tier_cost)` — §2.2 task별 L0..L5 + **승급 게이트**(결과 confidence < τ_tier(0.75/0.70/0.65)∧ 예산 잔량 > cost(next) 시 1단계 승급, ADR-706). `expected_info_gain`(§2.3 = Δcoverage_est × var(confidence))·`call_cost`(=(input+output)×tier_단가). `InvestigationRunner`가 기본 max_iters 예산에 `evaluate_stop`·budget hard-stop을 배선(terminated_by 기존 어휘 유지). **read-only**(불변식 §3-3)·결정적. **스키마·계약 변경 없음 → Spec 그대로(0.1.9).** TDD — `test_investigation_budget` 신규 16개 + `test_investigation_runner` 신규 1개(budget hard stop D) — 스위트 563→**580개 통과**(회귀 0). 다음: Synthesis·Audit 증거 역추적 chain(07 §3.8/§3.9, 연결률 = 1.0).
 
 ---
@@ -363,3 +365,4 @@ Agent Runtime은 도구를 계층별로 노출한다. Agent가 그래프를 muta
 | ADR-705 | 모델·프롬프트 교체는 골든셋 회귀 통과 후 단계 승격, 버전 튜플·ROADMAP 기록 | 재현성·회귀 방지 (blueprint §9.5, §12.5, → [10](./10-evaluation-and-testing.md)) | Accepted |
 | ADR-706 | routing 승급 임계 `τ_tier`(0.75/0.70/0.65)·종료 수렴 `δ`(0.02)를 초기 기본값으로 고정, `expected_info_gain`=coverage-delta 휴리스틱·`call_cost`=토큰 추정으로 산정(§2.3, §4.3) | 미측정 양 의존 제거해 라우팅/종료 구현 가능화; placeholder는 [10](./10-evaluation-and-testing.md) 실측 조정 | Accepted |
 | ADR-707 | 보고서 문장 분류를 정본 `modality {fact,asserted,opinion,prediction}`로 통일(`kind` 폐기, `forecast`→`prediction`, `claim`→`asserted`), 필드명 09 정합(`report.statements[].claim_ref`); 모델 추론은 `inference` modality 신설 대신 `model_prior` 플래그 | 07↔09/02 vocab·필드 drift 제거, contract test 정합 (G5, → [09](./09-api.md) §3, [02](./02-ontology.md) §5.3) | Accepted |
+| ADR-708 | 기존 evidence 조사 실행을 PostgreSQL durable job + 단일-host worker로 분리하고, worker는 자체 read-only DuckDB path만 연다 | 재시작 복구·UI polling을 제공하면서 graph/zone mutation·새 queue dependency를 배제 | Accepted |

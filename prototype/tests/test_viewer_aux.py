@@ -338,25 +338,6 @@ def test_watchtower_intake_honest_without_fetched_at(raw_dir):
     Handler._FETCH_CACHE.clear()
 
 
-def test_investigate_extends_counter_audit_iterations():
-    """`/api/investigate` 확장 — counter_evidence 배열·audit_trace·iterations·
-    terminated_by·retrieved≤10·computed 문구."""
-    facade = _rich_facade()
-    subj = facade.zone.assertions()[0]["subject_id"]
-    self = types.SimpleNamespace(facade=facade)
-    r = json.loads(Handler._api_investigate(self, {"subject": subj}))
-    assert r["computed"] == "on-request, non-persistent"
-    assert isinstance(r["counter_evidence"], list)
-    for ce in r["counter_evidence"]:
-        assert "hypotheses" in ce and "negative_queries" in ce
-    at = r["audit_trace"]
-    assert {"trace", "blocked_statements", "verifiable", "linked",
-            "linkage_ratio"} <= set(at)
-    assert isinstance(r["iterations"], int) and r["iterations"] >= 1
-    assert r["terminated_by"]
-    assert len(r["retrieved"]) <= 10
-    # 기존 필드 유지
-    assert "coverage" in r and "gaps" in r and "conclusion" in r
 
 
 def test_search_route_wired_and_pages_untouched():

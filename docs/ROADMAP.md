@@ -3,15 +3,15 @@
 > 이 문서는 프로젝트 **진행 내역을 추적**한다. 스펙 정의는 [`docs/design/`](./design/README.md)(SSOT)에 있고, 여기서는 "무엇을 언제 어디까지 했는가"만 관리한다.
 > 규칙: 설계·구현 변경은 (1) 해당 design 문서 수정 (2) `design/README.md` Spec version 반영 (3) 본 문서 §5 Changelog 기록의 3단계를 거친다.
 
-- **최종 갱신:** 2026-09-02
-- **현재 단계:** Phase 6(Stable 운용) 코드 봉인 축 **완결(블록업)** — *Phase 1~5(스위트 902·MVP 10/10·설계 11개 Stable Spec 1.0.0) 후, 이전 Phase 가 남긴 **deferred SLO(01/05/06/07/08)·tool schema·measured=False** 항목을 실측·measured 전환하는 **측정 기반 운영 단계** (blueprint 미정의 — ROADMAP 신규 정의, §3 Phase 6). Phase 6 에서 코드로 봉인 가능한 축 하니스·스키마·경보·nightly 게이트(DoD ②) 를 **전부 완결(스위트 998 Green)**. **실측 measured 전환 (2026-08-18):** SLO-01/05/06 실측(8.3min·n=440·n=40)·**SLO-08 전체 104,677건 재처리 병렬 완주 벽시계 5.6min measured=True**(speedup 5.10×) · A5·A6·A7·A8 수집 지속 운용 가동(raw **104,735** — arXiv 2025-03 까지 전 연대 소진 확인(A7 skip 1,998·A8 +0 skip 2,000), 수집 포화 접근, raw 성장은 RSS 신규만). **SLO-05 는 런별 독립·표본 n 은 arXiv `total` 파라미터 연동**(`slo_log` in-memory — 런 간 누적 없음, 2026-08-18 A8 관측으로 이전 "런 간 누적 n=50→440→1540→2040" 서술 정정; n 은 A5…
-- **Spec version:** 1.1.0 · **Ontology version:** 1.0.0
+- **최종 갱신:** 2026-09-10
+- **현재 단계:** durable asynchronous read-only investigation (W3) 구현 완료 — graph/curated mutation 없이 PostgreSQL job·worker·Council polling으로 기존 evidence 조사 영속화
+- **Spec version:** 1.2.0 · **Ontology version:** 1.0.0
 
 ## 1. 상태 요약 (한눈에)
 
 | 트랙 | 상태 | 비고 |
 | --- | --- | --- |
-| 상세 설계 (Design SSOT) | ✅ Stable | 11개 문서 **Stable 확정**(Spec 1.1.0). 리뷰 패스(BLOCKER 3 + MAJOR 36 해소)·상호 일관성 재검증 전항목 PASS. **SLO-06 무비용 LLM 실측 확정(잠정)**(2026-08-19 pass_rate 1.0 n=10 → A24 n=30 재확정 · **2026-09-02 5일치 118건 축적 점검**) · SLO-02/03/04 실측 확정 · SLO-01/05/07/08·tool JSON schema 는 명시적 deferred(A21 · 11 §2.3, 07 §7) |
+| 상세 설계 (Design SSOT) | ✅ Stable | 11개 문서 **Stable 확정**(현재 global Spec 1.2.0). 리뷰 패스(BLOCKER 3 + MAJOR 36 해소)·상호 일관성 재검증 전항목 PASS. **SLO-06 무비용 LLM 실측 확정(잠정)**(2026-08-19 pass_rate 1.0 n=10 → A24 n=30 재확정 · **2026-09-02 5일치 118건 축적 점검**) · SLO-02/03/04 실측 확정 · SLO-01/05/07/08·tool JSON schema 는 명시적 deferred(A21 · 11 §2.3, 07 §7) |
 | 도메인·소스 선정 | ✅ 완료 | AI 반도체·데이터센터 공급망 확정, 초기 Scout 5종 선정(04 §1.4) |
 | 1만 문서 샘플 | ✅ 완료 | 2026-08-11 arXiv metadata 1만 + RSS/SEC — 총 raw 11,361건 |
 | Prototype 구현 | ✅ 완료 (S1–S47 + Q2/Q3/Q5) | 결정적+LLM 하이브리드 파이프라인 · bitemporal · 소비 계층(S28–31) · 평가/승격 트랙(S33–41) · **조사 에이전트 트랙(S43–47)** 구현 · Q2·Q3 해소 · test 스위트 514 Green · MVP 10/10 · Phase 1 DoD ①② (10만 재처리 · source-span 보고서 E2E) · Q4 3게이트 전항 PASS ([§5 Changelog](#5-changelog)) |
@@ -25,18 +25,18 @@
 
 | # | 문서 | 작성 | 리뷰 | 확정 (Stable) |
 | --- | --- | :---: | :---: | :---: |
-| — | README (인덱스·규약) | ✅ | ✅ | ✅ (Spec 1.0.0) |
+| — | README (인덱스·규약) | ✅ | ✅ | ✅ (Spec 1.2.0) |
 | 01 | architecture | ✅ | ✅ | ✅ (Spec 1.0.0) |
 | 02 | ontology | ✅ | ✅ | ✅ (Spec 1.0.0) |
-| 03 | storage-and-data-model | ✅ | ✅ | ✅ (Spec 1.0.0) |
+| 03 | storage-and-data-model | ✅ | ✅ | ✅ (Spec 1.2.0) |
 | 04 | ingestion-and-parsing | ✅ | ✅ | ✅ (Spec 1.0.0) |
 | 05 | resolution-and-extraction | ✅ | ✅ | ✅ (Spec 1.0.0) |
 | 06 | graph-service | ✅ | ✅ | ✅ (Spec 1.0.0) |
-| 07 | llm-and-agents | ✅ | ✅ | ✅ (Spec 1.0.0) |
+| 07 | llm-and-agents | ✅ | ✅ | ✅ (Spec 1.2.0) |
 | 08 | search-and-graphrag | ✅ | ✅ | ✅ (Spec 1.0.0) |
-| 09 | api | ✅ | ✅ | ✅ (Spec 1.0.0) |
+| 09 | api | ✅ | ✅ | ✅ (Spec 1.2.0) |
 | 10 | evaluation-and-testing | ✅ | ✅ | ✅ (Spec 1.0.0) |
-| 11 | observability-and-governance | ✅ | ✅ | ✅ (Spec 1.0.0) |
+| 11 | observability-and-governance | ✅ | ✅ | ✅ (Spec 1.2.0) |
 
 **설계 단계 종료 조건 (충족, 2026-08-12):** 12개 문서 전부 Review 통과 + 상호 참조 일관성 검증(깨진 링크 0·OptionA PASS) + Phase 0 완료 조건(§3)에 매핑되는 스펙 확정.**11개 문서 Stable 확정**(Spec 1.0.0). 명시적 deferred: 11 §2.3 SLO-01/05/06/07/08·07 §7 tool JSON schema — 실측 후 확정.
 
@@ -182,6 +182,7 @@
 가장 최신이 위로. 스펙·설계 변경을 기록한다 (구현 세부 커밋은 git 이력).
 
 ### 2026-09-10
+- **W3 — 영속 조사 Job 수직 증분.** 기존 `/api/investigate` 동기·비영속 trace를 제거하고, PostgreSQL `investigations`·`jobs`·append-only `steps`·JSONB report/audit_trace와 단일-host `investigation-worker`로 clean cutover. `POST /api/investigations`는 `Idempotency-Key`로 `202 + Location + Retry-After`를 반환하며 job/status/report/cancel polling을 제공한다. `FOR UPDATE SKIP LOCKED` claim·lease token·stage-boundary cancel로 경쟁 worker·고아 재claim·late completion을 차단한다. worker는 독립 read-only DuckDB path에서 기존 Planner → Runner → Synthesizer/Audit만 실행하고 graph/curated는 불변. Council은 POST→polling→완료 report로 전환했고 `frontend/dist`를 재빌드했다. compose base/prod에 worker를 추가. Spec **1.2.0**.
 - **prod 배포 재개 완료 (orchwang-macbookpro) + 배포에서만 드러난 결함 3건 해소.** 원격 복구 확인 후 보류분(main 7커밋: Watchtower Components·W1·W2) push → `deploy.sh` 재배포 → 후속 배선(ensure_tables → `init-readonly.sql` → parquet 스냅샷 → duckdb-ui) 완료. 배포 과정에서 실측된 결함: **(1) prod 앱 컨테이너 자격증명 미주입** — compose 오버레이가 viewer·scheduler 에 `POSTGRES_HOST` 등 DNS 만 주고 자격증명을 안 줘 클라이언트가 로컬 기본값으로 폴백, `run_metrics` flush 가 조용히 상시 실패(prod postgres relation 0건 실측) → 자격증명 6종 `${VAR:?}` 주입 + viewer 에 LLM env 주입, 계약 테스트 신설. **(2) viewer 컨테이너 frontend/dist 미마운트** — 이미지에는 prototype/ 만 들어가 8공간 전 라우트 정직 503 → base·prod 양쪽 ro 마운트 + 계약 테스트. **(3) `rebuild_zones._swap` 이 DuckDB WAL 사이드카 방치** — 구 live 의 `.wal` 이 새 DB 옆에 남아 남의 WAL 재생 시도(CatalogException) → viewer 크래시 루프 실측 → WAL 짝 이동으로 수정 + 회귀 테스트 3건. prod 첫 L3 재적재 실행(raw 220 docs → assertions 131·entities 21) 후 E2E 실측: 8공간 전부 200, 질문 해소(W1) `NVIDIA 동향 조사` → org 해소·audit pass, LLM 종합(W2) `mode=llm` → bunker-flash 문장 6·폐기 0·linkage 1.0·1,215/2,362 tokens. 미해결 정직 표기: grafana 대시보드는 첫 nightly flush(내일 07:07) 전까지 No data — 메트릭 테이블은 생성됨. 스위트 1354.
 
 ### 2026-09-09

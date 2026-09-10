@@ -91,7 +91,7 @@ def test_document_endpoint_honest_empty(norm_db):
 
 
 def test_council_report_read_only():
-    """`/api/council?subject=` — 기존 조사 보고서(결론·predicate·open_questions·signal)."""
+    """`/api/council`은 기존 보고서와 durable 조사 실행 가능성을 함께 알린다."""
     facade = _facade()
     subj = facade.zone.assertions()[0]["subject_id"]
     self = types.SimpleNamespace(facade=facade)
@@ -99,5 +99,6 @@ def test_council_report_read_only():
     assert r["subject_id"] == subj
     assert "confidence" in r and "by_predicate" in r
     assert "open_questions" in r and "signal" in r
-    assert r["execution"]["available"] is False  # 조사 실행은 쓰기 → 범위 밖 정직
+    assert r["execution"]["available"] is True
+    assert "read-only" in r["execution"]["note"]
 

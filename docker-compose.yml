@@ -116,6 +116,18 @@ services:
     build: ./prototype
     environment:
       VIEWER_HOST: 0.0.0.0
+      POSTGRES_HOST: postgres
+      POSTGRES_USER: ${POSTGRES_USER:?}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+      POSTGRES_DB: ${POSTGRES_DB:?}
+      LLM_PROVIDER: ${LLM_PROVIDER:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
     volumes:
       - ./prototype/data:/app/data
       # 정적 자산 — 이미지에는 prototype/ 만 들어간다. 히어로 PNG 19MB 를
@@ -125,6 +137,26 @@ services:
       - ./design-system/fonts/dist:/app/static/fonts:ro
       # 8공간 라우트의 유일한 표시 계층 — 없으면 viewer 가 정직 503 (dist 는 커밋 대상).
       - ./frontend/dist:/app/static/app-dist:ro
+
+  investigation-worker:
+    profiles: ["prototype"]
+    build: ./prototype
+    command: ["python", "scripts/investigation_worker.py"]
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_USER: ${POSTGRES_USER:?}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+      POSTGRES_DB: ${POSTGRES_DB:?}
+      LLM_PROVIDER: ${LLM_PROVIDER:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./prototype/data:/app/data
 volumes:
   pgdata:
   minio-data:

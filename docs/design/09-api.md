@@ -1,6 +1,6 @@
 # 09 · API 계약
 
-> **상태:** ✅ Stable · **Spec:** 1.0.0 · **Blueprint 매핑:** §5
+> **상태:** ✅ Stable · **Spec:** 1.2.0 · **Blueprint 매핑:** §5
 > 상위 규약: [README](./README.md) · 관련: [01-architecture](./01-architecture.md), [06-graph](./06-graph-service.md), [07-llm](./07-llm-and-agents.md), [03-storage](./03-storage-and-data-model.md)
 
 Citadel의 외부 계약(API Gateway = **Citadel Gate**, FastAPI)을 확정한다. blueprint §5(조사 요청/결과/지속 관찰)의 사용자 경험을 REST 리소스와 응답 스키마로 번역하며, 그래프·조사·저장 계층의 내부 세부는 각 정본 문서([`06`](./06-graph-service.md), [`07`](./07-llm-and-agents.md), [`03`](./03-storage-and-data-model.md))가 소유한다. 본 문서는 **client ↔ services 경계의 wire contract**만 확정한다 (컴포넌트 경계는 [`01`](./01-architecture.md) §3).
@@ -37,9 +37,7 @@ Citadel의 외부 계약(API Gateway = **Citadel Gate**, FastAPI)을 확정한�
 
 > 계약 규칙: 클라이언트는 세계관 명칭을 **표시 레이어에서만** 사용하고, 경로·필드 키·ID는 기술 용어를 신뢰한다. UI 명칭 변경이 API를 깨뜨리지 않는다.
 
-> **프로토타입 뷰어 (개발용, wire 계약과 별개):** `prototype/orc_citadel/viewer.py`(stdlib `http.server`, read-only)가 위 공간들을 **SPA 라우트**로 렌더링한다 — `/`(Citadel Gate 대시보드) · `/table`(War Table 3+1: Campaign Map · 그래프 캔버스 · Evidence Inspector · Chronicle 레일) · `/witnesses`(Hall of Witnesses: Claim 목록 · Evidence·Provenance Trail · 원문 하이라이트 — 결과→원문 3-hop 왕복, §2.3 계약의 뷰어 대응) · `/council`(Council Chamber: `get_investigation_report` 결론·by_predicate·open_questions 조회 — 조사 '실행'은 쓰기라 범위 밖) · `/watchtower`(수집 관제 + normalized `publication_time` 실측 freshness) · `/archive`(Grand Archive: source_type facet·Codex 상세) · `/chronicle`(Chronicle Vault: as-of 상태 분해·War Table bitemporal 딥링크) · `/spire`(Signal Spire: 5 트리거·정직 빈 피드). 각 페이지는 `/api/gate|watchtower|archive|chronicle|spire|table|council|document|search|claim|report|evidence|provenance|subject_claims` JSON 을 fetch 하고, War Table 은 `/api/graph`·`/api/graph_node`·`/api/graph_expand`(opaque cursor)·`/api/provenance` 로 클릭 확장·trail 을 잇는다. **기구현 영속 데이터를 실측으로** 채우고 remaining-gaps 심화(Wave 1 백엔드 + Wave 2 프런트): War Table zoom/pan·subclaim 카드·claim 상세·bitemporal 레일, Witnesses modality facet·bitemporal·독립성·trail 전개·원문 toolbar·?claim/?doc 부트스트랩, Council 8역할 executed/not-run·loop trace·audit_trace(버튼 클릭 시 on-request), Gate mini-watchtower·text-contains 전역 검색(/api/search), Watchtower intake 시계열·governance(fetch.json 실측), Archive facet/stacks/contains 검색, Chronicle bitemporal plane·preset·events rail. 실측이 없는 축(SLO 관측·signal alert·postgres replay·contradicts/Seer·조사 실행·cost/turn 로그)은 `not-measured`/빈 상태로 정직 표기(honest-gap §6.2). 본 09 의 REST wire 계약과는 별개 — 스키마·계약 추가 없음 (Spec 유지).
->
-> **표시 계층 전환 (2026-09-08 개정, [specs/ui-overhaul-astryx](../../specs/ui-overhaul-astryx/specs.md)):** 뷰어의 표시 계층은 인라인 HTML(`viewer_pages.py`·`*_ext.py`)에서 **`frontend/`(Vite + React 19 + `@astryxdesign/core` + theme-citadel) 정적 산출물**로 전면 이관한다. 뷰어 런타임 규약은 불변 — stdlib `http.server`·read-only 로 커밋된 `frontend/dist/` 를 서빙하고 `/api/*` 를 제공한다. **node·React 는 theme-citadel·목업과 동일한 저작 시점 도구**이며 런타임·배포 어디에도 요구되지 않는다(생성물 커밋). 구 "stdlib only" 표현은 "런타임 stdlib · 표시 계층 저작 도구로 node 허용"으로 개정. 목업(`design-system/mockups`)과 앱은 `design-system/ui/` 컴포넌트 1벌을 공유한다. **이관 완료 (2026-09-09):** 8공간 전환이 끝나 인라인 페이지(`viewer_pages.py`·`*_ext.py`)와 `/legacy/*` 라우트는 제거됐다 — dist 가 유일한 표시 계층이며, dist 부재는 폴백 없이 503. wire 계약 무변경 → Spec 유지 (`/api/search` scope 확장 시점에 minor bump 예정).
+> **프로토타입 mapping (W3, 2026-09-10):** stdlib viewer는 외부 `/v1` 계약을 `/api`로 구현한다: `POST /api/investigations`, `GET /api/investigations/{inv_id}`, `GET /api/investigations/{inv_id}/status`, `GET /api/investigations/{inv_id}/report`, `GET /api/jobs/{job_id}`, `POST /api/investigations/{inv_id}:cancel`. 생성은 `Idempotency-Key`와 JSON body를 요구하고 `202` + `Location` + `Retry-After`를 반환한다. PostgreSQL 미가동은 가짜 job 없이 구조화 `503`이다. 구 `/api/investigate` 비영속 경로는 제거했다. 표시는 `frontend/dist`가 맡으며 graph·curated zone은 read-only, PostgreSQL investigation 운영 메타데이터만 write 허용이다.
 
 ### 1.4 페이지네이션 — Cursor 기반
 
@@ -399,3 +397,4 @@ GET  /v1/investigations/{id}/status → 도메인 진행률(coverage·cost, §2.
 | ADR-905 | Confidence는 **다차원 봉투 필수**(단일 게이지 금지) | 신뢰도 과대평가·오해 방지(blueprint §1.4·§5.2·§11), mockup `never a lone gauge` | Accepted |
 | ADR-906 | Graph API는 **read-only**, mutation 미노출 | event-driven mutation 불변식 §3-3, Agent·클라이언트의 직접 그래프 변경 차단([`01`](./01-architecture.md) 경계 규칙) | Accepted · **구현(P1 B)**: `ApiFacade.get_investigation_graph`가 investigation subgraph(§2.2 seed)+relation_paths+independence_summary 노출 (`prototype/orc_citadel/api_facade.py`, 2026-08-11) |
 | ADR-907 | 원문 span→provenance를 **≤3 왕복**으로 보장하는 전용 엔드포인트 | 감사 가능성 완료 기준(blueprint §1.4-3), Hall of Witnesses UX | Accepted |
+| ADR-908 | prototype은 `/api` mapping으로 durable investigation/job/cancel/polling을 제공하고 FastAPI를 도입하지 않는다 | 기존 stdlib runtime 유지 + 외부 `/v1` wire 계약의 수직 검증 | Accepted |

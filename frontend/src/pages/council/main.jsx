@@ -3,9 +3,9 @@
  *
  * 단일 3열: Council(Subjects+8 Agent) | 보고서·루프·발언 | Stopping·Cost·Audit —
  * 구 인라인 판의 중복 패널(요약 그리드 + ext 그리드 2단 적층) 결함을 소멸시킨다.
- * 소비 API: /api/table(subjects·이름) · /api/council(보고서) ·
- * /api/investigate(on-request trace — 버튼 클릭 시 1회, 로드 시 자동 fetch 없음).
- * live 실행·비용·모델 ID 는 wire 미영속 — Cost 는 '—' 정직 표기 (§6.2).
+ * 소비 API: /api/table(subjects·이름) · /api/council(기존 결론) ·
+ * /api/investigations(durable job 생성·상태·완료 report).
+ * graph·curated evidence는 read-only, investigation metadata만 PostgreSQL에 영속한다.
  */
 
 import React from 'react';
@@ -21,8 +21,9 @@ import {agentCard, loopStrip, turnCard, COUNCIL_ROLES} from '@ui/council.mjs';
 import {Palette, usePaletteHotkey} from '../../lib/palette.jsx';
 
 const urls = APP_URLS;
-const jfetch = (p) => fetch(p)
-  .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`${p} → ${r.status}`))));
+const jfetch = (p, options) => fetch(p, options)
+  .then((r) => (r.ok ? r.json() : r.json().then((body) =>
+    Promise.reject(new Error(body.error?.message || `${p} → ${r.status}`)))));
 const num = (n) => Number(n || 0).toLocaleString();
 
 const SIGNAL_TONE = {high_confidence: 'success', contradicted: 'error',
@@ -33,8 +34,10 @@ function useCouncil() {
   const [subjectId, setSubjectId] = React.useState(null);
   const [report, setReport] = React.useState(null);
   const [trace, setTrace] = React.useState(null);
-  const [tracing, setTracing] = React.useState(false);
+  const [investigation, setInvestigation] = React.useState(null);
+  const [job, setJob] = React.useState(null);
   const [error, setError] = React.useState(null);
+  const tracing = job && ['queued', 'running'].includes(job.status);
 
   React.useEffect(() => {
     const boot = new URLSearchParams(window.location.search).get('subject');
@@ -52,42 +55,72 @@ function useCouncil() {
       .then(setReport).catch(setError);
   }, [subjectId]);
 
-  // 수동 subject 전환 — 이전 trace 는 다른 대상 것이라 비운다. 질문 조사가
-  // 해소한 subject 로 전환할 때는 trace 를 유지해야 해서 effect 가 아니라 여기서.
-  const selectSubject = React.useCallback((sid) => {
-    setTrace(null); setSubjectId(sid);
+  const poll = React.useCallback((investigationId, jobId) => {
+    Promise.all([
+      jfetch(`/api/jobs/${encodeURIComponent(jobId)}`),
+      jfetch(`/api/investigations/${encodeURIComponent(investigationId)}/status`),
+    ]).then(([nextJob, nextInvestigation]) => {
+      setJob(nextJob);
+      setInvestigation(nextInvestigation);
+      if (nextJob.status === 'succeeded') {
+        return jfetch(`/api/investigations/${encodeURIComponent(investigationId)}/report`)
+          .then((result) => {
+            const completed = {...result.report, audit_trace: result.audit_trace};
+            setTrace(completed);
+            const hit = (completed.resolved || []).find((x) => x.known);
+            if (hit) setSubjectId(hit.subject_id);
+          });
+      }
+      if (!['failed', 'cancelled'].includes(nextJob.status)) {
+        window.setTimeout(() => poll(investigationId, jobId), 1000);
+      }
+      return null;
+    }).catch(setError);
   }, []);
 
-  // trace 는 on-request 계산이다 — 로드 시 자동 fetch 없음, 버튼 클릭 시 1회.
-  // useLlm(W2 옵트인) — 문장 종합만 LLM, 결론·근거는 결정적 그대로.
+  const startInvestigation = React.useCallback((body) => {
+    setTrace(null);
+    setError(null);
+    jfetch('/api/investigations', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID()},
+      body: JSON.stringify(body),
+    }).then((created) => {
+      setJob(created.job);
+      setInvestigation({investigation_id: created.investigation_id, status: 'queued'});
+      poll(created.investigation_id, created.job.job_id);
+    }).catch(setError);
+  }, [poll]);
+
+  const selectSubject = React.useCallback((sid) => {
+    setTrace(null); setInvestigation(null); setJob(null); setSubjectId(sid);
+  }, []);
+
   const runTrace = React.useCallback((useLlm) => {
-    if (!subjectId) return;
-    setTracing(true);
-    jfetch(`/api/investigate?subject=${encodeURIComponent(subjectId)}`
-           + (useLlm ? '&mode=llm' : ''))
-      .then(setTrace).catch(setError).finally(() => setTracing(false));
-  }, [subjectId]);
+    if (subjectId) startInvestigation({
+      subject_id: subjectId, mode: useLlm ? 'llm' : 'deterministic',
+    });
+  }, [subjectId, startInvestigation]);
 
-  // 조사 지시 (W1) — 자유 질문을 서버가 entity name 으로 해소해 조사한다.
-  // 해소된 known subject 가 랭킹에 있으면 보고서도 그 대상으로 전환.
-  const runQuestion = React.useCallback((q, useLlm) => {
-    const question = (q || '').trim();
-    if (!question) return;
-    setTracing(true);
-    jfetch(`/api/investigate?question=${encodeURIComponent(question)}`
-           + (useLlm ? '&mode=llm' : ''))
-      .then((res) => {
-        setTrace(res);
-        const hit = (res.resolved || []).find((x) => x.known);
-        if (hit && table
-            && table.subjects.some((s) => s.subject_id === hit.subject_id)) {
-          setSubjectId(hit.subject_id);
-        }
-      }).catch(setError).finally(() => setTracing(false));
-  }, [table]);
+  const runQuestion = React.useCallback((question, useLlm) => {
+    question = (question || '').trim();
+    if (question) startInvestigation({
+      question, mode: useLlm ? 'llm' : 'deterministic',
+    });
+  }, [startInvestigation]);
 
-  return {table, subjectId, selectSubject, report, trace, tracing,
-          runTrace, runQuestion, error};
+  const cancel = React.useCallback(() => {
+    if (!investigation) return;
+    jfetch(`/api/investigations/${encodeURIComponent(investigation.investigation_id)}:cancel`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}',
+    }).then((cancelled) => {
+      setInvestigation(cancelled);
+      setJob(cancelled.job);
+    }).catch(setError);
+  }, [investigation]);
+
+  return {table, subjectId, selectSubject, report, trace, investigation, job, tracing,
+          runTrace, runQuestion, cancel, error};
 }
 
 function App() {
@@ -106,14 +139,13 @@ function App() {
   const roleState = (role) => !t ? 'idle'
     : (role.wire && role.wire(t) ? 'executed' : 'not-run');
 
-  // 조사 지시 (W1) — 질문 입력 → 서버 entity 해소 → trace. 해소 결과는
-  // known/gap 그대로 표기 — 지식 밖 질문은 산출 없이 gap (§6.2).
+  // 조사 지시 — POST 생성 후 worker 상태를 polling하고 완료 report만 렌더한다.
   const directive = h(React.Fragment, {},
     panelHead('조사 지시 · Directive', '질문 → entity 해소 → trace'),
     h('div', {style: {padding: '10px 12px'}},
       h('input', {value: question, disabled: s.tracing,
         onChange: (e) => setQuestion(e.target.value),
-        onKeyDown: (e) => { if (e.key === 'Enter') s.runQuestion(question); },
+        onKeyDown: (e) => { if (e.key === 'Enter') s.runQuestion(question, useLlm); },
         placeholder: '예: NVIDIA 신제품 발표를 조사',
         style: {width: '100%', boxSizing: 'border-box', padding: '8px 10px',
           marginBottom: 8, background: 'var(--color-background-muted)',
@@ -129,7 +161,7 @@ function App() {
           fontFamily: 'var(--font-family-heading)', fontSize: 12,
           fontWeight: 600, color: 'var(--color-accent)',
           opacity: s.tracing || !question.trim() ? .5 : 1}},
-        s.tracing ? '조사 중…' : '조사 지시 (on-request · read-only)'),
+        s.tracing ? `조사 ${s.job.status}…` : '조사 지시 · existing evidence'),
       // W2 옵트인 — 문장 종합만 LLM. 결론 봉투·근거·audit 는 결정적 그대로.
       h('label', {style: {display: 'flex', alignItems: 'center', gap: 6,
         marginTop: 8, cursor: 'pointer', fontSize: 11.5,
@@ -138,6 +170,35 @@ function App() {
           onChange: (e) => setUseLlm(e.target.checked),
           style: {accentColor: 'var(--color-accent)'}}),
         'LLM 종합 — 문장만 LLM 생성 (비결정적 · 토큰 실측 표기)'),
+      s.job ? h('div', {style: {marginTop: 10}},
+        h('div', {style: {display: 'flex', alignItems: 'center', gap: 6,
+          flexWrap: 'wrap'}},
+          h(Badge, {variant: s.job.status === 'succeeded' ? 'success'
+            : s.job.status === 'failed' ? 'error'
+            : s.job.status === 'cancelled' ? 'warning' : 'neutral',
+          label: `job · ${s.job.status}`}),
+          s.investigation ? id(s.investigation.investigation_id) : null),
+        s.investigation && s.investigation.current_step
+          ? h('div', {style: {marginTop: 6}},
+              h(Text, {type: 'supporting'},
+                `현재 단계 · ${s.investigation.current_step.stage}`
+                + ` · ${s.investigation.current_step.step_id}`))
+          : null,
+        s.job.error_json
+          ? h('div', {style: {marginTop: 6}},
+              h(Text, {type: 'supporting'},
+                `실행 실패 · ${s.job.error_json.message || s.job.error_json.code}`))
+          : null,
+        s.tracing && s.job.cancel_requested
+          ? h('div', {style: {marginTop: 8}},
+              h(Text, {type: 'supporting'},
+                '취소 요청됨 · 현재 stage 경계에서 cancelled로 전이'))
+          : s.tracing ? h('button', {onClick: s.cancel,
+              style: {marginTop: 8, padding: '6px 8px', cursor: 'pointer',
+                border: '1px solid var(--color-border)', background: 'transparent',
+                borderRadius: 'var(--radius-element)',
+                color: 'var(--color-text-secondary)'}},
+              '조사 취소') : null) : null,
       t && t.question ? h('div', {style: {marginTop: 8}},
         h('div', {style: {display: 'flex', flexWrap: 'wrap', gap: 6}},
           (t.resolved || []).map((rv, i) =>
@@ -177,7 +238,7 @@ function App() {
             state: role.wire === null ? 'not-run' : roleState(role),
             desc: role.desc, art: role.art, assetBase: '/assets/img/'}))),
       h(Text, {type: 'supporting'},
-        '모델 ID·라우팅 판정은 wire 미영속 — 표기하지 않음 (honest-gap §6.2)')));
+        '모델·토큰은 완료 report에 실측값만 표기 (honest-gap §6.2)')));
 
   // 중앙 — Investigation Report + 조사 루프 + 발언(evidence-first statements)
   const conf = r && r.confidence;
@@ -231,18 +292,19 @@ function App() {
       loopStrip({doneCount: t ? 11 : 0}),
       h('div', {style: {marginTop: 10}},
         !t ? h(Text, {type: 'supporting'},
-            '[조사 trace] 실행 시 결과 trace 를 표시 — on-request, non-persistent '
-            + '(실행 로그 아님)')
+            s.job
+              ? `영속 job ${s.job.status} — worker 완료 후 report를 표시`
+              : '질문을 제출하면 PostgreSQL job과 진행 상태를 표시')
           : h(React.Fragment, {},
               h('div', {style: {display: 'flex', flexWrap: 'wrap', gap: 6}},
                 traceSteps.map(([k, v], i) =>
                   h(Badge, {key: k, variant: 'neutral', label: `${i + 1} ${k} · ${v}`}))),
               h('div', {style: {marginTop: 6}},
-                id(`computed: ${t.computed || 'on-request, non-persistent'}`)))),
+                id(`durable investigation · ${s.investigation?.investigation_id || 'completed'}`)))),
 
       sectionLabel('발언 · Statements (evidence-first)'),
       !t ? h(Text, {type: 'supporting'},
-          'Synthesizer 산출 문장은 trace 실행 시에만 — 무출처 문장은 Audit 이 차단')
+          '완료된 조사 report의 Synthesizer 문장만 표시 — 무출처 문장은 Audit 이 차단')
         : (t.statements || []).length
           ? t.statements.map((st, i) =>
               h('div', {key: i},
@@ -265,7 +327,7 @@ function App() {
   const linked = at ? (at.linked || 0) : null;
   const stopping = h(LayoutPanel, {width: 372, hasDivider: true, padding: 0,
     label: 'Stopping · Cost · Audit'},
-    panelHead('Stopping · Cost · Audit', 'read-only'),
+    panelHead('Stopping · Cost · Audit', 'existing evidence · durable job'),
     h('div', {style: {padding: 16}},
       h('button', {onClick: () => s.runTrace(useLlm),
         disabled: s.tracing || !s.subjectId,
@@ -274,7 +336,7 @@ function App() {
           borderRadius: 'var(--radius-element)',
           fontFamily: 'var(--font-family-heading)', fontSize: 12, fontWeight: 600,
           color: 'var(--color-accent)', opacity: s.tracing ? .5 : 1}},
-        s.tracing ? '계산 중…' : '조사 trace (on-request · read-only)'),
+        s.tracing ? `조사 ${s.job.status}…` : '조사 생성 · existing evidence'),
 
       sectionLabel('종료 조건 · Stopping'),
       h('div', {style: {margin: '0 0 12px', padding: '8px 10px',
@@ -328,7 +390,7 @@ function App() {
             : t && t.llm && !t.llm.used
               ? `LLM 종합 미수행 — ${t.llm.error}`
               : (r && r.execution && r.execution.note)
-                || '조사 실행(쓰기)은 범위 밖 — 비용·턴 로그 미영속 (honest-gap §6.2)')),
+                || '결정적 조사는 LLM 비용 없이 worker trace·report를 PostgreSQL에 영속')),
 
       sectionLabel('Audit Agent · 역추적 감사'),
       !at ? h(Text, {type: 'supporting'},

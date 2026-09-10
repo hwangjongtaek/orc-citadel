@@ -1,10 +1,8 @@
-"""S32 뷰어 — 실데이터를 브라우저로 직접 확인하는 read-only 개발 서버 (stdlib).
+"""실데이터를 브라우저로 직접 확인하는 prototype 개발 서버 (stdlib).
 
-FastAPI·신규 의존 없이 `http.server`로 S32 API 파사드(09 §2/§3 wire 계약)를
-서빙한다. 조회 전용(read-only, 불변식 §3-3) — 쓰기 엔드포인트 없음.
-
-결정적·재현: 커리티드 존(curated.duckdb)을 읽어 subject 랭킹(S31)·조사 보고서(S30)·
-claim 근거(S29)를 HTML로 렌더링한다.
+FastAPI·신규 런타임 의존 없이 `http.server`로 `09-api`의 prototype mapping을
+제공한다. graph·curated zone은 읽기 전용이고, durable investigation의 운영
+메타데이터와 report만 PostgreSQL에 쓴다.
 
 실행:  .venv/bin/python -m orc_citadel.viewer     # http://127.0.0.1:8791
 """
@@ -14,19 +12,26 @@ import json
 import os
 import pathlib
 import webbrowser
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import unquote, urlparse
 
 from orc_citadel import component_status, viewer_static
-from orc_citadel.api_facade import ApiFacade
-from orc_citadel.curated_zone import CuratedZone
-from orc_citadel.graph_service import GraphService
+from orc_citadel.investigation_job import build_read_facade
+from orc_citadel.versioning import extraction_version_tuple
 
 # 컨테이너에서는 VIEWER_HOST=0.0.0.0 으로 외부 바인딩 (docker-compose.yml).
-HOST, PORT = os.environ.get("VIEWER_HOST", "127.0.0.1"), 8791
+HOST, PORT = os.environ.get("VIEWER_HOST", "127.0.0.1"), int(os.environ.get("VIEWER_PORT", "8791"))
 DB = pathlib.Path(__file__).resolve().parent.parent / "data" / "curated.duckdb"
 RAW_DIR = DB.parent / "raw"          # raw zone flat 파일 (설계 03 §2.1)
 NORM_DB = DB.parent / "oc.duckdb"    # normalized zone DuckDB (03 §3)
+
+def _investigation_json_default(value):
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return str(value)
+
+
 
 # JSON serialization — datetime/tuple을 str로.
 def _j(fn):
@@ -491,23 +496,12 @@ def _postgres_replay_status() -> dict:
 
 
 def _build():
-    z = CuratedZone(str(DB))
-    z.initialize()
-    g = GraphService()
-    for a in z.assertions():
-        for node, uid in ((a["subject_id"], f"n-{a['assertion_id']}"),
-                          (a["claim_id"], f"n2-{a['assertion_id']}")):
-            g.apply([{"mutation_id": uid, "idempotency_key": uid,
-                      "op": "create_node", "payload": {"id": node, "props": {}, "labels": []}}])
-        g.apply([{"mutation_id": f"e-{a['assertion_id']}", "idempotency_key": f"e-{a['assertion_id']}",
-                  "op": "create_edge",
-                  "payload": {"type": "ABOUT", "from": a["subject_id"], "to": a["claim_id"],
-                              "props": {}}}])
-    return ApiFacade(z, g)
+    return build_read_facade(DB)
 
 
 class Handler(BaseHTTPRequestHandler):
     facade = None  # class-level (한 번 로드)
+    investigation_table_prefix = "investigation"
     # 정적 자산 루트 — 없으면 자산 없이 동작한다 (정직 갭).
     static_roots = viewer_static.default_roots()
     # raw fetch.json 전수 스캔은 1회만 (경로 → 레코드 목록). 렌더마다 재스캔 금지.
@@ -518,6 +512,120 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):  # 출력 간소화 (404 등만 남김)
         if self.path.startswith("/api/"):
             super().log_message(*a)
+
+    def _send_json(self, status: int, payload: dict, *, headers: dict | None = None) -> None:
+        body = json.dumps(
+            payload, default=_investigation_json_default, ensure_ascii=False
+        ).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        for name, value in (headers or {}).items():
+            self.send_header(name, value)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _investigation_store(self):
+        import psycopg
+
+        from orc_citadel.investigation_store import InvestigationStore
+        from orc_citadel.postgres_mutation_log import build_dsn
+
+        conn = psycopg.connect(build_dsn())
+        conn.autocommit = True
+        store = InvestigationStore(conn, table_prefix=self.investigation_table_prefix)
+        store.ensure_tables()
+        return store, conn
+
+    @staticmethod
+    def _investigation_error(code: str, message: str, **details) -> dict:
+        return {"error": {"code": code, "message": message, "details": details}}
+
+    def _request_json(self) -> dict:
+        try:
+            length = int(self.headers.get("Content-Length", ""))
+            payload = json.loads(self.rfile.read(length))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            raise ValueError("JSON request body가 필요합니다") from None
+        if not isinstance(payload, dict):
+            raise ValueError("JSON request body는 object여야 합니다")
+        return payload
+
+    def _serve_durable_investigation_get(self, path: str) -> bool:
+        """영속 investigation/job 조회 경로면 JSON 응답을 보내고 True를 반환한다."""
+        parts = path.split("/")
+        is_job = len(parts) == 4 and parts[:3] == ["", "api", "jobs"]
+        is_investigation = (
+            len(parts) in (4, 5)
+            and parts[:3] == ["", "api", "investigations"]
+            and (len(parts) == 4 or parts[4] in {"status", "report"})
+        )
+        if not is_job and not is_investigation:
+            return False
+
+        try:
+            store, conn = self._investigation_store()
+            try:
+                if is_job:
+                    job = store.get_job(parts[3])
+                    if job is None:
+                        self._send_json(
+                            404,
+                            self._investigation_error(
+                                "job_not_found", "job을 찾을 수 없습니다.", job_id=parts[3],
+                            ),
+                        )
+                    else:
+                        self._send_json(200, job, headers={"Retry-After": "1"})
+                    return True
+
+                investigation_id = parts[3]
+                investigation = store.get_investigation(investigation_id)
+                if investigation is None:
+                    self._send_json(
+                        404,
+                        self._investigation_error(
+                            "investigation_not_found", "조사를 찾을 수 없습니다.",
+                            investigation_id=investigation_id,
+                        ),
+                    )
+                    return True
+                if len(parts) == 4:
+                    self._send_json(200, investigation)
+                    return True
+                if parts[4] == "status":
+                    step = store.get_latest_step(investigation_id)
+                    self._send_json(200, {
+                        "investigation_id": investigation_id,
+                        "status": investigation["status"],
+                        "current_step": step,
+                        "evidence_coverage": investigation["coverage"],
+                    }, headers={"Retry-After": "1"})
+                    return True
+                report = store.get_report(investigation_id)
+                if report is None:
+                    self._send_json(
+                        409,
+                        self._investigation_error(
+                            "investigation_not_completed",
+                            "완료된 조사 report가 아직 없습니다.",
+                            investigation_id=investigation_id,
+                        ),
+                    )
+                else:
+                    self._send_json(200, report)
+                return True
+            finally:
+                conn.close()
+        except Exception:
+            self._send_json(
+                503,
+                self._investigation_error(
+                    "investigation_store_unavailable",
+                    "investigation PostgreSQL 저장소에 연결할 수 없습니다.",
+                ),
+            )
+            return True
 
     # --- API (JSON) ---
     @_j
@@ -603,129 +711,6 @@ class Handler(BaseHTTPRequestHandler):
                             "modality": r["modality"]})
         return {"subject_id": subj, "items": out}
 
-    @_j
-    def _api_investigate(self, qs):
-        """조사 에이전트 end-to-end (S43–S47) — read-only, 결정적."""
-        from orc_citadel.investigation import InvestigationCoverage, Subclaim
-        from orc_citadel.investigation_runner import InvestigationRunner
-        from orc_citadel.planner import InvestigationPlanner
-        from orc_citadel.synthesis import Synthesizer, Audit
-        from orc_citadel.graph_service import GraphService
-
-        subj = unquote(qs.get("subject", ""))
-        # 자유 질문 (W1 조사 지시 입구) — Planner 가 entity name 으로 해소한다.
-        question = unquote(qs.get("question", "").replace("+", "%20")).strip()
-        facade = self.facade
-        z = facade.zone
-        # ABOUT 그래프 재구축 (read-only 조회용).
-        g = GraphService()
-        for a in z.assertions():
-            for node, uid in ((a["subject_id"], f"n-{a['assertion_id']}"),
-                              (a["claim_id"], f"n2-{a['assertion_id']}")):
-                g.apply([{"mutation_id": uid, "idempotency_key": uid,
-                          "op": "create_node", "payload": {"id": node, "props": {}, "labels": []}}])
-            g.apply([{"mutation_id": f"e-{a['assertion_id']}",
-                      "idempotency_key": f"e-{a['assertion_id']}",
-                      "op": "create_edge",
-                      "payload": {"type": "ABOUT", "from": a["subject_id"],
-                                  "to": a["claim_id"], "props": {}}}])
-        # Planner — 질문 → subclaim 트리 분해 (07 §3.2), known/gap 라벨.
-        # question 이 오면 entity name 해소로 subject_id 를 찾고, 아니면 기존
-        # subject= 경로 그대로 (subject id 자체가 질문).
-        planner = InvestigationPlanner(z)
-        planned = planner.plan(question or subj)
-        # 조사 seed — subject 파라미터 우선, 없으면 해소된 known subject 첫 항.
-        seed = subj or next(
-            (sc.subject_id for sc in planned.subclaims if sc.known), "")
-        subclaims = [Subclaim(sc.id, sc.text, subject_id=sc.subject_id)
-                     for sc in planned.subclaims]
-        inv = InvestigationRunner(z, g).run(subclaims)
-        rep = Synthesizer(z).synthesize(inv, seed or question)
-        # War Table — 조사 subgraph(진행식 disclosure 시드, 06 §8.1) 노출.
-        # 해소 실패(seed 없음)는 가공 없이 빈 subgraph (§6.2).
-        graph_view = facade.get_investigation_graph(seed, hops=1) if seed else {
-            "subgraph": {"entities": [], "relationships": []},
-            "relation_paths": [], "independence_summary": {}}
-        # Planner 산출 — 지식/공백 구분된 subclaim 트리 노출 (07 §3.2).
-        planned_view = [{"id": sc.id, "text": sc.text, "known": sc.known,
-                         "gap_reason": sc.gap_reason} for sc in planned.subclaims]
-        # LLM 종합 (W2, mode=llm 옵트인) — 문장 표현만 LLM, 결론 봉투·근거는
-        # 결정적 산출 그대로. 실패·미설정은 결정적 문장 유지 + 정직 표기.
-        statements = list(rep.statements)
-        llm_view = None
-        if (qs.get("mode") or "").strip() == "llm":
-            from orc_citadel import llm_investigation as li
-
-            client = getattr(self, "llm_client", None) or li.default_client()
-            ev = li.evidence_rows(z, seed) if seed else []
-            if client is None:
-                llm_view = {"used": False,
-                            "error": "LLM 미설정 (LLM_* env) — 결정적 문장 유지"}
-            elif not ev:
-                llm_view = {"used": False,
-                            "error": "근거 claim 없음 — LLM 종합 생략"}
-            else:
-                name = next((e["canonical_name"] for e in z.entities()
-                             if e["entity_id"] == seed), seed)
-                out = li.LlmSynthesis(client).synthesize(
-                    name, question or seed, ev)
-                if out is None or not out["statements"]:
-                    llm_view = {"used": False,
-                                "error": "LLM 호출 실패/산출 없음 — 결정적 문장 유지"}
-                else:
-                    # ADR-703 — LLM 문장도 §3.9 역추적, 미통과는 응답에서 차단.
-                    tr = Audit().trace(out["statements"], z)
-                    kept = [st for st, row in zip(out["statements"], tr["trace"])
-                            if row["verified"]]
-                    statements = kept
-                    llm_view = {"used": True, "model": out["model"],
-                                "provider": out["provider"],
-                                "usage": out["usage"],
-                                "discarded": out["discarded"],
-                                "blocked": len(out["statements"]) - len(kept)}
-        # Audit §3.9 — 최종 문장(결정적 또는 LLM 교체분) 기준 역추적 trace.
-        audit_trace = self.facade.zone and Audit().trace(statements, z)
-        audit = Audit().verify_from_trace(audit_trace) if audit_trace else rep.audit
-        # Investigation 대시보드 (11 §2.2 D8) — coverage·독립 증거·비용·latency.
-        from orc_citadel.investigation_dashboard import investigation_dashboard, Coverage
-        indep = inv.coverage and graph_view["independence_summary"].get(
-            "independent_source_count", 0)
-        dashboard = investigation_dashboard(
-            investigation_id=f"inv-{(seed or question)[:16]}",
-            coverage=Coverage(covered=int(round(inv.coverage * len(planned.subclaims))),
-                              planned=len(planned.subclaims),
-                              gaps=inv.gaps),
-            independent_evidence=indep,
-            elapsed_ms=0)
-        return {
-            "subject_id": seed,
-            "question": question or None,
-            # 질문 → subject 해소 결과 — known 없으면 지식 밖 질문 (정직 표기).
-            "resolved": [{"subject_id": sc.subject_id, "surface": sc.surface,
-                          "known": sc.known} for sc in planned.subclaims],
-            "computed": "on-request, non-persistent",
-            "planned_subclaims": planned_view,
-            "coverage": inv.coverage,
-            "iterations": inv.iterations,
-            "terminated_by": inv.terminated_by,
-            "gaps": inv.gaps,
-            # 확장: 반증 배열 그대로 (hypotheses·negative_queries) + 검색 결과 ≤10.
-            "counter_evidence": list(inv.counter_evidence),
-            "retrieved": list(inv.retrieved)[:10],
-            "conclusion": rep.conclusion,
-            "statements": statements,
-            "open_questions": rep.open_questions,
-            "audit": audit,
-            # LLM 종합 (W2) — 옵트인 시에만. 결론·근거 계층은 결정적 그대로.
-            "mode": "llm" if (llm_view and llm_view["used"]) else "deterministic",
-            "llm": llm_view,
-            # 확장: audit_trace {trace,blocked_statements,verifiable,linked,linkage_ratio}.
-            "audit_trace": audit_trace,
-            "dashboard": dashboard,
-            "subgraph": graph_view["subgraph"],
-            "relation_paths": graph_view["relation_paths"],
-            "independence_summary": graph_view["independence_summary"],
-        }
 
     @_j
     def _api_gate(self, qs):
@@ -1052,24 +1037,109 @@ class Handler(BaseHTTPRequestHandler):
 
     @_j
     def _api_council(self, qs):
-        """Council — 기존 조사 보고서 조회만. 실행(쓰기)은 범위 밖 정직 노출."""
+        """Council — 기존 보고서를 조회하고 durable 비동기 실행 가능성을 노출한다."""
         subj = unquote(qs.get("subject", ""))
         rep = self.facade.get_investigation_report(subj)
         if rep is None:
             return {"error": "not_found"}
         rep["execution"] = {
-            "available": False,
-            "note": "조사 실행(Planner+Runner 쓰기 루프)은 read-only 범위 밖 — "
-                    "기존 결론·predicate·open_questions 조회만 (honest-gap §6.2)",
+            "available": True,
+            "note": "조사는 PostgreSQL-backed 비동기 job으로 실행·영속한다. "
+                    "graph·curated evidence는 read-only다.",
         }
         return rep
 
 
 
+    def do_POST(self):
+        parsed = urlparse(self.path)
+        cancel_prefix = "/api/investigations/"
+        if (parsed.path.startswith(cancel_prefix)
+                and parsed.path.endswith(":cancel")):
+            investigation_id = parsed.path[len(cancel_prefix):-len(":cancel")]
+            try:
+                store, conn = self._investigation_store()
+                try:
+                    cancelled = store.cancel(investigation_id)
+                finally:
+                    conn.close()
+            except Exception:
+                self._send_json(
+                    503,
+                    self._investigation_error(
+                        "investigation_store_unavailable",
+                        "investigation PostgreSQL 저장소에 연결할 수 없습니다.",
+                    ),
+                )
+                return
+            if cancelled is None:
+                self._send_json(
+                    404,
+                    self._investigation_error(
+                        "investigation_not_found", "조사를 찾을 수 없습니다.",
+                        investigation_id=investigation_id,
+                    ),
+                )
+                return
+            self._send_json(200, cancelled)
+            return
+
+        if parsed.path != "/api/investigations":
+            self._send_json(
+                404,
+                self._investigation_error("route_not_found", "요청 경로를 찾을 수 없습니다."),
+            )
+            return
+        try:
+            payload = self._request_json()
+            idempotency_key = self.headers.get("Idempotency-Key", "")
+            scope = payload.get("scope") or {}
+            if not isinstance(scope, dict):
+                raise ValueError("scope는 object여야 합니다")
+            store, conn = self._investigation_store()
+            try:
+                created = store.create(
+                    question=payload.get("question", ""),
+                    subject_id=payload.get("subject_id"),
+                    scope=scope,
+                    mode=payload.get("mode", "deterministic"),
+                    idempotency_key=idempotency_key,
+                    version_tuple=extraction_version_tuple(),
+                )
+            finally:
+                conn.close()
+        except ValueError as exc:
+            self._send_json(
+                400,
+                self._investigation_error("invalid_investigation_request", str(exc)),
+            )
+            return
+        except Exception:
+            self._send_json(
+                503,
+                self._investigation_error(
+                    "investigation_store_unavailable",
+                    "investigation PostgreSQL 저장소에 연결할 수 없습니다.",
+                ),
+            )
+            return
+
+        self._send_json(
+            202,
+            created,
+            headers={
+                "Location": f"/api/jobs/{created['job']['job_id']}",
+                "Retry-After": "1",
+            },
+        )
+
+
     def do_GET(self):
+        parsed = urlparse(self.path)
+        if self._serve_durable_investigation_get(parsed.path):
+            return
         if Handler.facade is None:
             Handler.facade = _build()
-        parsed = urlparse(self.path)
         qs = {k: v for k, v in (p.split("=", 1) for p in parsed.query.split("&") if p)}
 
         if parsed.path == "/api/report":
@@ -1086,10 +1156,6 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body); return
         if parsed.path == "/api/subject_claims":
             body = self._api_subject_claims(qs).encode()
-            self.send_response(200); self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body); return
-        if parsed.path == "/api/investigate":
-            body = self._api_investigate(qs).encode()
             self.send_response(200); self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body); return
         if parsed.path == "/api/search":

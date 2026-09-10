@@ -83,6 +83,27 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  investigation-worker:
+    image: orc-citadel-prototype:latest
+    command: ["python", "scripts/investigation_worker.py"]
+    working_dir: /app
+    volumes:
+      - proddata:/app/data
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_USER: ${POSTGRES_USER:?}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+      POSTGRES_DB: ${POSTGRES_DB:?}
+      LLM_PROVIDER: ${LLM_PROVIDER:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
   scheduler:
     # nightly dispatch 상주 프로세스 (07:07 수집 / 07:37 SLO-06).
     # viewer 와 동일 image 태그 — build 재실행은 layer cache 로 사실상 무비용.

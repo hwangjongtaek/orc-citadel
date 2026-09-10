@@ -103,19 +103,13 @@ def test_spire_bundle_honest_empty() -> None:
         assert marker in js, marker
 
 
-def test_council_bundle_wires_report_and_trace() -> None:
-    """Council (TS-5) — 보고서(/api/council)와 on-request trace(/api/investigate)
-    를 소비하고, 8역할 executed/not-run 판정을 wire 필드 존재로 한다.
-    live 실행·비용·모델 ID 하드코딩 금지 — Cost 는 '—' 정직 표기."""
+def test_council_bundle_removes_legacy_investigate_route() -> None:
+    """배포 산출물은 삭제된 on-request investigation endpoint를 참조하지 않는다."""
     js = "".join(f.read_text(encoding="utf-8", errors="ignore")
                  for f in sorted(DIST.rglob("*.js")))
-    for marker in ("/api/council", "/api/investigate", "planned_subclaims",
-                   "audit_trace", "terminated_by",
-                   # 조사 지시 (W1) — 자유 질문 입구 + 해소 결과(known/gap) 렌더.
-                   "investigate?question=", "resolved",
-                   # LLM 종합 (W2) — mode=llm 옵트인 + 토큰 실측 표기.
-                   "mode=llm", "LLM 종합"):
-        assert marker in js, marker
+    assert "/api/investigate" not in js
+    assert "/api/investigations" in js
+    assert "비용·턴 로그 미영속" not in js
 
 
 def test_watchtower_bundle_wires_metrics_and_grafana() -> None:

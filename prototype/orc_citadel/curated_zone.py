@@ -27,8 +27,8 @@ from .resolve import Entity, ResolvedMention
 class CuratedZone:
     """DuckDB 백드 curated zone (mentions + dup_clusters)."""
 
-    def __init__(self, path: str = ":memory:") -> None:
-        self._root = duckdb.connect(path)
+    def __init__(self, path: str = ":memory:", *, read_only: bool = False) -> None:
+        self._root = duckdb.connect(path, read_only=read_only)
         self._local = threading.local()
         self._path = path
 

@@ -1,6 +1,6 @@
 # 운영 배포 Runbook — 로컬 개발 / 원격지 운영 (SSH · Docker Compose)
 
-상태: **Stable** (v1.0.0) · 갱신: 2026-09-03 · 소유: design 01 §6.2가 참조하는 운영 runbook 정본의 배포 절.
+상태: **Stable** (v1.2.0) · 갱신: 2026-09-10 · 소유: design 01 §6.2가 참조하는 운영 runbook 정본의 배포 절.
 토폴로지·정책의 정본은 [`../design/01-architecture.md`](../design/01-architecture.md) §6이고,
 본 문서는 **절차(operation)** 만 소유한다.
 
@@ -12,8 +12,8 @@
 | 원격지 — `orchwang-macbookpro` (§1.1) | **운영 (prod)** | Docker Compose 전체 스택 (§6.1) | `~/Projects/private/orc-citadel` |
 
 - 배포 통로: **SSH** (`scripts/deploy.sh`). git clone/pull 없이 rsync 코드 전송 → 원격 빌드·기동.
-- 데이터: named volume `orc-citadel-proddata` (viewer/scheduler의 `/app/data`) +
-  스토어 볼륨 (pgdata/minio-data/neo4j-data/opensearch-data). 코드 재배포와 무관하게 보존.
+- 데이터: named volume `orc-citadel-proddata` (viewer/scheduler/investigation-worker의
+  `/app/data`) + 스토어 볼륨 (pgdata/minio-data/neo4j-data/opensearch-data). 코드 재배포와 무관하게 보존.
 - **데이터 정책 (확정 · 2026-09-05): 원격 prod 는 신규 수집분만 누적한다** — 로컬
   corpus(raw ~105k·curated·slo06 누적)는 이관하지 않는다. rsync 도 `prototype/data`
   를 제외한다. 따라서 원격 viewer 의 curated 존·SLO-06 7d 누적은 **0에서 새로 시작**
@@ -42,6 +42,7 @@
 | postgres / minio / neo4j / opensearch | 인프라 스토어 | 없음 (loopback 도 제거) | `exec`/터널로만 |
 | prototype | viewer (API + 정적 서빙) | `127.0.0.1:8791` | §3.3 |
 | scheduler | nightly dispatch 상주 | 없음 | §4 |
+| investigation-worker | PostgreSQL 조사 queue 소비·read-only evidence 실행 | 없음 | §3.2.1 |
 | grafana | 파이프라인 모니터링 | `127.0.0.1:3000` | §3.4 |
 | duckdb-ui | 존 브라우징 사이드카 | `127.0.0.1:4213` | [data-browsing.md](data-browsing.md) |
 
@@ -86,7 +87,25 @@ scripts/deploy.sh orchwang-macbookpro --dry-run    # 전송 대상 사전 확인
 scripts/deploy.sh orchwang-macbookpro --status
 scripts/deploy.sh orchwang-macbookpro --logs              # 전체 추적
 scripts/deploy.sh orchwang-macbookpro --logs scheduler    # 서비스별
+scripts/deploy.sh orchwang-macbookpro --logs investigation-worker
 ```
+
+### 3.2.1 durable investigation worker 확인
+
+`prototype`이 `202`로 생성한 job은 `investigation-worker`가 소비한다. worker는
+PostgreSQL에 investigation/job/step/report만 쓰고 `/app/data/curated.duckdb`는
+read-only로 연다.
+
+```bash
+scripts/deploy.sh orchwang-macbookpro --logs investigation-worker
+docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+  --profile prototype --env-file .env ps investigation-worker
+```
+
+worker 재시작 뒤 lease가 만료된 `running` job은 같은 investigation ID로 재claim된다.
+Council의 `queued`가 계속되면 worker 상태·PostgreSQL 연결과 `/app/data/curated.duckdb`
+존재를 순서대로 확인한다.
+
 
 ### 3.3 viewer 접근
 운영 기본은 loopback 바인딩(`VIEWER_BIND=127.0.0.1`) — 외부 공개 대신 SSH 터널:
