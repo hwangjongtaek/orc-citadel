@@ -17,7 +17,7 @@ import {
   h, Badge, Text, sectionLabel, confidence, coverage, relationLegend, id, panelHead,
 } from '@ui/components.mjs';
 import {claimFocus} from '@ui/witnesses.mjs';
-import {warGraph, CLAIMS_PER_PAGE} from '@ui/graph.mjs';
+import {GraphOverlay, GraphViewport} from '../../lib/graph-viewport.jsx';
 import {Palette, usePaletteHotkey} from '../../lib/palette.jsx';
 
 const urls = APP_URLS;
@@ -78,6 +78,8 @@ function App() {
   const [expanded, setExpanded] = React.useState(null);
   const [page, setPage] = React.useState(0);
   const [paletteOpen, setPaletteOpen] = React.useState(false);
+  const [graphFocusOpen, setGraphFocusOpen] = React.useState(false);
+  const graphFocusButtonRef = React.useRef(null);
   usePaletteHotkey(setPaletteOpen);
 
   const names = React.useMemo(() => new Map(
@@ -122,31 +124,56 @@ function App() {
 
   // 중앙 — 그래프 캔버스
   const g = s.graph;
-  const canvas = h(LayoutContent, {padding: 0},
-    panelHead('War Table · Temporal Evidence Graph',
-      g ? `${nameOf(s.subjectId)} · claims ${g.subgraph.claims.length}`
-          + (g.subgraph.truncated ? ' (truncated)' : '') : '…'),
-    h('div', {style: {padding: 16}},
-      !g ? h(Text, {type: 'supporting'}, s.error ? String(s.error) : '서브그래프 불러오는 중…')
-        : h(React.Fragment, {},
-            warGraph({
-              subjectLabel: nameOf(s.subjectId),
-              groups, expanded, page,
-              selectedClaimId: s.claim && s.claim.claim_id,
-              truncated: g.subgraph.truncated,
-              onSelectGroup: (p) => {
-                setExpanded((cur) => (cur === p ? null : p));
-                setPage(0);
-              },
-              onSelectClaim: s.selectClaim,
-              onMore: () => setPage((p) => p + 1),
-            }),
-            h('div', {style: {marginTop: 12, display: 'flex', alignItems: 'center',
-              gap: 16, flexWrap: 'wrap'}},
-              relationLegend(),
-              h(Text, {type: 'supporting'},
-                '이 서브그래프의 엣지는 구조(ABOUT) — supports/contradicts 는 '
-                + 'evidence 레벨이며 Witnesses 에서 왕복 검사')))));
+  React.useEffect(() => {
+    if (!g) setGraphFocusOpen(false);
+  }, [g]);
+  const graphProps = g && {
+    subjectLabel: nameOf(s.subjectId),
+    groups, expanded, page,
+    selectedClaimId: s.claim && s.claim.claim_id,
+    truncated: g.subgraph.truncated,
+    onSelectGroup: (p) => {
+      setExpanded((cur) => (cur === p ? null : p));
+      setPage(0);
+    },
+    onSelectClaim: s.selectClaim,
+    onMore: () => setPage((p) => p + 1),
+  };
+  const graphContext = () => h('div', {style: {display: 'flex', alignItems: 'center',
+    gap: 16, flexWrap: 'wrap'}},
+  relationLegend(),
+  h(Text, {type: 'supporting'},
+    '이 서브그래프의 엣지는 구조(ABOUT) — supports/contradicts 는 '
+    + 'evidence 레벨이며 Witnesses 에서 왕복 검사'));
+  const graphHead = h('div', {style: {display: 'flex', alignItems: 'center',
+    justifyContent: 'space-between', gap: 16, padding: '12px 16px',
+    borderBottom: '1px solid var(--color-border)'}},
+  h('div', {},
+    h('div', {style: {fontFamily: 'var(--font-family-heading)', fontSize: 13,
+      fontWeight: 600, color: 'var(--color-text-primary)'}},
+    'War Table · Temporal Evidence Graph'),
+    h('div', {style: {fontFamily: 'var(--font-family-code)', fontSize: 10,
+      color: 'var(--color-text-secondary)', marginTop: 3}},
+    g ? `${nameOf(s.subjectId)} · claims ${g.subgraph.claims.length}`
+        + (g.subgraph.truncated ? ' (truncated)' : '') : '…')),
+  h('button', {ref: graphFocusButtonRef, type: 'button',
+    'aria-label': '그래프 확대 보기 열기', disabled: !graphProps,
+    onClick: () => setGraphFocusOpen(true),
+    style: {border: '1px solid var(--color-border-emphasized)',
+      borderRadius: 'var(--radius-element)', background: 'var(--color-background-card)',
+      color: 'var(--color-text-primary)', cursor: graphProps ? 'pointer' : 'default',
+      fontFamily: 'var(--font-family-heading)', fontSize: 11.5, fontWeight: 600,
+      opacity: graphProps ? 1 : .5, padding: '7px 10px'}}, '확대 ⤢'));
+  const canvas = h(LayoutContent, {padding: 0,
+    style: {display: 'flex', flexDirection: 'column'}},
+  graphHead,
+  h('div', {style: {padding: 16, display: 'flex', flexDirection: 'column',
+    flex: 1, minHeight: 0}},
+  !g ? h(Text, {type: 'supporting'}, s.error ? String(s.error) : '서브그래프 불러오는 중…')
+    : h(React.Fragment, {},
+      h('div', {style: {display: 'flex', flex: 1, minHeight: 260}},
+        h(GraphViewport, {graphProps, fill: true})),
+      h('div', {style: {marginTop: 12}}, graphContext()))));
 
   // 우 — Evidence Inspector
   const c = s.claim;
@@ -223,6 +250,9 @@ function App() {
       onSearchOpen: () => setPaletteOpen(true),
       slots: {start: campaignMap, content: canvas, end: inspector, footer},
     }),
+    h(GraphOverlay, {open: graphFocusOpen && Boolean(graphProps),
+      onClose: () => setGraphFocusOpen(false), triggerRef: graphFocusButtonRef,
+      graphProps, footer: graphContext()}),
     h(Palette, {open: paletteOpen, onClose: () => setPaletteOpen(false)}));
 }
 

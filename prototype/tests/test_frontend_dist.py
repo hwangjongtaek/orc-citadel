@@ -83,6 +83,12 @@ def test_bundles_wire_search_palette() -> None:
         assert marker in js, marker
 
 
+def test_table_bundle_exposes_graph_focus_affordance() -> None:
+    """War Table 그래프는 패널 제약 밖 집중 보기 진입점을 제공한다."""
+    js = "".join(f.read_text(encoding="utf-8", errors="ignore")
+                 for f in sorted(DIST.rglob("*.js")))
+    assert "그래프 확대 보기 열기" in js
+
 def test_archive_bundle_wires_server_axes() -> None:
     """Grand Archive (TS-5) — 서버 축(페이징·facet·contains)을 소비하고
     dedup lineage(cluster_role)·동일 URL 스택(url_groups)을 렌더한다.

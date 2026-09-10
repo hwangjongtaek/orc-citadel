@@ -13,10 +13,53 @@ import {h} from './components.mjs';
 
 export const CLAIMS_PER_PAGE = 12;
 
-const W = 900, H = 560, CX = W / 2, CY = H / 2;
+export const GRAPH_VIEW = Object.freeze({x: 0, y: 0, w: 900, h: 560});
+export const GRAPH_ZOOM_LIMITS = Object.freeze({min: .5, max: 4});
+
+const W = GRAPH_VIEW.w, H = GRAPH_VIEW.h, CX = W / 2, CY = H / 2;
 const R_GROUP = 150, R_CLAIM = 245, R_LABEL = 258;
 
 const rad = (deg) => (deg * Math.PI) / 180;
+
+const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+
+/** 기본 캔버스를 모두 보이는 결정적 viewBox. */
+export function fitView() {
+  return GRAPH_VIEW;
+}
+
+/** 줌 한계와 그래프 경계 안으로 viewBox 를 정규화한다. */
+export function clampView({x, y, w} = GRAPH_VIEW) {
+  const scale = clamp(W / w, GRAPH_ZOOM_LIMITS.min, GRAPH_ZOOM_LIMITS.max);
+  const width = W / scale;
+  const height = H / scale;
+  const minX = Math.min(0, W - width);
+  const maxX = Math.max(0, W - width);
+  const minY = Math.min(0, H - height);
+  const maxY = Math.max(0, H - height);
+
+  return {
+    x: clamp(x, minX, maxX),
+    y: clamp(y, minY, maxY),
+    w: width,
+    h: height,
+  };
+}
+
+/** 주어진 그래프 좌표를 커서 앵커로 유지하며 확대·축소한다. */
+export function zoomAt(view, factor, {x, y}) {
+  const current = clampView(view);
+  const scale = clamp(W / current.w * factor, GRAPH_ZOOM_LIMITS.min, GRAPH_ZOOM_LIMITS.max);
+  const width = W / scale;
+  const height = H / scale;
+
+  return clampView({
+    x: x - (x - current.x) * width / current.w,
+    y: y - (y - current.y) * height / current.h,
+    w: width,
+    h: height,
+  });
+}
 const at = (r, deg) => [CX + r * Math.cos(rad(deg)), CY + r * Math.sin(rad(deg))];
 
 const COLORS = {
@@ -34,11 +77,11 @@ const COLORS = {
  * @param expanded        펼친 predicate (null 이면 그룹만)
  * @param page            펼친 그룹의 페이지 (0-base)
  * @param selectedClaimId 선택 claim (발광)
- * @param truncated       서버 절단 여부 — 정직 표기
+ * @param view            선택 viewBox {x,y,w,h}; 생략 시 전체 그래프
  * @param onSelectGroup(predicate) / onSelectClaim(id) / onMore() 콜백
  */
 export function warGraph({subjectLabel, groups, expanded, page = 0, selectedClaimId,
-                          truncated, onSelectGroup, onSelectClaim, onMore}) {
+                          truncated, view, onSelectGroup, onSelectClaim, onMore}) {
   const kids = [];
   const n = Math.max(groups.length, 1);
 
@@ -118,7 +161,9 @@ export function warGraph({subjectLabel, groups, expanded, page = 0, selectedClai
       '서버 절단(truncated) — 상위 100 claim 만 수신 (honest-gap)'));
   }
 
-  return h('svg', {viewBox: `0 0 ${W} ${H}`, width: '100%',
+  const visibleView = view ? clampView(view) : fitView();
+  return h('svg', {viewBox: `${visibleView.x} ${visibleView.y} ${visibleView.w} ${visibleView.h}`,
+    width: '100%',
     style: {display: 'block', minWidth: 0},
     role: 'img', 'aria-label': `${subjectLabel} temporal evidence subgraph`},
     ...kids);
