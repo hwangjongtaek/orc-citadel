@@ -178,11 +178,18 @@ export function useGraphViewport() {
     updateView(fitView);
   }, [updateView]);
 
+  // 더블클릭 리셋은 캔버스 전용 — +/− 연타가 dblclick 으로 승격되어 버블링하면
+  // 확대 직후 fit 으로 튕긴다 (2026-09-10 실측: + 3연타 → 초기화).
+  const onDoubleClick = React.useCallback((event) => {
+    if (event.target.closest && event.target.closest('button')) return;
+    fit();
+  }, [fit]);
+
   return {
     view,
     surfaceRef,
     handlers: {onPointerDown, onPointerMove, onPointerUp: endPointer,
-      onPointerCancel: endPointer, onClickCapture, onDoubleClick: fit},
+      onPointerCancel: endPointer, onClickCapture, onDoubleClick},
     zoomIn: () => zoom(ZOOM_STEP),
     zoomOut: () => zoom(1 / ZOOM_STEP),
     fit,
