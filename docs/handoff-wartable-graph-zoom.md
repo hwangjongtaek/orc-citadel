@@ -2,6 +2,10 @@
 
 > 작성 2026-09-10. 근거: `design-system/ui/graph.mjs`·`frontend/src/pages/table/main.jsx` 코드 실측.
 > 범위: **표시 계층만** (read-only §3-3 불변, API·데이터 변경 없음). 완료 시 ROADMAP §5 기록.
+>
+> **상태: 완료 (2026-09-10).** Z1~Z3 구현 + 리뷰에서 인터랙션 결함 3건 실측 수정
+> (scrim dim 부재·트랙패드 휠 과확대 → pinch 전용, 드리프트 클릭 삼킴, +/− 연타
+> dblclick 리셋). ROADMAP §5 2026-09-10 항목이 정본.
 
 ## 0. 문제 — 왜 작게 보이는가 (실측)
 
