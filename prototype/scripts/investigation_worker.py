@@ -10,6 +10,8 @@ import psycopg
 
 from orc_citadel.investigation_job import InvestigationWorker, build_read_facade
 from orc_citadel.investigation_store import InvestigationStore
+from orc_citadel.investigation_report import HtmlReportGenerator
+from orc_citadel.llm_providers import build_llm_client
 from orc_citadel.postgres_mutation_log import build_dsn
 
 DATA_DB = pathlib.Path(__file__).resolve().parent.parent / "data" / "curated.duckdb"
@@ -25,6 +27,7 @@ def main() -> None:
             store,
             worker_id=worker_id,
             facade_factory=lambda: build_read_facade(DATA_DB),
+            report_generator=HtmlReportGenerator(build_llm_client()),
         )
         while True:
             if not worker.run_once():

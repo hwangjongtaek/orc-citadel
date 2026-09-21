@@ -3,9 +3,9 @@
 > 이 문서는 프로젝트 **진행 내역을 추적**한다. 스펙 정의는 [`docs/design/`](./design/README.md)(SSOT)에 있고, 여기서는 "무엇을 언제 어디까지 했는가"만 관리한다.
 > 규칙: 설계·구현 변경은 (1) 해당 design 문서 수정 (2) `design/README.md` Spec version 반영 (3) 본 문서 §5 Changelog 기록의 3단계를 거친다.
 
-- **최종 갱신:** 2026-09-10
-- **현재 단계:** durable asynchronous read-only investigation (W3) 구현 완료 — graph/curated mutation 없이 PostgreSQL job·worker·Council polling으로 기존 evidence 조사 영속화
-- **Spec version:** 1.2.0 · **Ontology version:** 1.0.0
+- **최종 갱신:** 2026-09-21
+- **현재 단계:** Campaign Ledger HTML report 구현 완료 — 감사된 조사 결과를 원자적 artifact로 영속하고 `/reports`에서 안전하게 조회
+- **Spec version:** 1.6.0 · **Ontology version:** 1.0.0
 
 ## 1. 상태 요약 (한눈에)
 
@@ -182,6 +182,7 @@
 가장 최신이 위로. 스펙·설계 변경을 기록한다 (구현 세부 커밋은 git 이력).
 
 ### 2026-09-21
+- **Campaign Ledger HTML report (Spec 1.5.0 → 1.6.0).** durable investigation 성공 경로를 `PLAN → RUN → SYNTHESIZE → AUDIT → REPORT`로 확장하고, reference-only LLM draft와 결정적 fallback/renderer를 통해 검증된 claim 밖의 사실·raw HTML 생성을 차단했다. PostgreSQL `report_artifacts`에 exact HTML·source/draft/content hash·생성 profile을 저장하며 artifact·JSON report/audit·job 완료는 단일 transaction이다. stale claim/cancel/중복 artifact를 거부하고 cutover 이전 active row만 profile backfill한다. cursor 목록·artifact metadata·CSP/ETag/nosniff raw HTML API와 `/reports` master-detail MPA를 추가해 Council/Gate에서 진입하며, 앱 내 HTML은 권한 없는 sandboxed iframe으로 격리한다. 요청·source·prompt·HTML 크기 상한과 저장 경계 hash/pin 재검증을 보안 리뷰 반영으로 봉인했다. focused 54 Green, 실제 PostgreSQL artifact를 사용한 desktop/mobile browser 경로와 frontend/mockup build 확인.
 - **스케일 측정 중단 — Apache Iceberg·Kafka 도입 후 재개 (결정).** 1,000만 목표를 향한 추가 측정과 소스 등록을 여기서 멈춘다. 이유는 판정이 이미 나왔기 때문이다 — 블로커 4건(RAM 전량 상주·inode 30M·nightly 전량 재빌드·커넥터 부재)은 해소했고, 남은 확장은 저장·스트리밍 기반 자체를 바꾸는 문제로 넘어간다. **Q6(Iceberg)를 유보에서 도입 결정으로 전환**하고, **Q7(Kafka)을 신규 등록**한다. 지금까지의 실측은 도입 전 기준선으로 그대로 유효하다: 샤드 전환(디스크 13.2×·skip 945×·스트리밍 RSS 평탄) · 증분 승격(신규 1건 0.15s·무변경 0.01s) · dedup LSH 선형화(배증비 2.41→2.00, 재현율 실측 1.0000) · 커넥터 3종. **미착수로 남기는 것**: 소스 등록(라이선스 미확인 6건, 합산 3.3M 규모) · `_arxiv_date_windows` 의 10k 초과 월 누락과 `start="202608112359"` 하드코딩 상한 · MinIO 객체 백엔드(03 §2.1 ②) 샤드 미전환. 코드·스펙 변경 없음 — Spec 1.5.0 유지.
 
 ### 2026-09-20

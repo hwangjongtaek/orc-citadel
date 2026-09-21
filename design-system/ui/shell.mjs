@@ -47,6 +47,7 @@ export const MOCKUP_URLS = {
   home: './index.html',
   about: './project-introduction.html',
   asset: (file) => `./assets/${file}`,
+  reports: './campaign-ledger.html',
 };
 export const APP_ROUTES = {
   'citadel-gate': '/',
@@ -62,6 +63,7 @@ export const APP_URLS = {
   page: (slug) => APP_ROUTES[slug],
   home: '/',
   about: '/about',
+  reports: '/reports',
   asset: (file) => `/assets/img/${file}`,
 };
 

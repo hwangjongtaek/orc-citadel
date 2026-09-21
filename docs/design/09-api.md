@@ -37,7 +37,7 @@ Citadel의 외부 계약(API Gateway = **Citadel Gate**, FastAPI)을 확정한�
 
 > 계약 규칙: 클라이언트는 세계관 명칭을 **표시 레이어에서만** 사용하고, 경로·필드 키·ID는 기술 용어를 신뢰한다. UI 명칭 변경이 API를 깨뜨리지 않는다.
 
-> **프로토타입 mapping (W3, 2026-09-10):** stdlib viewer는 외부 `/v1` 계약을 `/api`로 구현한다: `POST /api/investigations`, `GET /api/investigations/{inv_id}`, `GET /api/investigations/{inv_id}/status`, `GET /api/investigations/{inv_id}/report`, `GET /api/jobs/{job_id}`, `POST /api/investigations/{inv_id}:cancel`. 생성은 `Idempotency-Key`와 JSON body를 요구하고 `202` + `Location` + `Retry-After`를 반환한다. PostgreSQL 미가동은 가짜 job 없이 구조화 `503`이다. 구 `/api/investigate` 비영속 경로는 제거했다. 표시는 `frontend/dist`가 맡으며 graph·curated zone은 read-only, PostgreSQL investigation 운영 메타데이터만 write 허용이다.
+> **프로토타입 mapping (Campaign Ledger, 2026-09-21):** stdlib viewer는 외부 `/v1` 계약을 `/api`로 구현한다: `POST /api/investigations`, cursor 기반 `GET /api/investigations`, `GET /api/investigations/{inv_id}`, `/status`, JSON `/report`, metadata `/report-artifact`, raw `/report.html`, `GET /api/jobs/{job_id}`, `POST /api/investigations/{inv_id}:cancel`. investigation 생성은 `Idempotency-Key`와 JSON body를 요구하고 `202` + `Location` + `Retry-After`를 반환한다. 목록은 queued/running이 있을 때만 같은 polling hint를 제공한다. raw HTML은 exact bytes·strong ETag와 `text/html; charset=utf-8`, CSP, `nosniff`를 반환하고 `/reports`의 viewer는 script/form/top-navigation 권한 없는 sandboxed iframe으로 격리한다. 요청 body는 1 MiB, question/scope와 REPORT source/prompt/output도 각 저장·생성 경계의 고정 상한으로 차단한다. Watchtower의 수집 제어는 `GET /api/collections/sources|latest`, `POST /api/collections`으로 **등록된 allowlisted RSS/sitemap source**만 별도 runner에 지시한다; 임의 URL 등록·graph 반영은 제공하지 않는다. PostgreSQL 미가동은 가짜 job 없이 구조화 `503`이다. 구 `/api/investigate` 비영속 경로는 제거했다. 표시는 `frontend/dist`가 맡으며 graph·curated zone은 read-only, PostgreSQL investigation 운영 메타데이터만 write 허용이다.
 
 ### 1.4 페이지네이션 — Cursor 기반
 
@@ -103,10 +103,12 @@ blueprint §5.1(요청)·§5.2(결과)·§5.3(지속 관찰). 자연어 `questio
 | --- | --- | --- | --- |
 | `POST /v1/investigations` | 자연어 조사 생성 | body: `question`, `scope{time,region,source_type,depth}` | `202` + `inv-…` + `job-…` (§5) |
 | `GET /v1/investigations/{id}` | 조사 메타·현재 상태 | — | Investigation 객체 |
-| `GET /v1/investigations` | 조사 목록 | `?status=&owner=&cursor=&limit=` | cursor 페이지 |
+| `GET /v1/investigations` | 조사 목록 | `?status=&owner=&cursor=&limit=` | 고정 정렬 cursor 페이지 + artifact 가용성 |
 | `POST /v1/investigations/{id}:cancel` | 실행 중 조사 취소 | — | `status=cancelled` |
 | `GET /v1/investigations/{id}/status` | 조사 과정·비용·evidence coverage 진행률 | — | Progress 객체 (아래) |
-| `GET /v1/investigations/{id}/report` | 조사 결과 보고서 | `?as_of_tx=` (bitemporal 재현) | Report 객체 (§3) |
+| `GET /v1/investigations/{id}/report` | 감사된 조사 결과 | `?as_of_tx=` (bitemporal 재현) | Report 객체 (§3) |
+| `GET /v1/investigations/{id}/report-artifact` | HTML artifact 메타데이터 | — | hash·generation mode·version tuple·usage |
+| `GET /v1/investigations/{id}/report.html` | exact HTML artifact | `If-None-Match` | `text/html` + CSP/ETag/nosniff |
 | `POST /v1/investigations/{id}:register-continuous` | 지속 관찰 Campaign 등록 | body: `alert_thresholds{}` | Campaign 구독 객체 |
 
 **`scope` 계약** — `depth`는 조사 budget·종료 조건과 연동된다 ([`07`](./07-llm-and-agents.md) 조사 루프).

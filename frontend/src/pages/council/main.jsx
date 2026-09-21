@@ -189,6 +189,17 @@ function App() {
               h(Text, {type: 'supporting'},
                 `실행 실패 · ${s.job.error_json.message || s.job.error_json.code}`))
           : null,
+        s.job.status === 'succeeded' && s.investigation
+          ? h('a', {
+              href: `${urls.reports}?investigation=${encodeURIComponent(
+                s.investigation.investigation_id)}`,
+              style: {display: 'inline-flex', marginTop: 8, padding: '7px 9px',
+                textDecoration: 'none', border: '1px solid var(--color-accent)',
+                borderRadius: 'var(--radius-element)', color: 'var(--color-accent)',
+                fontFamily: 'var(--font-family-heading)', fontSize: 11.5,
+                fontWeight: 600}},
+              '완료 리포트 보기 · Campaign Ledger')
+          : null,
         s.tracing && s.job.cancel_requested
           ? h('div', {style: {marginTop: 8}},
               h(Text, {type: 'supporting'},

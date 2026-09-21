@@ -162,7 +162,7 @@ def test_route_404s_unknown_page():
 
 
 def test_route_still_serves_known_pages():
-    for path in ("/", "/table", "/witnesses", "/council",
+    for path in ("/", "/table", "/witnesses", "/council", "/reports",
                  "/watchtower", "/archive", "/chronicle", "/spire"):
         status, headers, body = _get(path)
         assert status == 200, path

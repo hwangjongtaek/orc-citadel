@@ -176,11 +176,12 @@ blueprint §8.3. 복제 기사를 하나의 근원으로 축소한다.
 
 ### 4.4 Durable investigation 운영 메타데이터
 
-기존 curated evidence를 대상으로 한 비동기 조사는 PostgreSQL의 `investigations`·`jobs`·`steps`에만 기록한다. `investigations`는 question, subject_id, scope, mode, owner, version tuple, correlation_id, status, coverage, termination, report JSONB, audit_trace JSONB와 UTC timestamps를 가진다. `jobs`는 단일 investigation에 1:1로 연결되고 `queued|running|succeeded|failed|cancelled`, `cancel_requested`, worker lease/claim token, error JSONB를 가진다. `steps`는 `(investigation_id, step_id)` unique의 append-only `PLAN|RUN|SYNTHESIZE|AUDIT` 기록이다.
+기존 curated evidence를 대상으로 한 비동기 조사는 PostgreSQL의 `investigations`·`jobs`·`steps`·`report_artifacts`에만 기록한다. `investigations`는 question, subject_id, scope, mode, owner, version tuple, correlation_id, status, coverage, termination, report JSONB, audit_trace JSONB, 불변 `report_profile`과 UTC timestamps를 가진다. `jobs`는 단일 investigation에 1:1로 연결되고 `queued|running|succeeded|failed|cancelled`, `cancel_requested`, worker lease/claim token, error JSONB를 가진다. `steps`는 `(investigation_id, step_id)` unique의 append-only `PLAN|RUN|SYNTHESIZE|AUDIT|REPORT` 기록이다. `report_artifacts`는 investigation당 하나의 exact HTML bytes와 content/source/draft hash, 생성 mode, template/schema/model/prompt/usage/Audit metadata를 분리 저장한다.
 
 - 동일 `Idempotency-Key`는 최초 `inv-`/`job-`을 반환하고 행을 늘리지 않는다.
 - claim은 `FOR UPDATE SKIP LOCKED`와 lease token으로 원자화한다. 만료된 `running`만 재claim하며 이전 claim token의 완료는 거부한다.
-- report·audit_trace는 완료와 함께 영속해 재시작 뒤에도 동일하게 조회한다.
+- `complete_with_report_artifact`는 artifact insert·`REPORT` step·JSON report/audit·investigation/job 완료를 한 transaction에서 확정한다. 저장 경계에서 HTML/draft/source hash와 investigation의 template/schema/prompt pin을 다시 검증한다.
+- cutover 이전 `completed` row의 `report_profile=NULL`은 `legacy_json_only`로 남긴다. 배포 시점의 queued/running row만 현재 profile로 멱등 backfill해 새 worker가 HTML 없이 실패하지 않게 한다.
 - 이 운영 write는 graph mutation·curated write가 아니며, 조사 전후 두 zone의 상태는 불변이다.
 
 ## 5. ID·Idempotency 요약

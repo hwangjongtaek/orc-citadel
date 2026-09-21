@@ -8,13 +8,15 @@ FastAPI·신규 런타임 의존 없이 `http.server`로 `09-api`의 prototype m
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import pathlib
+import re
 import webbrowser
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from orc_citadel import component_status, viewer_static
 from orc_citadel.collection_control import CollectionControl
@@ -27,6 +29,12 @@ HOST, PORT = os.environ.get("VIEWER_HOST", "127.0.0.1"), int(os.environ.get("VIE
 DB = pathlib.Path(__file__).resolve().parent.parent / "data" / "curated.duckdb"
 RAW_DIR = DB.parent / "raw"          # raw zone flat 파일 (설계 03 §2.1)
 NORM_DB = DB.parent / "oc.duckdb"    # normalized zone DuckDB (03 §3)
+_MAX_JSON_REQUEST_BYTES = 1024 * 1024
+
+
+class _RequestTooLarge(ValueError):
+    pass
+
 
 def _investigation_json_default(value):
     if isinstance(value, datetime):
@@ -538,6 +546,23 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _send_bytes(
+        self,
+        status: int,
+        body: bytes,
+        *,
+        content_type: str,
+        headers: dict | None = None,
+    ) -> None:
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        for name, value in (headers or {}).items():
+            self.send_header(name, value)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        if body:
+            self.wfile.write(body)
+
     @classmethod
     def _ensure_facade(cls) -> None:
         """curated 존이 교체됐으면 facade 를 다시 연다 (없으면 재사용).
@@ -594,6 +619,11 @@ class Handler(BaseHTTPRequestHandler):
     def _request_json(self) -> dict:
         try:
             length = int(self.headers.get("Content-Length", ""))
+        except (TypeError, ValueError):
+            raise ValueError("JSON request body가 필요합니다") from None
+        if length > _MAX_JSON_REQUEST_BYTES:
+            raise _RequestTooLarge("JSON request body는 1 MiB를 초과할 수 없습니다")
+        try:
             payload = json.loads(self.rfile.read(length))
         except (TypeError, ValueError, json.JSONDecodeError):
             raise ValueError("JSON request body가 필요합니다") from None
@@ -601,35 +631,255 @@ class Handler(BaseHTTPRequestHandler):
             raise ValueError("JSON request body는 object여야 합니다")
         return payload
 
-    def _serve_durable_investigation_get(self, path: str) -> bool:
-        """영속 investigation/job 조회 경로면 JSON 응답을 보내고 True를 반환한다."""
-        parts = path.split("/")
+    @staticmethod
+    def _investigation_list_query(query: str) -> tuple[str | None, int, str | None]:
+        try:
+            params = parse_qs(query, keep_blank_values=True, strict_parsing=True)
+        except ValueError as exc:
+            raise ValueError("query string 형식이 올바르지 않습니다") from exc
+        unknown = set(params) - {"status", "limit", "cursor"}
+        if unknown:
+            raise ValueError(f"지원하지 않는 query parameter: {sorted(unknown)[0]}")
+        if any(len(values) != 1 for values in params.values()):
+            raise ValueError("query parameter는 한 번만 지정할 수 있습니다")
+
+        status = params.get("status", [None])[0]
+        if status not in {
+            None, "queued", "running", "completed", "failed", "cancelled",
+            "active", "unsuccessful",
+        }:
+            raise ValueError("지원하지 않는 status입니다")
+
+        raw_limit = params.get("limit", ["25"])[0]
+        try:
+            limit = int(raw_limit)
+        except (TypeError, ValueError):
+            raise ValueError("limit은 정수여야 합니다") from None
+        if not 1 <= limit <= 100:
+            raise ValueError("limit은 1 이상 100 이하여야 합니다")
+
+        cursor = params.get("cursor", [None])[0]
+        if cursor == "":
+            raise ValueError("cursor는 비어 있을 수 없습니다")
+        return status, limit, cursor
+
+    @staticmethod
+    def _etag_matches(raw_header: str | None, etag: str) -> bool:
+        if not raw_header:
+            return False
+        for candidate in raw_header.split(","):
+            candidate = candidate.strip()
+            if candidate == "*":
+                return True
+            if candidate.startswith("W/"):
+                candidate = candidate[2:].strip()
+            if candidate == etag:
+                return True
+        return False
+
+    def _send_report_artifact(
+        self,
+        investigation: dict,
+        artifact: dict | None,
+        *,
+        include_html: bool,
+    ) -> None:
+        investigation_id = investigation["investigation_id"]
+        if investigation["status"] != "completed":
+            headers = (
+                {"Retry-After": "1"}
+                if investigation["status"] in {"queued", "running"}
+                else None
+            )
+            self._send_json(
+                409,
+                self._investigation_error(
+                    "investigation_not_completed",
+                    "조사가 아직 완료되지 않았습니다.",
+                    investigation_id=investigation_id,
+                ),
+                headers=headers,
+            )
+            return
+        if artifact is None:
+            if investigation.get("report_profile") is not None:
+                self._send_json(
+                    500,
+                    self._investigation_error(
+                        "report_artifact_missing",
+                        "완료된 조사에 report artifact가 없습니다.",
+                        investigation_id=investigation_id,
+                    ),
+                )
+            else:
+                self._send_json(
+                    404,
+                    self._investigation_error(
+                        "report_artifact_not_found",
+                        "기존 JSON-only 조사에는 HTML report artifact가 없습니다.",
+                        investigation_id=investigation_id,
+                    ),
+                )
+            return
+
+        if not include_html:
+            metadata = dict(artifact)
+            metadata.pop("html_bytes", None)
+            self._send_json(200, metadata)
+            return
+
+        raw_html = artifact.get("html_bytes")
+        if not isinstance(raw_html, (bytes, bytearray, memoryview)):
+            self._send_report_integrity_error(investigation_id)
+            return
+        html_bytes = bytes(raw_html)
+        actual_hash = f"sha256:{hashlib.sha256(html_bytes).hexdigest()}"
+        if (
+            artifact.get("media_type") != "text/html; charset=utf-8"
+            or artifact.get("byte_length") != len(html_bytes)
+            or artifact.get("content_hash") != actual_hash
+            or len(html_bytes) > 1024 * 1024
+        ):
+            self._send_report_integrity_error(investigation_id)
+            return
+
+        try:
+            from orc_citadel.investigation_report import style_csp_hash
+
+            style_hash = style_csp_hash(artifact["template_version"])
+        except (KeyError, TypeError, ValueError):
+            self._send_report_integrity_error(investigation_id)
+            return
+
+        content_hash = artifact["content_hash"]
+        etag = f'"{content_hash}"'
+        safe_id = re.sub(r"[^A-Za-z0-9._-]", "-", investigation_id).strip(".-")
+        safe_id = safe_id or "report"
+        headers = {
+            "Content-Security-Policy": (
+                "default-src 'none'; "
+                f"style-src 'sha256-{style_hash}'; "
+                "img-src 'self' data:; base-uri 'none'; form-action 'none'; "
+                "frame-ancestors 'self'"
+            ),
+            "X-Content-Type-Options": "nosniff",
+            "Referrer-Policy": "no-referrer",
+            "ETag": etag,
+            "Cache-Control": "private, no-cache",
+            "Content-Disposition": (
+                f'inline; filename="investigation-{safe_id}.html"'
+            ),
+        }
+        if self._etag_matches(self.headers.get("If-None-Match"), etag):
+            self._send_bytes(
+                304, b"", content_type="text/html; charset=utf-8", headers=headers,
+            )
+            return
+        self._send_bytes(
+            200,
+            html_bytes,
+            content_type="text/html; charset=utf-8",
+            headers=headers,
+        )
+
+    def _send_report_integrity_error(self, investigation_id: str) -> None:
+        self._send_json(
+            500,
+            self._investigation_error(
+                "report_artifact_integrity_error",
+                "저장된 report artifact 무결성 검증에 실패했습니다.",
+                investigation_id=investigation_id,
+            ),
+        )
+
+    def _serve_durable_investigation_get(self, parsed) -> bool:
+        """영속 investigation/job 조회 경로면 응답을 보내고 True를 반환한다."""
+        parts = parsed.path.split("/")
+        is_list = parts == ["", "api", "investigations"]
         is_job = len(parts) == 4 and parts[:3] == ["", "api", "jobs"]
         is_investigation = (
             len(parts) in (4, 5)
             and parts[:3] == ["", "api", "investigations"]
-            and (len(parts) == 4 or parts[4] in {"status", "report"})
+            and (
+                len(parts) == 4
+                or parts[4] in {"status", "report", "report-artifact", "report.html"}
+            )
         )
-        if not is_job and not is_investigation:
+        if not is_list and not is_job and not is_investigation:
             return False
+
+        if is_list:
+            try:
+                status, limit, cursor = self._investigation_list_query(parsed.query)
+            except ValueError as exc:
+                self._send_json(
+                    400,
+                    self._investigation_error(
+                        "invalid_investigation_query", str(exc),
+                    ),
+                )
+                return True
 
         try:
             store, conn = self._investigation_store()
             try:
+                if is_list:
+                    try:
+                        result = store.list_investigations(
+                            status=status, limit=limit, cursor=cursor,
+                        )
+                    except ValueError as exc:
+                        self._send_json(
+                            400,
+                            self._investigation_error(
+                                "invalid_investigation_query", str(exc),
+                            ),
+                        )
+                        return True
+                    for item in result["items"]:
+                        artifact = item.get("artifact")
+                        if artifact is not None:
+                            artifact.pop("html_bytes", None)
+                        if (
+                            item.get("status") == "completed"
+                            and item.get("report_profile") is not None
+                            and artifact is None
+                        ):
+                            self._send_json(
+                                500,
+                                self._investigation_error(
+                                    "report_artifact_missing",
+                                    "완료된 조사에 report artifact가 없습니다.",
+                                    investigation_id=item["investigation_id"],
+                                ),
+                            )
+                            return True
+                    headers = (
+                        {"Retry-After": "1"}
+                        if any(
+                            item.get("status") in {"queued", "running"}
+                            for item in result["items"]
+                        )
+                        else None
+                    )
+                    self._send_json(200, result, headers=headers)
+                    return True
+
                 if is_job:
-                    job = store.get_job(parts[3])
+                    job = store.get_job(unquote(parts[3]))
                     if job is None:
                         self._send_json(
                             404,
                             self._investigation_error(
-                                "job_not_found", "job을 찾을 수 없습니다.", job_id=parts[3],
+                                "job_not_found", "job을 찾을 수 없습니다.",
+                                job_id=unquote(parts[3]),
                             ),
                         )
                     else:
                         self._send_json(200, job, headers={"Retry-After": "1"})
                     return True
 
-                investigation_id = parts[3]
+                investigation_id = unquote(parts[3])
                 investigation = store.get_investigation(investigation_id)
                 if investigation is None:
                     self._send_json(
@@ -652,19 +902,23 @@ class Handler(BaseHTTPRequestHandler):
                         "evidence_coverage": investigation["coverage"],
                     }, headers={"Retry-After": "1"})
                     return True
-                report = store.get_report(investigation_id)
-                if report is None:
-                    self._send_json(
-                        409,
-                        self._investigation_error(
-                            "investigation_not_completed",
-                            "완료된 조사 report가 아직 없습니다.",
-                            investigation_id=investigation_id,
-                        ),
-                    )
-                else:
-                    self._send_json(200, report)
-                return True
+                if parts[4] == "report":
+                    report = store.get_report(investigation_id)
+                    if report is None:
+                        self._send_json(
+                            409,
+                            self._investigation_error(
+                                "investigation_not_completed",
+                                "완료된 조사 report가 아직 없습니다.",
+                                investigation_id=investigation_id,
+                            ),
+                        )
+                    else:
+                        self._send_json(200, report)
+                    return True
+                artifact = store.get_report_artifact(
+                    investigation_id, include_html=parts[4] == "report.html",
+                )
             finally:
                 conn.close()
         except Exception:
@@ -676,6 +930,13 @@ class Handler(BaseHTTPRequestHandler):
                 ),
             )
             return True
+
+        self._send_report_artifact(
+            investigation,
+            artifact,
+            include_html=parts[4] == "report.html",
+        )
+        return True
 
     # --- API (JSON) ---
     @_j
@@ -1141,6 +1402,10 @@ class Handler(BaseHTTPRequestHandler):
                 if not isinstance(source_ids, list):
                     raise ValueError("source_ids는 array여야 합니다")
                 created = self._collection_control().trigger(source_ids)
+            except _RequestTooLarge as exc:
+                self._send_json(413, self._investigation_error(
+                    "request_too_large", str(exc)))
+                return
             except ValueError as exc:
                 self._send_json(400, self._investigation_error(
                     "invalid_collection_request", str(exc)))
@@ -1164,6 +1429,8 @@ class Handler(BaseHTTPRequestHandler):
             scope = payload.get("scope") or {}
             if not isinstance(scope, dict):
                 raise ValueError("scope는 object여야 합니다")
+            from orc_citadel.investigation_report import default_report_profile
+
             store, conn = self._investigation_store()
             try:
                 created = store.create(
@@ -1173,9 +1440,16 @@ class Handler(BaseHTTPRequestHandler):
                     mode=payload.get("mode", "deterministic"),
                     idempotency_key=idempotency_key,
                     version_tuple=extraction_version_tuple(),
+                    report_profile=default_report_profile(),
                 )
             finally:
                 conn.close()
+        except _RequestTooLarge as exc:
+            self._send_json(
+                413,
+                self._investigation_error("request_too_large", str(exc)),
+            )
+            return
         except ValueError as exc:
             self._send_json(
                 400,
@@ -1204,7 +1478,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         parsed = urlparse(self.path)
-        if self._serve_durable_investigation_get(parsed.path):
+        if self._serve_durable_investigation_get(parsed):
             return
         if self._serve_collection_get(parsed.path):
             return
@@ -1346,6 +1620,7 @@ _MIGRATED = {
     "/archive": "archive.html",
     "/spire": "spire.html",
     "/council": "council.html",
+    "/reports": "reports.html",
     "/watchtower": "watchtower.html",
     "/chronicle": "chronicle.html",
     "/about": "about.html",

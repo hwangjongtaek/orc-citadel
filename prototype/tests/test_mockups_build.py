@@ -17,7 +17,7 @@ DIST = Path(__file__).resolve().parents[2] / "docs" / "mockups"
 PAGES = [
     "index", "citadel-gate", "war-table", "hall-of-witnesses", "council-chamber",
     "watchtower", "grand-archive", "chronicle-vault", "signal-spire", "empty-states",
-    "project-introduction",
+    "campaign-ledger", "investigation-report", "project-introduction",
 ]
 
 # 공간 페이지가 반드시 실어야 하는 핵심 정보 블록 (원본 목업 대비 재현 확인).
@@ -38,6 +38,12 @@ REQUIRED = {
     "chronicle-vault": ["Bitemporal Plane", "AS-OF Snapshot", "Supersession"],
     "signal-spire": ["Triggers", "Alert Feed", "Subscriptions", "dedup:"],
     "empty-states": ["empty-wartable.png", "empty-spire.png"],
+    "campaign-ledger": ["Campaign Ledger", "DEMO FIXTURE", "Report Viewer",
+                        "SANDBOXED", "Artifact Integrity", "State Variants",
+                        "empty-report-not-found.png"],
+    "investigation-report": ["Investigation Report", "DEMO FIXTURE",
+                             "Findings &amp; Evidence", "Audit &amp; Reproducibility",
+                             "Generated from audited investigation data"],
     "project-introduction": [
         "질문이 결론이 되기까지,",
         "Investigation Flow · 조사 흐름",
@@ -78,6 +84,19 @@ def test_no_client_javascript(pages: dict[str, str], name: str) -> None:
     """목업은 정적이다 — 클라이언트 JS 가 새어 들어오면 SSG 성질이 깨진다."""
     html = pages[name]
     assert "<script" not in html.lower()
+
+
+def test_campaign_ledger_uses_shared_props_only_presentation() -> None:
+    """정적 fixture와 앱 controller는 fetch 없는 동일 presenter를 사용한다."""
+    source = (DIST.parents[1] / "design-system" / "mockups" / "src" / "pages"
+              / "campaign-ledger.mjs").read_text(encoding="utf-8")
+    shared = (DIST.parents[1] / "design-system" / "ui" / "reports.mjs").read_text(
+        encoding="utf-8")
+    assert "campaignLedgerSlots" in source
+    assert "../../../ui/reports.mjs" in source
+    assert "fetch(" not in shared
+    assert "srcDoc" not in shared and "srcdoc" not in shared.lower()
+    assert "sandbox" in shared
 
 
 @pytest.mark.parametrize("name", sorted(REQUIRED))
@@ -184,6 +203,7 @@ def test_assets_referenced_exist(pages: dict[str, str]) -> None:
 # 8공간 동일 셸 — 문서형(액자 히어로·360px) 특례는 Gate·Watchtower 만 다르게
 # 보이는 문제로 폐지했다 (2026-09-08 사용자 피드백).
 HERO_CAP = {
+    "campaign-ledger": 300,
     "citadel-gate": 300, "watchtower": 300,
     "war-table": 300, "hall-of-witnesses": 300, "council-chamber": 300,
     "grand-archive": 300, "chronicle-vault": 300, "signal-spire": 300,
@@ -197,7 +217,8 @@ def test_hero_keeps_aspect_and_is_capped(pages: dict[str, str], name: str, cap: 
     html = pages[name]
     assert "aspect-ratio:8 / 3" in html, f"{name}: 히어로가 8:3 을 지키지 않는다"
     assert f"max-height:{cap}px" in html, f"{name}: 히어로 상한 {cap}px 가 없다"
-    assert "height:132px" not in html, f"{name}: 원본 고정 밴드가 남아 있다"
+    mast = re.search(r'style="[^"]*aspect-ratio:8 / 3[^"]*"', html)
+    assert mast and "height:132px" not in mast.group(0), f"{name}: 원본 고정 밴드가 남아 있다"
 
 
 @pytest.mark.parametrize("name", FLAT_BAND)

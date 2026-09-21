@@ -19,12 +19,12 @@ DIST = REPO / "frontend" / "dist"
 
 # 이관된 엔트리 목록 — 공간을 이관할 때마다 여기 추가한다.
 ENTRIES = ["gate", "witnesses", "table", "archive", "spire", "council",
-           "watchtower", "chronicle", "about"]
+           "watchtower", "chronicle", "about", "reports"]
 # canonical 라우트 ↔ dist 엔트리 (viewer._MIGRATED 와 동기).
 MIGRATED = [("/", "gate"), ("/witnesses", "witnesses"), ("/table", "table"),
             ("/archive", "archive"), ("/spire", "spire"), ("/council", "council"),
             ("/watchtower", "watchtower"), ("/chronicle", "chronicle"),
-            ("/about", "about")]
+            ("/about", "about"), ("/reports", "reports")]
 
 
 @pytest.fixture(scope="module")
@@ -117,6 +117,38 @@ def test_council_bundle_removes_legacy_investigate_route() -> None:
     assert "/api/investigate" not in js
     assert "/api/investigations" in js
     assert "비용·턴 로그 미영속" not in js
+
+
+def test_reports_bundle_is_metadata_only_sandboxed_viewer() -> None:
+    """Campaign Ledger는 metadata만 읽고 저장 HTML은 sandbox iframe URL로만 연다."""
+    js = (DIST / "js" / "reports.js").read_text(encoding="utf-8", errors="ignore")
+    for marker in (
+        "/api/investigations",
+        "report-artifact",
+        "report.html",
+        "Campaign Ledger",
+        "저장소 연결 실패",
+        "legacy_json_only",
+        "Retry-After",
+        "sandbox",
+    ):
+        assert marker in js, marker
+    assert "srcdoc" not in js.lower()
+
+
+def test_council_and_gate_link_campaign_ledger_without_ninth_space() -> None:
+    """리포트는 Council utility이며 8공간 shell route/tab에 추가되지 않는다."""
+    council_js = (DIST / "js" / "council.js").read_text(
+        encoding="utf-8", errors="ignore")
+    gate_js = (DIST / "js" / "gate.js").read_text(
+        encoding="utf-8", errors="ignore")
+    assert "완료 리포트 보기" in council_js
+    assert "Campaign Ledger" in gate_js
+    shell_source = (REPO / "design-system" / "ui" / "shell.mjs").read_text(
+        encoding="utf-8")
+    assert shell_source.count("['citadel-gate'") == 1
+    assert len(re.findall(r"^\s+\['[^']+', '[^']+', '[^']+'\],$",
+                          shell_source, re.MULTILINE)) == 8
 
 
 def test_watchtower_bundle_wires_metrics_and_grafana() -> None:

@@ -164,6 +164,7 @@ class InvestigationWorker:
         worker_id: str,
         facade_factory,
         execute=execute_read_only_investigation,
+        report_generator=None,
         lease_seconds: float = 60,
         heartbeat_interval: float | None = None,
     ) -> None:
@@ -176,6 +177,11 @@ class InvestigationWorker:
         self._worker_id = worker_id
         self._facade_factory = facade_factory
         self._execute = execute
+        if report_generator is None:
+            from .investigation_report import HtmlReportGenerator
+
+            report_generator = HtmlReportGenerator()
+        self._report_generator = report_generator
         self._lease_seconds = lease_seconds
         self._heartbeat_interval = interval
     def _execute_claimed(self, claimed: dict) -> tuple[dict | None, bool]:
@@ -200,6 +206,43 @@ class InvestigationWorker:
 
         with ThreadPoolExecutor(max_workers=1, thread_name_prefix="investigation-run") as pool:
             future = pool.submit(run)
+            while True:
+                try:
+                    return future.result(timeout=self._heartbeat_interval), True
+                except FutureTimeoutError:
+                    if future.done():
+                        return future.result(), True
+                    if not self._store.renew_lease(
+                        job_id=claimed["job_id"],
+                        claim_token=claimed["claim_token"],
+                        lease_seconds=self._lease_seconds,
+                    ):
+                        future.result()
+                        return None, False
+
+    def _generate_report(self, claimed: dict, result: dict):
+        """REPORT 생성 동안에도 RUN과 같은 lease heartbeat를 유지한다."""
+        investigation_meta = {
+            "investigation_id": claimed["investigation_id"],
+            "question": claimed["question"],
+            "subject_id": claimed["subject_id"],
+            "scope": claimed["scope"],
+            "mode": claimed["mode"],
+            "status": "completed",
+            "version_tuple": claimed["version_tuple"],
+            "correlation_id": claimed["correlation_id"],
+            "audit_trace": result.get("audit_trace", {}),
+        }
+
+        with ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="investigation-report"
+        ) as pool:
+            future = pool.submit(
+                self._report_generator.generate,
+                result,
+                investigation_meta,
+                claimed["report_profile"],
+            )
             while True:
                 try:
                     return future.result(timeout=self._heartbeat_interval), True
@@ -268,14 +311,50 @@ class InvestigationWorker:
         if self._cancel_at_boundary(claimed):
             return True
 
-        self._store.complete(
-            job_id=claimed["job_id"],
-            claim_token=claimed["claim_token"],
-            report=result,
-            audit_trace=result.get("audit_trace", {}),
-            coverage={"ratio": result.get("coverage"), "gaps": result.get("gaps", [])},
-            termination=result.get("terminated_by"),
-        )
+        try:
+            artifact, owns_claim = self._generate_report(claimed, result)
+        except Exception as exc:
+            if not self._cancel_at_boundary(claimed):
+                self._store.fail(
+                    job_id=claimed["job_id"],
+                    claim_token=claimed["claim_token"],
+                    error={"code": "investigation_report_failed", "message": str(exc)},
+                )
+            return True
+        if not owns_claim:
+            return True
+        if self._cancel_at_boundary(claimed):
+            return True
+
+        try:
+            completed = self._store.complete_with_report_artifact(
+                job_id=claimed["job_id"],
+                claim_token=claimed["claim_token"],
+                report=result,
+                audit_trace=result.get("audit_trace", {}),
+                coverage={
+                    "ratio": result.get("coverage"),
+                    "gaps": result.get("gaps", []),
+                },
+                termination=result.get("terminated_by"),
+                artifact=artifact.as_store_dict(),
+            )
+        except Exception as exc:
+            if not self._cancel_at_boundary(claimed):
+                self._store.fail(
+                    job_id=claimed["job_id"],
+                    claim_token=claimed["claim_token"],
+                    error={"code": "investigation_report_storage_failed",
+                           "message": str(exc)},
+                )
+            return True
+        if not completed and not self._cancel_at_boundary(claimed):
+            self._store.fail(
+                job_id=claimed["job_id"],
+                claim_token=claimed["claim_token"],
+                error={"code": "investigation_report_completion_rejected",
+                       "message": "report completion fence rejected the claim"},
+            )
         return True
 
     def _cancel_at_boundary(self, claimed: dict) -> bool:

@@ -39,7 +39,7 @@ export default defineConfig({
               table: at('table.html'), archive: at('archive.html'),
               spire: at('spire.html'), council: at('council.html'),
               watchtower: at('watchtower.html'), chronicle: at('chronicle.html'),
-              about: at('about.html')},
+              about: at('about.html'), reports: at('reports.html')},
       output: {
         entryFileNames: 'js/[name].js',
         chunkFileNames: 'js/[name].js',
