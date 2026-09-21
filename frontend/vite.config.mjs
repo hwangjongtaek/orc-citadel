@@ -38,7 +38,8 @@ export default defineConfig({
       input: {gate: at('gate.html'), witnesses: at('witnesses.html'),
               table: at('table.html'), archive: at('archive.html'),
               spire: at('spire.html'), council: at('council.html'),
-              watchtower: at('watchtower.html'), chronicle: at('chronicle.html')},
+              watchtower: at('watchtower.html'), chronicle: at('chronicle.html'),
+              about: at('about.html')},
       output: {
         entryFileNames: 'js/[name].js',
         chunkFileNames: 'js/[name].js',

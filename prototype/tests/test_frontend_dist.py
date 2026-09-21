@@ -19,11 +19,12 @@ DIST = REPO / "frontend" / "dist"
 
 # 이관된 엔트리 목록 — 공간을 이관할 때마다 여기 추가한다.
 ENTRIES = ["gate", "witnesses", "table", "archive", "spire", "council",
-           "watchtower", "chronicle"]
+           "watchtower", "chronicle", "about"]
 # canonical 라우트 ↔ dist 엔트리 (viewer._MIGRATED 와 동기).
 MIGRATED = [("/", "gate"), ("/witnesses", "witnesses"), ("/table", "table"),
             ("/archive", "archive"), ("/spire", "spire"), ("/council", "council"),
-            ("/watchtower", "watchtower"), ("/chronicle", "chronicle")]
+            ("/watchtower", "watchtower"), ("/chronicle", "chronicle"),
+            ("/about", "about")]
 
 
 @pytest.fixture(scope="module")
@@ -130,13 +131,50 @@ def test_watchtower_bundle_wires_metrics_and_grafana() -> None:
 
 
 def test_watchtower_bundle_wires_component_access() -> None:
-    """Watchtower 구성요소 패널 — /api/watchtower components(도달성 실측)를
-    소비하고, duckdb-ui localhost 강제(requires_localhost)·미도달 정직 표기
-    (unreachable)를 렌더한다. 오리진 리터럴 없이 런타임 host 조립."""
+    """Watchtower 구성요소 패널은 allowlist URL 정책으로 DuckDB를 localhost에
+    고정하고, API 도달성 실측의 reachable/unreachable 상태를 정직하게 렌더한다."""
     js = "".join(f.read_text(encoding="utf-8", errors="ignore")
                  for f in sorted(DIST.rglob("*.js")))
-    for marker in ("reachable", "unreachable", "requires_localhost", "ui_port"):
+    for marker in ("reachable", "unreachable", "ui_port", "localhost", "4213"):
         assert marker in js, marker
+
+
+def test_about_bundle_explains_project_and_enhances_tools() -> None:
+    """소개 페이지는 공유 설명 구조를 렌더하고 도구 상태만 점진 보강한다."""
+    about_js = (DIST / "js" / "about.js").read_text(encoding="utf-8", errors="ignore")
+    for marker in (
+        "질문이 결론이 되기까지",
+        "일반 검색과 챗봇",
+        "조사 결과 · Evidence Graph · Provenance",
+        "Technology Map",
+        "Apache Iceberg",
+        "현재 미사용 · 확장 후보",
+        "queued",
+        "running",
+        "completed",
+        "failed",
+        "cancelled",
+        "독립 실행 단계가 아니라",
+        "근거 구조 평가",
+        "미해결 질문",
+        "검증되지 않음",
+        "재시작 후에도 이어지는 조사",
+        "결론과 근거 계산은 바꾸지 않습니다",
+        "새 근거에 따른 결론 변화 알림",
+        "/api/watchtower",
+        "운영 도구 상태를 확인할 수 없음",
+        "viewer에서 TCP 연결됨",
+        "noopener noreferrer",
+    ):
+        assert marker in about_js, marker
+
+
+def test_gate_bundle_links_project_guide() -> None:
+    """Citadel Gate 브랜드 영역에서 8공간 밖 프로젝트 안내로 진입한다."""
+    gate_js = (DIST / "js" / "gate.js").read_text(encoding="utf-8", errors="ignore")
+    shared_js = (DIST / "js" / "components.js").read_text(encoding="utf-8", errors="ignore")
+    assert "프로젝트 안내" in gate_js
+    assert "/about" in shared_js
 
 
 def test_chronicle_bundle_wires_bitemporal_axes() -> None:

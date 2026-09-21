@@ -45,6 +45,7 @@ export const SPACES = [...PRIMARY_SPACES, ...SECONDARY_SPACES];
 export const MOCKUP_URLS = {
   page: (slug) => `./${slug}.html`,
   home: './index.html',
+  about: './project-introduction.html',
   asset: (file) => `./assets/${file}`,
 };
 export const APP_ROUTES = {
@@ -60,6 +61,7 @@ export const APP_ROUTES = {
 export const APP_URLS = {
   page: (slug) => APP_ROUTES[slug],
   home: '/',
+  about: '/about',
   asset: (file) => `/assets/img/${file}`,
 };
 
@@ -144,7 +146,7 @@ const S = {
     color: 'var(--astryx-theme-citadel-parchment)', marginTop: 5,
     textShadow: '0 2px 14px rgba(7,17,28,.9)'},
   eyebrow: {fontFamily: 'var(--font-family-heading)', fontSize: 10, fontWeight: 600,
-    letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--color-text-secondary)'},
+    letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--astryx-theme-citadel-parchment)'},
   ctxTitle: {fontFamily: 'var(--font-family-heading)', fontSize: 15, fontWeight: 600,
     color: 'var(--color-text-primary)', whiteSpace: 'nowrap', overflow: 'hidden',
     textOverflow: 'ellipsis'},
@@ -154,7 +156,7 @@ const S = {
  * 히어로 밴드 — 원본 목업의 3중 배경(그라데이션 + 히어로 PNG + night).
  * `hero` 가 없으면 그라데이션만 (empty-states·index 처럼 공간이 아닌 페이지).
  */
-function masthead({title, subtitle, hero, urls}) {
+function masthead({title, subtitle, hero, heroAlt, urls}) {
   const shape = hero ? S.mastBand : S.mastFlat;
   // 히어로가 있으면 아래에서 위로 걷히는 스크림 — 글자만 덮고 그림 본체는 살린다.
   // 히어로가 없으면 좌→우 (원본 밴드 조판).
@@ -168,6 +170,7 @@ function masthead({title, subtitle, hero, urls}) {
   ].filter(Boolean).join(', ');
   return h('div', {
     style: {...S.mast, ...shape, background: layers},
+    ...(heroAlt ? {role: 'img', 'aria-label': heroAlt} : {}),
   },
     h('div', {},
       h('h1', {style: S.mastH1}, title),
@@ -183,15 +186,21 @@ function masthead({title, subtitle, hero, urls}) {
  * @param title    마스트헤드 h1
  * @param subtitle 마스트헤드 부제
  * @param hero     `assets/` 내 히어로 PNG 파일명
+ * @param heroAlt  배경 히어로의 대체 설명
  * @param alerts   Signal Spire 칩 카운트
  * @param slots    Layout 슬롯 { start, content, end, footer }
  * @param urls     URL 공간 (기본 MOCKUP_URLS — 앱은 APP_URLS)
  * @param onSearchOpen  검색창 클릭 시 팔레트 열기 (앱 전용 — 목업은 정적)
+ * @param utilityNav    안내 페이지용 최소 내비게이션 노드
+ * @param mastheadContent 기본 마스트헤드를 대체할 안내 페이지 첫 화면
+ * @param skipTarget    본문 바로가기 대상 id
  */
-export function shell({route, eyebrow, context, title, subtitle, hero, alerts = 3,
-                       slots, urls = MOCKUP_URLS, onSearchOpen}) {
+export function shell({route, eyebrow, context, title, subtitle, hero, heroAlt, alerts = 3,
+                       slots, urls = MOCKUP_URLS, onSearchOpen, utilityNav,
+                       mastheadContent, skipTarget}) {
+  const isUtility = utilityNav !== undefined;
   const header = h(LayoutHeader, {padding: 0, hasDivider: false},
-    h('div', {style: S.bar},
+    h('div', {style: isUtility ? {...S.bar, flexWrap: 'wrap'} : S.bar},
       // GNB 는 타이틀 레터링만 — 오크 얼굴 mark 는 제외한다 (2026-09-08 확정).
       // 글자 이미지라 mark+title 조합 때(22px)보다 키운다.
       h('a', {style: S.wordmark, href: urls.home, 'aria-label': 'ORC CITADEL'},
@@ -200,33 +209,40 @@ export function shell({route, eyebrow, context, title, subtitle, hero, alerts = 
         h('span', {style: S.eyebrow}, eyebrow),
         h('span', {style: S.ctxTitle}, context)),
       h('div', {style: {flex: '1 1 auto'}}),
-      h('label', {
+      isUtility ? null : h('label', {
         style: onSearchOpen ? {...S.search, cursor: 'pointer'} : S.search,
         onClick: onSearchOpen}, searchIcon(),
         h('input', {style: S.searchInput,
           placeholder: 'subject · claim · document 통합 검색', readOnly: true}),
         h('span', {style: S.kbd, 'aria-hidden': 'true'}, '⌘K')),
-      h('a', {style: S.spire, href: urls.page('signal-spire'),
+      isUtility ? null : h('a', {style: S.spire, href: urls.page('signal-spire'),
         title: 'Signal Spire · 결론·confidence 변화 알림'},
         h('span', {style: S.dot}), `Signal Spire · ${alerts}`)),
-    h('nav', {style: S.tabs, 'aria-label': 'Citadel 공간'},
-      PRIMARY_SPACES.map(([slug, name]) =>
-        h('a', {key: slug, href: urls.page(slug),
-          style: slug === route ? {...S.tab, ...S.tabOn} : S.tab}, name)),
-      h('span', {style: S.navSep, 'aria-hidden': 'true'}),
-      h('span', {style: S.navGroupLabel}, '운영 · 감사'),
-      SECONDARY_SPACES.map(([slug, name]) =>
-        h('a', {key: slug, href: urls.page(slug),
-          style: slug === route
-            ? {...S.tab, ...S.tab2, ...S.tabOn} : {...S.tab, ...S.tab2}}, name))),
-    masthead({title, subtitle, hero, urls}));
+    isUtility
+      ? h('nav', {style: S.tabs, 'aria-label': '프로젝트 안내'}, utilityNav)
+      : h('nav', {style: S.tabs, 'aria-label': 'Citadel 공간'},
+        PRIMARY_SPACES.map(([slug, name]) =>
+          h('a', {key: slug, href: urls.page(slug),
+            style: slug === route ? {...S.tab, ...S.tabOn} : S.tab}, name)),
+        h('span', {style: S.navSep, 'aria-hidden': 'true'}),
+        h('span', {style: S.navGroupLabel}, '운영 · 감사'),
+        SECONDARY_SPACES.map(([slug, name]) =>
+          h('a', {key: slug, href: urls.page(slug),
+            style: slug === route
+              ? {...S.tab, ...S.tab2, ...S.tabOn} : {...S.tab, ...S.tab2}}, name))),
+    mastheadContent ?? masthead({title, subtitle, hero, heroAlt, urls}));
 
   // 8공간 동일 셸: 항상 `fill`(패널·본문 독립 스크롤) + **전 공간 본문 1200px
   // 중앙 정렬** — 기존 Gate 의 본문 폭으로 통일 (2026-09-08 사용자 확정).
   // Astryx `contentWidth` 는 start|content|end 패널 행 전체에
   // width:100% · margin-inline:auto · max-width 를 걸므로 3열 공간도 같은
   // 폭으로 중앙 정렬된다. 헤더·내비·히어로는 전폭 유지.
-  return h(Layout, {height: 'fill', contentWidth: CONTENT_WIDTH, header, ...slots});
+  const layout = h(Layout, {height: 'fill', contentWidth: CONTENT_WIDTH, header, ...slots});
+  return skipTarget
+    ? h(React.Fragment, null,
+      h('a', {className: 'citadel-skip-link', href: `#${skipTarget}`}, '본문으로 이동'),
+      layout)
+    : layout;
 }
 
 /** 섹션 소제목 — 원본 목업 `.panel-head` 의 라벨 조판. */

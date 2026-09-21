@@ -18,6 +18,7 @@ import {
 } from '@ui/components.mjs';
 import {stageCard, failureCard, sloCard, grafanaCard} from '@ui/watchtower.mjs';
 import {Palette, usePaletteHotkey} from '../../lib/palette.jsx';
+import {buildComponentLink} from '../../lib/component-link.js';
 
 const urls = APP_URLS;
 const jfetch = (p) => fetch(p)
@@ -62,21 +63,18 @@ function kpis(r) {
   ];
 }
 
-// 구성요소 접속 링크 — 런타임 host 조립 (오리진 리터럴 금지 가드 + SSH 터널
-// 대응). duckdb-ui 는 localhost 강제 — ui 확장 Origin 검증이 127.0.0.1 을
-// 401 처리한다 (실측, data-browsing.md §3).
 function componentLink(c) {
   if (!c.ui_port) return h(Text, {type: 'supporting'}, c.note || '—');
-  // 미도달이면 링크를 내지 않는다 — 눌러도 열리지 않는 링크는 혼동만 준다.
-  // 도달성은 뷰어 실측이라 같은 호스트 기준 접속 가능성과 일치한다.
-  if (!c.reachable) {
-    return h(Text, {type: 'supporting'},
-      `미가동 — 기동 후 접속 (docker compose up -d ${c.id})`);
+
+  const href = buildComponentLink(c, location);
+  if (!href) {
+    return h(Text, {type: 'supporting'}, c.reachable
+      ? c.note || '—'
+      : `미가동 — 기동 후 접속 (docker compose up -d ${c.id})`);
   }
-  const host = c.requires_localhost ? 'localhost' : location.hostname;
-  const href = `${location.protocol}//${host}:${c.ui_port}${c.ui_path || ''}`;
+
   return h('div', {style: {display: 'flex', flexDirection: 'column', gap: 2}},
-    h('a', {href, target: '_blank', rel: 'noopener',
+    h('a', {href, target: '_blank', rel: 'noopener noreferrer',
       style: {fontFamily: 'var(--font-family-heading)', fontSize: 11.5,
         fontWeight: 600, color: 'var(--astryx-theme-citadel-signal-amber)',
         textDecoration: 'none', whiteSpace: 'nowrap'}}, `${c.name} 열기 →`),
@@ -92,6 +90,7 @@ function App() {
   React.useEffect(() => { jfetch('/api/watchtower').then(setR).catch(setError); }, []);
 
   const rm = (r && r.run_metrics) || {available: false, runs: [], source_tables: []};
+  const components = (r && r.components) || [];
   const body = h(LayoutContent, {padding: 4},
     !r ? h(Text, {type: 'supporting'}, error ? String(error) : '수집 관제 불러오는 중…')
       : h(React.Fragment, {},
@@ -130,7 +129,7 @@ function App() {
           // 딥링크는 런타임 host 로 조립 — 번들에 오리진 리터럴을 굽지 않는다
           // (외부 오리진 금지 가드와 SSH 터널 host 양쪽 대응).
           grafanaCard({
-            url: `${location.protocol}//${location.hostname}:3000/d/citadel-pipeline`,
+            url: buildComponentLink(components.find((c) => c.id === 'grafana'), location),
             note: '런 단위 drill-down(정확도·지연·correlation 분해)은 Grafana 대시보드가 '
               + '담당 — 소스: postgres pipeline_run_metrics · pipeline_slo_observations '
               + '(nightly flush). loopback 바인딩 — 원격이면 SSH 터널 3000 필요'}),
@@ -140,7 +139,7 @@ function App() {
             h(TableHeader, {}, h(TableRow, {},
               ...['구성요소', '계층', 'Port', '상태', '접속']
                 .map((c) => h(TableHeaderCell, {key: c}, c)))),
-            h(TableBody, {}, (r.components || []).map((c) =>
+            h(TableBody, {}, components.map((c) =>
               h(TableRow, {key: c.id},
                 h(TableCell, {}, h(Text, {}, c.name)),
                 h(TableCell, {}, h(Text, {type: 'supporting'}, c.layer)),

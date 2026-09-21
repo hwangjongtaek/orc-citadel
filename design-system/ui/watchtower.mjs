@@ -66,7 +66,7 @@ export function grafanaCard({url, note}) {
     h('div', {style: {minWidth: 0}},
       h(Text, {type: 'label'}, 'Grafana · Pipeline Observability'),
       h('div', {style: {marginTop: 4}}, h(Text, {type: 'supporting'}, note))),
-    url ? h('a', {href: url, target: '_blank', rel: 'noopener',
+    url ? h('a', {href: url, target: '_blank', rel: 'noopener noreferrer',
       style: {fontFamily: 'var(--font-family-heading)', fontSize: 11.5,
         fontWeight: 600, color: 'var(--astryx-theme-citadel-signal-amber)',
         textDecoration: 'none', whiteSpace: 'nowrap'}}, 'Grafana에서 열기 →')

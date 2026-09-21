@@ -30,7 +30,9 @@ export function brandBlock({urls = MOCKUP_URLS} = {}) {
         h(Text, {type: 'supporting'}, 'The Camp works. The Citadel remembers.')),
       h('div', {style: {marginTop: 2}},
         h(Text, {type: 'supporting'},
-          'Temporal Evidence Intelligence · 시간을 기억하는 증거 정보 본부'))));
+          'Temporal Evidence Intelligence · 시간을 기억하는 증거 정보 본부')),
+      h('div', {style: {marginTop: 8}},
+        link(urls.about, '프로젝트 안내'))));
 }
 
 /** subject 결론 카드 — confidence 는 값+근거+독립 출처 병기 (단일 게이지 금지). */

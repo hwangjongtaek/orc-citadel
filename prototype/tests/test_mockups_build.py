@@ -17,6 +17,7 @@ DIST = Path(__file__).resolve().parents[2] / "docs" / "mockups"
 PAGES = [
     "index", "citadel-gate", "war-table", "hall-of-witnesses", "council-chamber",
     "watchtower", "grand-archive", "chronicle-vault", "signal-spire", "empty-states",
+    "project-introduction",
 ]
 
 # 공간 페이지가 반드시 실어야 하는 핵심 정보 블록 (원본 목업 대비 재현 확인).
@@ -37,6 +38,21 @@ REQUIRED = {
     "chronicle-vault": ["Bitemporal Plane", "AS-OF Snapshot", "Supersession"],
     "signal-spire": ["Triggers", "Alert Feed", "Subscriptions", "dedup:"],
     "empty-states": ["empty-wartable.png", "empty-spire.png"],
+    "project-introduction": [
+        "질문이 결론이 되기까지,",
+        "Investigation Flow · 조사 흐름",
+        "현재 제공 · supports only",
+        "Technology Map · 기술 활용",
+        "MinIO + Parquet",
+        "PostgreSQL",
+        "OpenSearch",
+        "Neo4j Community",
+        "Apache Iceberg",
+        "현재 미사용 · 확장 후보",
+        "설명용 예시 · 실제 조사 결과 아님",
+        "법률·의료·투자 결정을 자동으로 대신하지 않습니다.",
+        "project-introduction-hero.png",
+    ],
 }
 
 
@@ -69,6 +85,27 @@ def test_required_blocks_rendered(pages: dict[str, str], name: str) -> None:
     html = pages[name]
     missing = [b for b in REQUIRED[name] if b not in html]
     assert not missing, f"{name}: 누락 블록 {missing}"
+
+
+def test_project_introduction_is_static_utility_guide(pages: dict[str, str]) -> None:
+    html = pages["project-introduction"]
+    assert 'href="#main-content"' in html
+    assert 'id="main-content"' in html
+    assert 'href="./citadel-gate.html"' in html
+    assert 'href="./council-chamber.html"' in html
+    assert "subject · claim · document 통합 검색" not in html
+    assert "DEMO · 설명용 상태" in html
+    assert "NOT FOUND" not in html
+    assert 'href="./project-introduction.html"' in pages["index"]
+    assert 'href="./project-introduction.html"' in pages["citadel-gate"]
+    assert "@media(max-width:720px)" in html
+    assert "aspect-ratio:4/3" in html
+    assert "object-position:center" in html
+    assert 'aria-labelledby="example-title"' in html
+    assert '<h2 id="example-title"' in html
+    assert 'aria-labelledby="result-title"' in html
+    assert '<h2 id="result-title"' in html
+    assert "color:var(--astryx-theme-citadel-parchment)" in html
 
 
 @pytest.mark.parametrize("name", PAGES)

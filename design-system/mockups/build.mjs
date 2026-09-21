@@ -27,6 +27,7 @@ const DIST = join(REPO, 'docs', 'mockups');
 const ALL_PAGES = [
   'index', 'citadel-gate', 'war-table', 'hall-of-witnesses', 'council-chamber',
   'watchtower', 'grand-archive', 'chronicle-vault', 'signal-spire', 'empty-states',
+  'project-introduction',
 ];
 
 // `node build.mjs war-table` — 저작 중 한두 페이지만 굽는다. 인자 없으면 전체.
