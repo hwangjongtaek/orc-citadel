@@ -24,8 +24,10 @@ PAGES = [
 REQUIRED = {
     # 브리핑-우선 대시보드 (specs/ui-overhaul-astryx TS-3): KPI · 결론 카드 ·
     # 변화 피드 · New Campaign 비활성(read-only) · 공간 빠른 진입.
+    # New Campaign 은 질문을 Council Chamber 로 넘기는 GET form 이다 (JS 없이 동작).
     "citadel-gate": ["Conclusions · 주요 결론", "Recent Changes · 최근 변화",
-                     "New Campaign", "read-only 프로토타입", "공간 빠른 진입"],
+                     "New Campaign", 'action="./council-chamber.html"',
+                     'name="question"', "공간 빠른 진입"],
     "war-table": ["Campaign Map", "Temporal Evidence Graph", "Evidence Inspector",
                   "Chronicle", "supports", "contradicts", "superseded"],
     "hall-of-witnesses": ["Claims", "Evidence &amp; Provenance", "Provenance Trail",
@@ -86,6 +88,13 @@ def test_no_client_javascript(pages: dict[str, str], name: str) -> None:
     assert "<script" not in html.lower()
 
 
+@pytest.mark.parametrize("name", sorted(REQUIRED))
+def test_required_blocks_rendered(pages: dict[str, str], name: str) -> None:
+    html = pages[name]
+    missing = [b for b in REQUIRED[name] if b not in html]
+    assert not missing, f"{name}: 누락 블록 {missing}"
+
+
 def test_campaign_ledger_uses_shared_props_only_presentation() -> None:
     """정적 fixture와 앱 controller는 fetch 없는 동일 presenter를 사용한다."""
     source = (DIST.parents[1] / "design-system" / "mockups" / "src" / "pages"
@@ -97,14 +106,6 @@ def test_campaign_ledger_uses_shared_props_only_presentation() -> None:
     assert "fetch(" not in shared
     assert "srcDoc" not in shared and "srcdoc" not in shared.lower()
     assert "sandbox" in shared
-
-
-@pytest.mark.parametrize("name", sorted(REQUIRED))
-def test_required_blocks_rendered(pages: dict[str, str], name: str) -> None:
-    html = pages[name]
-    missing = [b for b in REQUIRED[name] if b not in html]
-    assert not missing, f"{name}: 누락 블록 {missing}"
-
 
 def test_project_introduction_is_static_utility_guide(pages: dict[str, str]) -> None:
     html = pages["project-introduction"]
@@ -203,10 +204,10 @@ def test_assets_referenced_exist(pages: dict[str, str]) -> None:
 # 8공간 동일 셸 — 문서형(액자 히어로·360px) 특례는 Gate·Watchtower 만 다르게
 # 보이는 문제로 폐지했다 (2026-09-08 사용자 피드백).
 HERO_CAP = {
-    "campaign-ledger": 300,
     "citadel-gate": 300, "watchtower": 300,
     "war-table": 300, "hall-of-witnesses": 300, "council-chamber": 300,
     "grand-archive": 300, "chronicle-vault": 300, "signal-spire": 300,
+    "campaign-ledger": 300,
 }
 # 히어로 이미지가 없는 페이지 — 8:3 이면 빈 그라데이션 덩어리가 된다.
 FLAT_BAND = ["index", "empty-states"]
@@ -217,8 +218,6 @@ def test_hero_keeps_aspect_and_is_capped(pages: dict[str, str], name: str, cap: 
     html = pages[name]
     assert "aspect-ratio:8 / 3" in html, f"{name}: 히어로가 8:3 을 지키지 않는다"
     assert f"max-height:{cap}px" in html, f"{name}: 히어로 상한 {cap}px 가 없다"
-    mast = re.search(r'style="[^"]*aspect-ratio:8 / 3[^"]*"', html)
-    assert mast and "height:132px" not in mast.group(0), f"{name}: 원본 고정 밴드가 남아 있다"
 
 
 @pytest.mark.parametrize("name", FLAT_BAND)

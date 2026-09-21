@@ -21,8 +21,9 @@ import {Palette, usePaletteHotkey} from '../../lib/palette.jsx';
 import {buildComponentLink} from '../../lib/component-link.js';
 
 const urls = APP_URLS;
-const jfetch = (p) => fetch(p)
-  .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`${p} → ${r.status}`))));
+const jfetch = (p, options) => fetch(p, options)
+  .then((r) => (r.ok ? r.json() : r.json().then((body) =>
+    Promise.reject(new Error(body.error?.message || `${p} → ${r.status}`)))));
 
 const num = (n) => Number(n || 0).toLocaleString();
 // 신선도 분 값 → 읽을 수 있는 단위 (48h 넘으면 일 단위) — 값 가공 아님, 표기만.
@@ -84,10 +85,40 @@ function componentLink(c) {
 function App() {
   const [r, setR] = React.useState(null);
   const [error, setError] = React.useState(null);
+  const [collectionSources, setCollectionSources] = React.useState([]);
+  const [selectedSources, setSelectedSources] = React.useState([]);
+  const [collectionRun, setCollectionRun] = React.useState({status: 'idle'});
   const [paletteOpen, setPaletteOpen] = React.useState(false);
   usePaletteHotkey(setPaletteOpen);
 
-  React.useEffect(() => { jfetch('/api/watchtower').then(setR).catch(setError); }, []);
+  React.useEffect(() => {
+    jfetch('/api/watchtower').then(setR).catch(setError);
+    Promise.all([jfetch('/api/collections/sources'), jfetch('/api/collections/latest')])
+      .then(([sources, latest]) => {
+        setCollectionSources(sources.sources || []);
+        setCollectionRun(latest);
+      }).catch(setError);
+  }, []);
+
+  React.useEffect(() => {
+    if (!['queued', 'running'].includes(collectionRun.status)) return undefined;
+    const timer = window.setTimeout(() => {
+      jfetch('/api/collections/latest').then(setCollectionRun).catch(setError);
+    }, 1500);
+    return () => window.clearTimeout(timer);
+  }, [collectionRun.status]);
+
+  const toggleSource = (sourceId) => setSelectedSources((selected) =>
+    selected.includes(sourceId)
+      ? selected.filter((id) => id !== sourceId)
+      : [...selected, sourceId]);
+  const triggerCollection = () => {
+    setError(null);
+    jfetch('/api/collections', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({source_ids: selectedSources}),
+    }).then(setCollectionRun).catch(setError);
+  };
 
   const rm = (r && r.run_metrics) || {available: false, runs: [], source_tables: []};
   const components = (r && r.components) || [];
@@ -97,6 +128,35 @@ function App() {
           h('div', {style: {display: 'grid',
             gridTemplateColumns: 'repeat(5, minmax(0,1fr))', gap: 16}},
             kpis(r).map((k) => h('div', {key: k.label}, statTile(k)))),
+
+          sectionLabel('Manual Collection · 등록 source 즉시 수집'),
+          h(Card, {}, h('div', {style: {display: 'flex', flexDirection: 'column', gap: 10}},
+            h(Text, {type: 'supporting'},
+              '허용·등록된 RSS/sitemap source만 수집한다. 새 URL 등록과 graph 반영은 이 제어 범위 밖이다.'),
+            h('div', {style: {display: 'flex', flexWrap: 'wrap', gap: 8}},
+              collectionSources.map((source) => h('label', {key: source.source_id,
+                style: {display: 'flex', gap: 5, alignItems: 'center',
+                  fontFamily: 'var(--font-family-heading)', fontSize: 11.5}},
+              h('input', {type: 'checkbox', checked: selectedSources.includes(source.source_id),
+                onChange: () => toggleSource(source.source_id)}),
+              `${source.source_id} · ${source.kind}`))),
+            h('div', {style: {display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap'}},
+              h('button', {type: 'button', disabled: selectedSources.length === 0
+                || ['queued', 'running'].includes(collectionRun.status),
+              onClick: triggerCollection,
+              style: {padding: '8px 12px', borderRadius: 'var(--radius-inner)',
+                border: '1px solid var(--astryx-theme-citadel-signal-amber)',
+                color: 'var(--astryx-theme-citadel-signal-amber)', background: 'transparent',
+                fontFamily: 'var(--font-family-heading)', fontWeight: 700,
+                cursor: 'pointer'}}, '선택 source 수집 지시'),
+              h(Badge, {variant: collectionRun.status === 'succeeded' ? 'success'
+                : collectionRun.status === 'failed' ? 'error' : 'neutral',
+              label: `collection · ${String(collectionRun.status || 'idle').toUpperCase()}`}),
+              collectionRun.summary
+                ? h(Text, {type: 'supporting'},
+                  `신규 ${num(collectionRun.summary.total_new)}건`)
+                : null,
+              collectionRun.error ? h(Text, {type: 'supporting'}, collectionRun.error) : null))),
 
           sectionLabel('Pipeline · Stage Throughput — stage runner metric 미영속'),
           grid(3, 16,

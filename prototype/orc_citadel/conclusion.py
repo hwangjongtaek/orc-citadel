@@ -59,15 +59,20 @@ class ConclusionProjector:
         total_indep = len({self._root_of(d) for d in subject_docs})
 
         mean_support = sum(e.confidence["dimensions"]["support"] for e in evs) / n
-        contradiction_total = sum(e.confidence["dimensions"]["contradiction"] for e in evs)
+        # 어세션별 contradiction 은 이미 [0,1) 비율(`1 - 1/(n_conflict+1)`)이다.
+        # 합산하면 어세션 수에 비례해 커져 `1 - contradiction` 이 음수로 폭주한다
+        # (2026-09-18 prod 실측: 어세션 51건 → 18.02, confidence -11.66). support
+        # 와 같은 축(평균)으로 집계해야 09 §4 결론 봉투가 성립한다.
+        mean_contradiction = sum(
+            e.confidence["dimensions"]["contradiction"] for e in evs) / n
         has_evidence = sum(1 for e in evs if e.evidence_count > 0)
         coverage = has_evidence / n
 
-        value = mean_support * (1.0 - contradiction_total)
-        dims = {"support": mean_support, "contradiction": contradiction_total,
+        value = mean_support * (1.0 - mean_contradiction)
+        dims = {"support": mean_support, "contradiction": mean_contradiction,
                 "coverage": coverage}
         basis = (f"결론 신뢰도: 어세션 {n}건, 지지 근거 {total_evidence}건 "
-                 f"(독립 출처 {total_indep}건), 반박 위험 {contradiction_total:.2f}")
+                 f"(독립 출처 {total_indep}건), 반박 위험 {mean_contradiction:.2f}")
         confidence = {
             "value": value,
             "evidence_count": total_evidence,

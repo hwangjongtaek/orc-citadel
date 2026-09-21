@@ -1,0 +1,14 @@
+# Oh My Pi Project Configuration
+# Auto-approval policy:
+#   tools.approvalMode: yolo -> auto-approves read, write, and exec tiers (no prompts)
+#   approvals_reviewer = "auto_review" -> advisor.enabled: true with watchdog reviewer
+
+tools:
+  approvalMode: yolo
+
+advisor:
+  enabled: true
+  syncBacklog: "1"
+
+modelRoles:
+  advisor: "@slow"

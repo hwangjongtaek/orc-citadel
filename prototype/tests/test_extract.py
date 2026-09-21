@@ -48,6 +48,15 @@ def test_gazetteer_mention():
     assert all(o.resolved_entity_id is None for o in orgs)
 
 
+def test_blizzard_gazetteer_mention():
+    """허가된 BlizzCon 공식 source의 발행 주체를 결정적으로 해소 후보로 만든다."""
+    doc_id, doc = _doc("Blizzard Entertainment announced the BlizzCon 2026 lineup.")
+    mentions = extract_mentions(doc_id, doc, parse_document(doc_id, doc))
+
+    assert any(m.surface_text == "Blizzard" and m.mention_type == "Organization"
+               for m in mentions)
+
+
 # --- URL 도메인 규칙 ---------------------------------------------------------
 
 def test_url_domain_mention():

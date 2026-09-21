@@ -20,7 +20,7 @@ services:
       retries: 10
 
   minio:
-    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    image: quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:?}
@@ -133,6 +133,8 @@ services:
       # 정적 자산 — 이미지에는 prototype/ 만 들어간다. 히어로 PNG 19MB 를
       # 이미지에 굽지 않으려고 원본을 read-only 로 물린다 (viewer_static.py).
       - ./docs/mockups/assets:/app/static/img:ro
+      - ./docs/mockups/astryx.css:/app/static/astryx.css:ro
+      - ./docs/mockups/reset.css:/app/static/reset.css:ro
       - ./design-system/theme-citadel/dist/theme.css:/app/static/theme-citadel.css:ro
       - ./design-system/fonts/dist:/app/static/fonts:ro
       # 8공간 라우트의 유일한 표시 계층 — 없으면 viewer 가 정직 503 (dist 는 커밋 대상).

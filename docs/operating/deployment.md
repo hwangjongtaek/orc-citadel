@@ -1,6 +1,6 @@
 # 운영 배포 Runbook — 로컬 개발 / 원격지 운영 (SSH · Docker Compose)
 
-상태: **Stable** (v1.2.0) · 갱신: 2026-09-10 · 소유: design 01 §6.2가 참조하는 운영 runbook 정본의 배포 절.
+상태: **Stable** (v1.2.0) · 갱신: 2026-09-17 · 소유: design 01 §6.2가 참조하는 운영 runbook 정본의 배포 절.
 토폴로지·정책의 정본은 [`../design/01-architecture.md`](../design/01-architecture.md) §6이고,
 본 문서는 **절차(operation)** 만 소유한다.
 
@@ -9,30 +9,30 @@
 | 환경 | 역할 | 실행 형태 | 코드 |
 |---|---|---|---|
 | 로컬 (Mac) | 개발·테스트 | venv 네이티브 + launchd (§6.2 현행) | 작업 디렉터리 |
-| 원격지 — `orchwang-macbookpro` (§1.1) | **운영 (prod)** | Docker Compose 전체 스택 (§6.1) | `~/Projects/private/orc-citadel` |
+| 원격지 — `10.0.0.11` (§1.1) | **운영 (prod)** | Docker Compose 전체 스택 (§6.1) | `~/Projects/private/orc-citadel` |
 
 - 배포 통로: **SSH** (`scripts/deploy.sh`). git clone/pull 없이 rsync 코드 전송 → 원격 빌드·기동.
 - 데이터: named volume `orc-citadel-proddata` (viewer/scheduler/investigation-worker의
   `/app/data`) + 스토어 볼륨 (pgdata/minio-data/neo4j-data/opensearch-data). 코드 재배포와 무관하게 보존.
-- **데이터 정책 (확정 · 2026-09-05): 원격 prod 는 신규 수집분만 누적한다** — 로컬
-  corpus(raw ~105k·curated·slo06 누적)는 이관하지 않는다. rsync 도 `prototype/data`
-  를 제외한다. 따라서 원격 viewer 의 curated 존·SLO-06 7d 누적은 **0에서 새로 시작**
-  하며, 로컬 실측 이력(ROADMAP §5)과 원격 운영 지표는 서로 다른 모집단이다.
+- **데이터 정책 (확정 · 2026-09-17): 새 원격 prod 는 빈 상태로 시작한다** — 기존 원격
+  volume 및 로컬 corpus(raw ~105k·curated·slo06 누적)는 이관하지 않는다. rsync 도
+  `prototype/data`를 제외한다. 따라서 원격 viewer 의 curated 존·SLO-06 7d 누적은
+  **0에서 새로 시작**하며, 이전 원격·로컬 실측 이력(ROADMAP §5)과 운영 지표는 서로 다른 모집단이다.
 - **단일 발화 주체 이전**: 운영 nightly(07:07 수집 / 07:37 SLO-06)는 원격 `scheduler`
   컨테이너가 소유한다. 원격 기동 후 로컬 launchd 는 반드시 정지 (§3.5) — 이중 발화 금지.
 
-### 1.1 배포 대상 (확정 · 2026-09-03)
+### 1.1 배포 대상 (2026-09-17 전환)
 
 이하 예시 명령의 `<host>`는 모두 이 대상이다 (`deploy.sh`는 임의 ssh-host를 받는 일반 스크립트).
 
 | 항목 | 값 |
 |---|---|
-| 호스트 | `orchwang-macbookpro` — Tailscale MagicDNS (IP `100.124.230.96`) |
-| 계정 / OS | `orchwang` · macOS 25.5.0 (arm64) |
-| SSH | `~/.ssh/config`(머신별, 비커밋)의 `Host orchwang-macbookpro` — `User orchwang`, `IdentitiesOnly yes` |
-| 인증 | 원격 `~/.ssh/authorized_keys`에 공개키 등록 완료 · BatchMode 로그인 실측 통과 |
+| 호스트 | `10.0.0.11` (LAN) |
+| 계정 | `hwangjongtaek` |
+| SSH | `hwangjongtaek@10.0.0.11` — 공개키 인증 설정 완료 |
+| 인증 | BatchMode 로그인 가능 |
 | 리포 경로 | `~/Projects/private/orc-citadel` (`deploy.sh`의 `REMOTE_PATH`와 동일) |
-| Docker 런타임 | OrbStack (설치 경위: §2 각주) |
+| Docker 런타임 | Docker 29.3.0 · Docker Compose v5.1.0 (2026-09-17 확인) |
 | viewer 접근 | loopback 바인딩 유지 → SSH 터널 (§3.3) |
 
 ### 1.2 compose 서비스 목록
@@ -50,24 +50,18 @@
 
 ```bash
 # 사전 조건 확인 (없으면 설치)
-ssh orchwang-macbookpro 'docker --version && docker compose version'
-ssh orchwang-macbookpro 'sudo usermod -aG docker $USER'   # 재로그인 필요 (rootless 대체 가능)
+ssh hwangjongtaek@10.0.0.11 'docker --version && docker compose version'
+ssh hwangjongtaek@10.0.0.11 'sudo usermod -aG docker $USER'   # Docker socket 권한이 없을 때만; 재로그인 필요
 
 # 코드 + .env 설치 (deploy.sh가 첫 실행 시 자동)
-scripts/deploy.sh orchwang-macbookpro          # → .env 템플릿 생성 안내 후 종료
-ssh orchwang-macbookpro "vi ~/Projects/private/orc-citadel/.env"   # 운영 크리덴셜 수동 주입
-scripts/deploy.sh orchwang-macbookpro          # → 빌드 & 기동
+scripts/deploy.sh hwangjongtaek@10.0.0.11          # → .env 템플릿 생성 안내 후 종료
+ssh hwangjongtaek@10.0.0.11 "vi ~/Projects/private/orc-citadel/.env"   # 운영 크리덴셜 수동 주입
+scripts/deploy.sh hwangjongtaek@10.0.0.11          # → 빌드 & 기동
 ```
 
-> 프로비저닝 실측 (2026-09-03): 대상엔 brew도 Docker도 없었고, OrbStack를 비-brew 방식으로 설치했다 —
-> dmg를 `curl`로 내려받아 `cp -R`로 `/Applications`에 배치하고, `~/.orbstack/bin`의
-> `docker`/`docker-compose` 심볼릭링크를 PATH에 등록 (`.zprofile`).
->
-> 자동 기동 (2026-09-05 추가): OrbStack 는 GUI 앱이라 프로세스가 죽으면 docker 데몬도
-> 함께 죽는다 — 실제로 배포 다음날 OrbStack 종료로 스택 전체가 다운된 사례 발생.
-> `~/Library/LaunchAgents/com.orbstack.autostart.plist`(RunAtLoad, `open -a OrbStack
-> --background`) 를 등록해 재로그인·재부팅 시 자동 기동한다. (osascript 로그인 아이템
-> 방식은 SSH 에서 TCC 권한 프롬프트에 걸려 hang — LaunchAgent 로 대체.)
+> 새 원격지에서 Docker/Compose 실행은 확인했다. 재부팅 뒤에도 Docker daemon이 자동으로
+> 기동되도록, 해당 호스트의 Docker 런타임 방식에 맞춰 별도로 구성해야 한다. daemon이
+> 멈추면 스택 전체와 nightly 수집도 멈춘다.
 
 `.env` 규칙: 원격 호스트의 리포 최상위에만 존재, `chmod 600`, **git/전송 대상 절대 제외**
 (`deploy.sh`의 rsync 필터와 `.gitignore`가 이중 봉인). 템플릿은 `.env.production.example`.
@@ -76,18 +70,18 @@ scripts/deploy.sh orchwang-macbookpro          # → 빌드 & 기동
 
 ### 3.1 배포 (로컬 작업본 → 원격)
 ```bash
-scripts/deploy.sh orchwang-macbookpro              # rsync → compose build → up -d → ps
-scripts/deploy.sh orchwang-macbookpro --dry-run    # 전송 대상 사전 확인
+scripts/deploy.sh hwangjongtaek@10.0.0.11              # rsync → compose build → up -d → ps
+scripts/deploy.sh hwangjongtaek@10.0.0.11 --dry-run    # 전송 대상 사전 확인
 ```
 > 배포 소스는 로컬 **작업 디렉터리**다 (커밋 여부 무관). 배포 전 `git status`로
 > 의도하지 않은 변경이 섞이지 않았는지 확인할 것. 스크립트 일반성(임의 ssh-host)은 §1.1 참조.
 
 ### 3.2 상태 / 로그
 ```bash
-scripts/deploy.sh orchwang-macbookpro --status
-scripts/deploy.sh orchwang-macbookpro --logs              # 전체 추적
-scripts/deploy.sh orchwang-macbookpro --logs scheduler    # 서비스별
-scripts/deploy.sh orchwang-macbookpro --logs investigation-worker
+scripts/deploy.sh hwangjongtaek@10.0.0.11 --status
+scripts/deploy.sh hwangjongtaek@10.0.0.11 --logs              # 전체 추적
+scripts/deploy.sh hwangjongtaek@10.0.0.11 --logs scheduler    # 서비스별
+scripts/deploy.sh hwangjongtaek@10.0.0.11 --logs investigation-worker
 ```
 
 ### 3.2.1 durable investigation worker 확인
@@ -97,7 +91,7 @@ PostgreSQL에 investigation/job/step/report만 쓰고 `/app/data/curated.duckdb`
 read-only로 연다.
 
 ```bash
-scripts/deploy.sh orchwang-macbookpro --logs investigation-worker
+scripts/deploy.sh hwangjongtaek@10.0.0.11 --logs investigation-worker
 docker compose -f docker-compose.yml -f docker-compose.prod.yml \
   --profile prototype --env-file .env ps investigation-worker
 ```
@@ -110,7 +104,7 @@ Council의 `queued`가 계속되면 worker 상태·PostgreSQL 연결과 `/app/da
 ### 3.3 viewer 접근
 운영 기본은 loopback 바인딩(`VIEWER_BIND=127.0.0.1`) — 외부 공개 대신 SSH 터널:
 ```bash
-ssh -N -L 8791:127.0.0.1:8791 orchwang-macbookpro     # → 브라우저 http://localhost:8791
+ssh -N -L 8791:127.0.0.1:8791 hwangjongtaek@10.0.0.11     # → 브라우저 http://localhost:8791
 ```
 전 인터페이스 공개가 불가피하면 `.env`의 `VIEWER_BIND=0.0.0.0` 변경 후 재배포
 (방화벽 검토 선행). 인프라 스토어(pg/minio/neo4j/opensearch)는 항상 loopback 고정.
@@ -118,7 +112,7 @@ ssh -N -L 8791:127.0.0.1:8791 orchwang-macbookpro     # → 브라우저 http://
 ### 3.4 Grafana 접근 (파이프라인 모니터링, TS-6)
 viewer 와 동일 정책 — loopback 바인딩(`127.0.0.1:3000`) + SSH 터널:
 ```bash
-ssh -N -L 3000:127.0.0.1:3000 orchwang-macbookpro    # → 브라우저 http://localhost:3000
+ssh -N -L 3000:127.0.0.1:3000 hwangjongtaek@10.0.0.11    # → 브라우저 http://localhost:3000
 ```
 - 익명 접속은 **Viewer(읽기 전용)**. 대시보드 편집은 `admin` /
   `.env` 의 `GRAFANA_ADMIN_PASSWORD` 로 로그인 — 단, 대시보드·datasource 는
@@ -153,13 +147,13 @@ pgrep -f scheduler_runner.py   # 로컬 잔존 프로세스 없어야 함
 
 원격 스케줄러는 grace 하루(§6.2)로 당일 보충 실행한다. 정상 축적 여부:
 ```bash
-scripts/deploy.sh orchwang-macbookpro --logs scheduler   # [collect]/[slo06] 발화 로그
+scripts/deploy.sh hwangjongtaek@10.0.0.11 --logs scheduler   # [collect]/[slo06] 발화 로그
 docker compose ... exec prototype python -c "print(open('/app/data/slo06_accum.json').read()[-500:])"
 ```
 수집 원문은 `/app/data/raw/<source>/...` (proddata 볼륨).
 
-> **전제 — 대상은 노트북**: `orchwang-macbookpro`의 물리 전원이 켜져 있어야 스케줄러가 발화한다.
-> 슬립·전원차단 구간은 §6.2의 grace 하루 정책이 당일만 보충하며, 이틀 이상 끊기면 그날은 결측으로 남는다.
+> **전제 — 대상 호스트 가동**: `10.0.0.11`의 Docker daemon과 호스트 자체가 실행 중이어야
+> 스케줄러가 발화한다. 슬립·전원차단 구간은 §6.2의 grace 하루 정책이 당일만 보충하며, 이틀 이상 끊기면 그날은 결측으로 남는다.
 >
 > **알려진 한계 (2026-09-05 실측)**: grace 보충은 **스케줄러 프로세스가 살아있는 동안의
 > 슬립**만 커버한다. 컨테이너/데몬 재시작 시 `scheduler_runner` 가

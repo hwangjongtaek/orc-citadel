@@ -119,14 +119,21 @@ function useCouncil() {
     }).catch(setError);
   }, [investigation]);
 
+  // subject 0건 = 재료 없음(로딩 아님) — 후속 fetch 자체가 일어나지 않는다.
+  const noSubjects = Boolean(table) && (table.subjects || []).length === 0;
+
   return {table, subjectId, selectSubject, report, trace, investigation, job, tracing,
-          runTrace, runQuestion, cancel, error};
+          runTrace, runQuestion, cancel, error, noSubjects};
 }
+
+/** Gate 의 New Campaign 이 넘긴 질문 (제출은 하지 않는다 — 확인 후 사용자가 지시). */
+const bootQuestion = () =>
+  (new URLSearchParams(window.location.search).get('question') || '').trim();
 
 function App() {
   const s = useCouncil();
   const [paletteOpen, setPaletteOpen] = React.useState(false);
-  const [question, setQuestion] = React.useState('');
+  const [question, setQuestion] = React.useState(bootQuestion);
   const [useLlm, setUseLlm] = React.useState(false);
   usePaletteHotkey(setPaletteOpen);
 
@@ -141,7 +148,8 @@ function App() {
 
   // 조사 지시 — POST 생성 후 worker 상태를 polling하고 완료 report만 렌더한다.
   const directive = h(React.Fragment, {},
-    panelHead('조사 지시 · Directive', '질문 → entity 해소 → trace'),
+    panelHead('조사 지시 · Directive',
+      bootQuestion() ? '질문 이어받음 · Citadel Gate' : '질문 → entity 해소 → trace'),
     h('div', {style: {padding: '10px 12px'}},
       h('input', {value: question, disabled: s.tracing,
         onChange: (e) => setQuestion(e.target.value),
@@ -267,7 +275,11 @@ function App() {
     panelHead('Investigation Report',
       r ? `${nameOf(s.subjectId)} · get_investigation_report` : '…'),
     h('div', {style: {padding: 16}},
-      !r ? h(Text, {type: 'supporting'}, s.error ? String(s.error) : '보고서 불러오는 중…')
+      !r ? h(Text, {type: 'supporting'}, s.error ? String(s.error)
+          : s.noSubjects
+            ? 'subject 없음 — 결론 보고서 재료(랭킹된 subject)가 0건이다. '
+              + '조사 지시는 실행 가능하며, 지식에 없는 대상은 gap 으로 표기된다.'
+            : '보고서 불러오는 중…')
         : r.error ? h(Text, {type: 'supporting'}, `보고서 없음 — ${s.subjectId}`)
         : h(React.Fragment, {},
             claimFocus({

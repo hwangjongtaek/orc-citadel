@@ -312,3 +312,37 @@ def test_app_bundles_are_not_cached() -> None:
     # 공용 자산은 기존 캐시 정책 유지.
     status, headers, _ = _get("/assets/theme-citadel.css", default_roots())
     assert "max-age=3600" in headers.get("Cache-Control", "")
+
+
+def test_bundles_distinguish_no_data_from_loading() -> None:
+    """데이터 0건은 '불러오는 중'이 아니다 — 정직 빈 상태로 렌더한다 (§6.2).
+
+    배포 직후 빈 Citadel 실측: /table·/witnesses·/council 이 영원히 로딩 문구를
+    띄웠다. subject 0건이면 선택이 없어 후속 fetch 자체가 일어나지 않는데,
+    자리표시자가 그 상태를 '로딩'이라고 말했다.
+    """
+    js = "".join(f.read_text(encoding="utf-8", errors="ignore")
+                 for f in sorted(DIST.rglob("*.js")))
+    for marker in ("empty-wartable.png", "empty-witnesses.png",
+                   "조사할 subject 없음", "검사할 claim 없음",
+                   "subject 없음 — 결론 보고서 재료"):
+        assert marker in js, marker
+
+
+def test_gate_bundle_opens_campaign_directive() -> None:
+    """Gate 의 New Campaign 은 Council Chamber 조사 지시로 이어진다.
+
+    durable investigation(POST /api/investigations)이 실재하게 된 뒤에도 카드가
+    '비활성'으로 남아, 배포 직후 어디에서도 최초 조사를 지시할 수 없었다.
+    그래프·존 read-only(§3-3)는 그대로 — 조사 실행은 investigation metadata 만
+    영속한다.
+    """
+    js = "".join(f.read_text(encoding="utf-8", errors="ignore")
+                 for f in sorted(DIST.rglob("*.js")))
+    for marker in ("조사 지시 · Council Chamber", "질문 이어받음 · Citadel Gate"):
+        assert marker in js, marker
+    # 비활성 자리표시자는 Gate 엔트리에서 사라졌다. (Spire 구독 슬롯의 같은 문구는
+    # 여전히 정직하다 — 알림 구독은 실제로 영속 경로가 없다.)
+    gate_js = (DIST / "js" / "gate.js").read_text(encoding="utf-8", errors="ignore")
+    for stale in ("조사 실행 (비활성)", "read-only 프로토타입 · 비활성"):
+        assert stale not in gate_js, stale

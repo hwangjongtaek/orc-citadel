@@ -100,7 +100,14 @@ function App() {
       grid(4, 16, ...kpis(gate).map((k) => h('div', {key: k.label}, statTile(k)))),
 
       sectionLabel('Conclusions · 주요 결론 — subject 단위 현재 결론과 근거'),
-      grid(3, 16, ...conclusions(table).map((c) => conclusionCard(c))),
+      // subject 0건이면 카드가 한 장도 없다 — 빈 격자 대신 재료 부재를 말한다.
+      conclusions(table).length
+        ? grid(3, 16, ...conclusions(table).map((c) => conclusionCard(c)))
+        : h(Card, {}, emptyState({
+            art: 'empty-wartable.png', isCompact: true, assetBase: '/assets/img/',
+            title: '결론 없음',
+            description: 'subject 랭킹 0건 — 결론을 세울 근거가 아직 없다. '
+              + '수집 상태는 Watchtower 에서 확인한다.'})),
 
       sectionLabel('Recent Changes · 최근 변화 — confidence 델타 · 반증 · 신규 근거'),
       alerts.length
@@ -115,7 +122,7 @@ function App() {
             description: spire.note
               || 'alert 영속 저장소가 없어 런 간 유지되지 않는다 (honest-gap §6.2).'})),
 
-      sectionLabel('New Campaign · 새 조사 (비활성)'),
+      sectionLabel('New Campaign · 새 조사'),
       newCampaignCard({urls}),
 
       sectionLabel('Campaign Ledger · 최근 조사와 리포트'),

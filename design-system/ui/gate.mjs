@@ -71,9 +71,17 @@ export function changeCard({kind, tone, subject, delta, note, ref, urls = MOCKUP
           textDecoration: 'none'}}, 'Signal Spire에서 보기 →'))));
 }
 
-/** New Campaign — 쓰기라 범위 밖. 자리는 두되 비활성 + read-only 표시 (TS-3). */
+/**
+ * New Campaign — 조사 지시 진입점. 질문을 Council Chamber 로 넘긴다.
+ *
+ * 그래프·존은 여전히 read-only(§3-3) — 조사 실행이 쓰는 것은 investigation
+ * metadata(PostgreSQL) 뿐이고, 근거는 이미 축적된 범위에서만 읽는다.
+ * JS 없이 동작하는 GET form 이라 목업·앱이 같은 마크업을 쓴다 (질문은 `question`
+ * 쿼리로 전달 — Council 이 받아 지시 입력을 채운다).
+ */
 export function newCampaignCard({urls = MOCKUP_URLS} = {}) {
-  return h(Card, {}, h('div', {style: {padding: 4, opacity: .75}},
+  return h(Card, {}, h('form', {method: 'get', action: urls.page('council-chamber'),
+    style: {padding: 4}},
     h('div', {style: {display: 'flex', alignItems: 'center',
       justifyContent: 'space-between', gap: 12, flexWrap: 'wrap'}},
       h('div', {},
@@ -81,7 +89,7 @@ export function newCampaignCard({urls = MOCKUP_URLS} = {}) {
         h('div', {style: {marginTop: 4}},
           h(Text, {type: 'supporting'},
             '자연어 질문 → Council 이 계획을 세우고 Scouts 가 근거를 수집'))),
-      h(Badge, {variant: 'neutral', label: 'read-only 프로토타입 · 비활성'})),
+      h(Badge, {variant: 'neutral', label: '조사 지시 → Council Chamber'})),
 
     h('div', {style: {display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
       margin: '16px 0'}},
@@ -96,16 +104,20 @@ export function newCampaignCard({urls = MOCKUP_URLS} = {}) {
               fontWeight: 600, color: 'var(--color-text-primary)'}}, name),
             h(Text, {type: 'supporting'}, role)))])),
 
-    h('div', {style: {padding: '10px 12px', background: 'var(--color-background-muted)',
-      borderRadius: 'var(--radius-element)', color: 'var(--color-text-secondary)',
-      fontSize: 13}},
-      '예) 2024년 이후 A사의 AI 가속기 공급망 다변화가 실제로 진행되었는가?'),
+    h('input', {type: 'text', name: 'question',
+      placeholder: '예) 2024년 이후 A사의 AI 가속기 공급망 다변화가 실제로 진행되었는가?',
+      style: {width: '100%', boxSizing: 'border-box',
+        padding: '10px 12px', background: 'var(--color-background-muted)',
+        border: '1px solid var(--color-border)',
+        borderRadius: 'var(--radius-element)', color: 'var(--color-text-primary)',
+        fontSize: 13, outline: 'none'}}),
 
     h('div', {style: {display: 'flex', alignItems: 'center',
       justifyContent: 'space-between', gap: 12, marginTop: 14, flexWrap: 'wrap'}},
       h(Text, {type: 'supporting'},
-        '조사 실행은 read-only 불변식(§3-3) 개정 전까지 비활성 — 지금은 이미 축적된 지식을 조회합니다.'),
-      h(Button, {variant: 'secondary'}, '조사 실행 (비활성)'))));
+        '그래프·존은 read-only(§3-3) — 조사는 이미 축적된 근거 범위에서 실행되고, '
+        + '남는 것은 investigation metadata 뿐이다. 근거가 없으면 gap 으로 표기된다.'),
+      h(Button, {type: 'submit', variant: 'primary'}, '조사 지시 · Council Chamber →'))));
 }
 
 /** 공간 빠른 진입 카드 그리드. */

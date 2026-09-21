@@ -128,14 +128,36 @@ read-only(`grafana_reader`)라 메트릭 테이블 SELECT 만 가능 — 그래�
 
 ## 7. prod 접근 (SSH 터널)
 
-prod 는 전 서비스 loopback — 필요한 포트만 터널로 끌어온다:
+prod 는 전 서비스 loopback 이고, **minio·neo4j·opensearch·postgres 는 호스트
+publish 자체가 없다** (docker-compose.prod.yml `ports: !override []`).
+`scripts/tunnel.sh` 가 두 경우를 함께 처리한다 — publish 있는 것은 원격 loopback
+으로, 없는 것은 **컨테이너 IP** 로 포워딩한다 (원격이 Linux+bridge 라 호스트에서
+컨테이너 IP 가 라우팅된다 — 실측). 컨테이너 IP 는 재생성마다 바뀌므로 접속할
+때마다 원격에서 조회한다.
 
 ```bash
-ssh -N -L 4213:127.0.0.1:4213 orchwang-macbookpro   # DuckDB UI → http://localhost:4213
-ssh -N -L 3000:127.0.0.1:3000 orchwang-macbookpro   # Grafana   → http://localhost:3000
-ssh -N -L 9001:127.0.0.1:9001 orchwang-macbookpro   # MinIO Console (publish 없음 — 필요 시 compose 조정)
+scripts/tunnel.sh hwangjongtaek@10.0.0.11                 # 전체, 포그라운드 (Ctrl-C 종료)
+scripts/tunnel.sh hwangjongtaek@10.0.0.11 duckdb minio    # 지정 타깃만
+scripts/tunnel.sh hwangjongtaek@10.0.0.11 all --daemon    # 백그라운드 (PID 파일)
+scripts/tunnel.sh --status                                # 열린 포트 실측
+scripts/tunnel.sh --stop
 ```
 
-DuckDB UI 는 터널이어도 브라우저 주소가 `localhost` 라 Origin 검증을 그대로
-통과한다. prod 사이드카는 proddata 볼륨의 `parquet` subpath 만 read-only
-마운트 — 첫 스냅샷(nightly 런 또는 수동 1회)이 만들어진 뒤 기동해야 한다.
+| 타깃 | 로컬 포트 | 접속 |
+|---|---|---|
+| `viewer` | 18791 | http://127.0.0.1:18791 |
+| `grafana` | 3000 | http://localhost:3000 |
+| `duckdb` | 4213 | http://localhost:4213 — **반드시 localhost·4213** (§3 Origin 함정) |
+| `minio` / `minio-api` | 9001 / 9000 | http://localhost:9001 (로그인은 원격 `.env`) |
+| `neo4j` / `neo4j-bolt` | 7474 / 7687 | http://localhost:7474 — 브라우저가 bolt 로 붙으므로 둘 다 필요 |
+| `opensearch` | 9200 | http://localhost:9200/_cat/indices?v |
+| `postgres` | 15432 | `psql -h 127.0.0.1 -p 15432` (로컬 5432 와 충돌 회피) |
+
+이미 점유된 로컬 포트는 건너뛴다 — 수동으로 띄워둔 뷰어 터널과 공존한다.
+자격증명은 스크립트가 다루지 않는다 (SoT 는 원격 `.env`).
+
+> 정직 표기 (2026-09-18 prod 실측): **MinIO 는 비어 있다.** nightly 수집은
+> raw 를 파일시스템 미러(`/app/data/raw`, proddata 볼륨)에만 쓴다 —
+> `collect_large._store()` 의 `minio_store` 주입이 nightly 경로에 없다. MinIO
+> Console 터널은 열리지만 버킷에 오브젝트가 없다. raw 원형을 지금 보려면
+> `docker compose exec prototype ls /app/data/raw/<source_id>/doc` 쪽이다.

@@ -87,6 +87,8 @@ _PREDICATE_RULES: list[tuple[re.Pattern, str, str, str | None]] = [
      "announces", "asserted", "earnings"),
     (re.compile(r"conference call", re.I), "announces", "asserted", "earnings"),
     (re.compile(r"will\s+be\s+webcast|webcast", re.I), "announces", "asserted", "earnings"),
+    (re.compile(r"\b(announces?|announced|unveils?|unveiled|reveals?|revealed|launch(?:es|ed)?)\b", re.I),
+     "announces", "asserted", "product_launch"),
     # 제품·기술 역량 — powers/enables
     (re.compile(r"\bpower(s|ed)?\b", re.I), "announces", "asserted", "product_launch"),
     (re.compile(r"\benables?\b", re.I), "announces", "asserted", "product_launch"),

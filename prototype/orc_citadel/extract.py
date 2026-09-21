@@ -35,6 +35,7 @@ GAZETTEER: dict[str, tuple[str, dict]] = {
     "NVIDIA": ("Organization", {"ticker": "NVDA"}),
     "TSMC": ("Organization", {"ticker": "TSM"}),
     "SEMI": ("Organization", {}),
+    "Blizzard": ("Organization", {}),
     "RTX": ("Technology", {}),
     "GeForce NOW": ("Technology", {}),
 }

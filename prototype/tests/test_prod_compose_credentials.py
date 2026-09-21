@@ -67,11 +67,11 @@ def test_no_credential_literals_in_compose(prod_compose: str,
                 f"{service}: {env} 가 리터럴이다 — ${{{env}}} 보간이어야 한다"
 
 
-# ── frontend dist 마운트 (2026-09-10 prod 실측 결손 2) ────────────────────────
+# ── viewer 정적 자산 마운트 (2026-09-17 prod 실측 결손) ──────────────────────
 #
-# viewer 는 컨테이너에서 /app/static/app-dist 를 먼저 찾는다 (viewer_static.pick).
-# compose 가 frontend/dist 를 안 물리면 8공간 라우트 전부가 정직 503 —
-# 이미지에는 prototype/ 만 들어가므로 마운트가 유일한 경로다.
+# dist 엔트리 8개는 reset·Astryx·Citadel theme·font CSS를 모두 절대 URL로 참조한다.
+# 컨테이너 이미지에는 prototype/만 COPY하므로, compose가 네 원본을 모두 마운트해야
+# 원격 Viewer에서 CSS 404 없이 동일한 화면을 렌더한다.
 
 
 def _compose_texts() -> dict[str, str]:
@@ -81,7 +81,15 @@ def _compose_texts() -> dict[str, str]:
 
 @pytest.mark.parametrize("compose_file", ["docker-compose.yml",
                                           "docker-compose.prod.yml"])
-def test_viewer_mounts_frontend_dist(compose_file: str) -> None:
+def test_viewer_mounts_all_static_assets(compose_file: str) -> None:
     block = _service_block(_compose_texts()[compose_file], "prototype")
-    assert re.search(r"\./frontend/dist:/app/static/app-dist:ro", block), \
-        f"{compose_file}: prototype 에 frontend/dist 마운트가 없다 (8공간 라우트 503)"
+    for source, target in (
+        ("./docs/mockups/assets", "/app/static/img"),
+        ("./docs/mockups/astryx.css", "/app/static/astryx.css"),
+        ("./docs/mockups/reset.css", "/app/static/reset.css"),
+        ("./design-system/theme-citadel/dist/theme.css", "/app/static/theme-citadel.css"),
+        ("./design-system/fonts/dist", "/app/static/fonts"),
+        ("./frontend/dist", "/app/static/app-dist"),
+    ):
+        assert re.search(rf"{re.escape(source)}:{re.escape(target)}:ro", block), \
+            f"{compose_file}: prototype 에 {source} → {target} 마운트가 없다"

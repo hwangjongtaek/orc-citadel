@@ -39,6 +39,23 @@ def test_dockerfile_pins_duckdb_and_installs_ui_at_build() -> None:
     assert "INSTALL ui" in df, "ui 확장은 빌드 시 1회 설치 (런타임 오프라인)"
     assert "latest" not in df.lower()
 
+def test_dockerfile_uses_build_platform_architecture() -> None:
+    """amd64·arm64 호스트 모두에서 CLI가 컨테이너 아키텍처와 일치해야 한다."""
+    df = (SIDECAR / "Dockerfile").read_text(encoding="utf-8")
+    assert re.search(r"^ARG TARGETARCH$", df, re.M), \
+        "TARGETARCH 기본값을 고정하면 다른 빌드 플랫폼에서 잘못된 CLI를 받는다"
+
+def test_minio_uses_official_quay_release_image(compose: str) -> None:
+    assert "image: quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z" in compose
+
+def test_deploy_script_prepares_fresh_prod_snapshot_path() -> None:
+    """새 volume만 초기화한다 — 실행 중인 viewer의 기존 DuckDB 잠금을 건드리지 않는다."""
+    deploy = (REPO / "scripts" / "deploy.sh").read_text(encoding="utf-8")
+    assert "docker volume create orc-citadel-proddata" in deploy
+    assert "mkdir -p /data/parquet" in deploy
+    assert "test -f /app/data/curated.duckdb" in deploy
+    assert 'python -c \\"from orc_citadel.curated_zone import CuratedZone;' in deploy
+
 
 def test_sidecar_binds_loopback_only(service: str) -> None:
     ports = [p for p in re.findall(r'-\s*"([^"]+)"', service) if ":" in p]
@@ -96,8 +113,10 @@ def test_data_browsing_guide_covers_mandated_content() -> None:
         assert marker in doc, marker
     # 잠금 함정 규칙 명문화
     assert ".duckdb" in doc and "금지" in doc
-    # prod 터널 절차
-    assert "ssh -N -L" in doc
+    # prod 터널 절차 — 수동 ssh 나열에서 스크립트로 대체 (scripts/tunnel.sh).
+    # publish 없는 서비스(minio·neo4j·opensearch·postgres)는 수동 `ssh -N -L`
+    # 로는 닿지 않는다 — 컨테이너 IP 조회가 필요하다.
+    assert "scripts/tunnel.sh" in doc
 
 
 def test_deployment_doc_lists_sidecar_services() -> None:

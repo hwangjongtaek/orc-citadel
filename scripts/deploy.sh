@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # 원격지(운영) 배포 — design 01 §6.1 Docker Compose 단일 호스트 토폴로지.
 #
-# 사용법 (현재 확정 배포 대상: orchwang-macbookpro — tailnet MacBook Pro):
-#   scripts/deploy.sh orchwang-macbookpro              # 실배포
-#   scripts/deploy.sh orchwang-macbookpro --dry-run    # 전송 대상만 출력, 원격 변경 없음
-#   scripts/deploy.sh orchwang-macbookpro --status     # 원격 스택 상태 확인 (배포 안 함)
-#   scripts/deploy.sh orchwang-macbookpro --logs [svc] # 원격 로그 추적 (svc 생략이면 전체)
+# 사용법 (현재 확정 배포 대상: hwangjongtaek@10.0.0.11):
+#   scripts/deploy.sh hwangjongtaek@10.0.0.11              # 실배포
+#   scripts/deploy.sh hwangjongtaek@10.0.0.11 --dry-run    # 전송 대상만 출력, 원격 변경 없음
+#   scripts/deploy.sh hwangjongtaek@10.0.0.11 --status     # 원격 스택 상태 확인 (배포 안 함)
+#   scripts/deploy.sh hwangjongtaek@10.0.0.11 --logs [svc] # 원격 로그 추적 (svc 생략이면 전체)
 # 임의 ssh-host 도 받는다 (~/.ssh/config 이름 권장).
 #
 # 계약:
@@ -54,6 +54,15 @@ compose_up() {
     cd ~/$REMOTE_PATH
     [ -f .env ] || { echo 'ERROR: ~/$REMOTE_PATH/.env 없음 — first-run 안내대로 수동 생성' >&2; exit 1; }
     docker compose -p $COMPOSE_PROJECT $COMPOSE_FILES --env-file .env build
+    # duckdb-ui 는 proddata/parquet subpath만 read-only로 마운트한다.
+    # 새 named volume에도 subpath를 먼저 만들어야 compose가 컨테이너를 생성할 수 있다.
+    docker volume create orc-citadel-proddata >/dev/null
+    docker run --rm -v orc-citadel-proddata:/data orc-citadel-prototype:latest mkdir -p /data/parquet
+    # 빈 운영 데이터만 기본 스키마를 만든다. 기존 viewer가 잡은 DuckDB 잠금은 건드리지 않는다.
+    if ! docker run --rm -v orc-citadel-proddata:/app/data orc-citadel-prototype:latest test -f /app/data/curated.duckdb; then
+      docker run --rm -v orc-citadel-proddata:/app/data orc-citadel-prototype:latest \
+        python -c \"from orc_citadel.curated_zone import CuratedZone; zone = CuratedZone('/app/data/curated.duckdb'); zone.initialize(); zone.close()\"
+    fi
     docker compose -p $COMPOSE_PROJECT $COMPOSE_FILES --env-file .env up -d
     echo '== 상태 =='
     docker compose -p $COMPOSE_PROJECT $COMPOSE_FILES --env-file .env ps

@@ -121,9 +121,13 @@ def test_conclusion_contradiction_reduces_value():
     p = ConclusionProjector(z)
     c = p.for_subject("org-a")
     con = c.confidence["dimensions"]["contradiction"]
+    support = c.confidence["dimensions"]["support"]
     assert con > 0
-    # value = 평균 support × (1 − con).
-    assert c.confidence["value"] == pytest.approx((2 / 3) * (1 - con))
+    # value = 평균 support × (1 − con). 기대값의 support 는 dims 실측을 쓴다 —
+    # 합산 집계 시절에는 con 이 정확히 1.0 이라 양변이 0 이 되어 어떤 support 를
+    # 적어도 통과하는 공허한 단언이었다 (비율 집계로 바뀌며 드러남).
+    assert c.confidence["value"] == pytest.approx(support * (1 - con))
+    assert c.confidence["value"] < support, "반박이 있으면 평균 support 대비 감쇄한다"
 
 
 # --- by_predicate ----------------------------------------------------------
@@ -237,3 +241,36 @@ def test_no_subject_returns_none():
     ])
     p = ConclusionProjector(z)
     assert p.for_subject("org-zzz") is None
+
+
+def test_conclusion_contradiction_stays_a_ratio_with_many_assertions():
+    """반박 위험은 어세션 수에 비례해 커지는 총합이 아니라 **비율**이다.
+
+    2026-09-18 prod 실측: AMD subject(어세션 51건)에서 contradiction 18.02,
+    confidence -11.66 이 화면에 그대로 찍혔다. 어세션별 contradiction 은
+    `1 - 1/(n_conflict+1)` 로 이미 [0,1) 인데 subject 집계가 이를 **합산**해,
+    어세션이 많을수록 `1 - contradiction` 이 음수로 폭주했다. support 는 평균인데
+    contradiction 만 총합이라 축이 어긋난 것 — 09 §4 결론 봉투가 성립하지 않는다.
+    """
+    z = _populate_zone()
+    claims = []
+    for i in range(6):
+        claims.append({"cid": f"clm-y{i}", "doc": f"doc-y{i}", "subj": "org-a",
+                       "pred": "announces", "obj": "org-b"})
+        claims.append({"cid": f"clm-n{i}", "doc": f"doc-n{i}", "subj": "org-a",
+                       "pred": "denies", "obj": "org-b"})
+    _seed_claims(z, claims)
+    from orc_citadel.contradiction import ConflictCandidate
+
+    for i in range(6):
+        z.persist_conflict(ConflictCandidate(
+            claim_id_a=f"clm-y{i}", claim_id_b=f"clm-n{i}",
+            conflict_type="value_conflict", rationale="denies announces",
+            judged_by="pipeline"))
+
+    c = ConclusionProjector(z).for_subject("org-a")
+    con = c.confidence["dimensions"]["contradiction"]
+    assert con > 0, "반박이 있는데 위험이 0 이면 집계가 끊긴 것"
+    assert con <= 1.0, f"반박 위험은 비율이어야 한다 (실측 {con})"
+    assert 0.0 <= c.confidence["value"] <= 1.0, \
+        f"결론 신뢰도가 봉투를 벗어났다 (실측 {c.confidence['value']})"

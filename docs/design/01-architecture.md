@@ -200,12 +200,12 @@ docker compose:
 
 ### 6.2 상시 운용 (Phase 6·현행 — 원격 단일 호스트 compose)
 
-**현행 prod (2026-09-04~)** 는 **원격 단일 호스트**(`orchwang-macbookpro`, Tailscale)
+**현행 prod (2026-09-17~)** 는 **원격 단일 호스트**(`10.0.0.11`)
 의 §6.1 Docker Compose 스택(viewer + scheduler)이다 — 배포 통로는 SSH rsync
 (`scripts/deploy.sh`), 절차 정본은 운영 runbook(`docs/operating/deployment.md`).
-원격 prod 데이터는 **신규 수집분만 누적**(로컬 corpus 이관 없음 — runbook 데이터
-정책). nightly 발화 주체는 원격 `scheduler` 컨테이너 정확히 1개 — 로컬 launchd
-는 정지(이중 발화 금지).
+새 원격 prod 데이터는 **빈 상태에서 신규 수집분만 누적**(기존 원격 volume 및 로컬
+corpus 이관 없음 — runbook 데이터 정책). nightly 발화 주체는 원격 `scheduler`
+컨테이너 정확히 1개 — 기존 원격과 로컬 launchd 는 정지(이중 발화 금지).
 
 아래 **로컬 네이티브 구성**은 2026-08-24~09-03 의 이전 현행이었고, 지금은 로컬
 **개발·테스트** 및 원격 불가 시의 폴백 토폴로지로 유지한다 (venv + launchd +
@@ -268,7 +268,7 @@ docker compose:
 | `local` | 개발·TDD | 샘플 수백~수천 문서 |
 | `prototype` | 온톨로지·provenance 검증 | 1만 문서 |
 | `staging` | end-to-end·회귀 | 골든 데이터셋 + 10만 서브셋 |
-| `prod` | **원격 단일 호스트 compose 상시 운용** (§6.2) — 지속 수집·SLO 축적·조사 | 신규 수집분만 누적 (원격 `orchwang-macbookpro`, 로컬 corpus 이관 없음) |
+| `prod` | **원격 단일 호스트 compose 상시 운용** (§6.2) — 지속 수집·SLO 축적·조사 | 빈 상태에서 신규 수집분만 누적 (원격 `10.0.0.11`, 기존 원격·로컬 corpus 이관 없음) |
 
 ## 8. 의사결정 로그
 

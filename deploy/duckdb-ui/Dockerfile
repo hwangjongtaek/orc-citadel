@@ -13,7 +13,7 @@ FROM debian:bookworm-slim
 # ui 프런트 자산은 확장이 ui.duckdb.org 에서 가져온다(항상 최신) — 구버전
 # CLI/확장과 프로토콜이 어긋나면 Initialization Error (v1.3.2 실측). 최신 안정 핀.
 ARG DUCKDB_VERSION=v1.4.1
-ARG TARGETARCH=arm64
+ARG TARGETARCH
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl unzip socat \

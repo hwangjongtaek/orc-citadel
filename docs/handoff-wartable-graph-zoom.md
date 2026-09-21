@@ -85,7 +85,7 @@ Inspector 왕복 동선을 해침. Z1 이 같은 효과를 더 싸게 준다.
 
 ## 4. 배포
 
-구현 완료 후: commit(dist 포함) → push → `scripts/deploy.sh orchwang-macbookpro`
+구현 완료 후: commit(dist 포함) → push → `scripts/deploy.sh hwangjongtaek@10.0.0.11`
 (viewer 는 dist 를 ro 마운트로 서빙하므로 rsync 만으로 반영, 이미지 재빌드 불필요하나
 deploy.sh 표준 경로 사용) → 터널로 `/table` 실측.
 

@@ -32,7 +32,7 @@ services:
   duckdb-ui:
     # loopback 바인딩은 base 상속 (127.0.0.1:4213) — SSH 터널로 접근.
     # proddata 의 parquet subpath 만 read-only — .duckdb 는 볼 수 없다.
-    # 전제: 첫 스냅샷(스케줄러 런 또는 수동 1회)이 parquet/ 를 만든 뒤 기동.
+    # deploy.sh 가 빈 volume에도 parquet/를 먼저 만든다; 첫 스냅샷 뒤 데이터가 보인다.
     restart: unless-stopped
     volumes: !override
       - type: volume
@@ -51,6 +51,8 @@ services:
       - proddata:/app/data
       # base 와 동일 — rsync 가 docs/·design-system/ 을 원격에 보내므로 그대로 물린다.
       - ./docs/mockups/assets:/app/static/img:ro
+      - ./docs/mockups/astryx.css:/app/static/astryx.css:ro
+      - ./docs/mockups/reset.css:/app/static/reset.css:ro
       - ./design-system/theme-citadel/dist/theme.css:/app/static/theme-citadel.css:ro
       - ./design-system/fonts/dist:/app/static/fonts:ro
       # 8공간 라우트의 유일한 표시 계층 — 없으면 viewer 가 정직 503 (dist 는 커밋 대상).

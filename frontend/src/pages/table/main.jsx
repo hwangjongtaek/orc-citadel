@@ -15,6 +15,7 @@ import {LayoutContent, LayoutPanel, LayoutFooter} from '@astryxdesign/core/Layou
 import {shell, APP_URLS} from '@ui/shell.mjs';
 import {
   h, Badge, Text, sectionLabel, confidence, coverage, relationLegend, id, panelHead,
+  emptyState,
 } from '@ui/components.mjs';
 import {claimFocus} from '@ui/witnesses.mjs';
 import {GraphOverlay, GraphViewport} from '../../lib/graph-viewport.jsx';
@@ -58,7 +59,11 @@ function useWarTable() {
       .then(setClaim).catch(setError);
   }, []);
 
-  return {table, chron, subjectId, setSubjectId, graph, claim, selectClaim, error};
+  // subject 0건 = 재료 없음(로딩 아님) — 선택이 없어 /api/graph 를 부르지 않는다.
+  const noSubjects = Boolean(table) && (table.subjects || []).length === 0;
+
+  return {table, chron, subjectId, setSubjectId, graph, claim, selectClaim, error,
+          noSubjects};
 }
 
 /** 서브그래프 claims → predicate 그룹 (count 내림차순 → 이름순, 결정적). */
@@ -120,7 +125,9 @@ function App() {
           coverage(Math.round((sub.coverage || 0) * 100),
             (sub.coverage || 0) < .5 ? 'warn' : null),
           h('div', {style: {marginTop: 6}},
-            id(`ev ${sub.evidence_count} · 독립 ${sub.independent_source_count}`))))));
+            id(`ev ${sub.evidence_count} · 독립 ${sub.independent_source_count}`)))),
+      s.noSubjects
+        ? h(Text, {type: 'supporting'}, 'subject 없음 — 랭킹 0건 (정직 빈)') : null));
 
   // 중앙 — 그래프 캔버스
   const g = s.graph;
@@ -169,7 +176,12 @@ function App() {
   graphHead,
   h('div', {style: {padding: 16, display: 'flex', flexDirection: 'column',
     flex: 1, minHeight: 0}},
-  !g ? h(Text, {type: 'supporting'}, s.error ? String(s.error) : '서브그래프 불러오는 중…')
+  !g ? (s.noSubjects && !s.error
+    ? emptyState({art: 'empty-wartable.png', isCompact: true, assetBase: '/assets/img/',
+      title: '조사할 subject 없음',
+      description: 'subject 랭킹 0건 — 그래프를 그릴 재료가 아직 없다. '
+        + '수집 상태는 Watchtower, 조사 지시는 Council Chamber.'})
+    : h(Text, {type: 'supporting'}, s.error ? String(s.error) : '서브그래프 불러오는 중…'))
     : h(React.Fragment, {},
       h('div', {style: {display: 'flex', flex: 1, minHeight: 260}},
         h(GraphViewport, {graphProps, fill: true})),

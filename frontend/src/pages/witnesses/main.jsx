@@ -15,6 +15,7 @@ import {LayoutContent, LayoutPanel, LayoutFooter} from '@astryxdesign/core/Layou
 import {shell, APP_URLS} from '@ui/shell.mjs';
 import {
   h, Badge, HStack, Text, sectionLabel, confidence, evidenceCard, id, panelHead,
+  emptyState,
 } from '@ui/components.mjs';
 import {
   claimRow, modalityChips, claimFocus, independenceNote, provenanceTrail,
@@ -108,8 +109,11 @@ function useWitnesses() {
       .catch(setError);
   }, []);
 
+  // claim 0건 = 재료 없음(로딩 아님) — 선택이 없어 상세·evidence 를 부르지 않는다.
+  const noClaims = Boolean(table) && !claimId && claims.length === 0;
+
   return {table, subjectId, setSubjectId, claims, claimId, setClaimId,
-          detail, evidence, prov, doc, selectEvidence, error};
+          detail, evidence, prov, doc, selectEvidence, error, noClaims};
 }
 
 function trailSteps(prov) {
@@ -175,6 +179,8 @@ function App() {
         onClick: () => s.setClaimId(c.claim_id)})),
       shown.length === 0 && s.claims.length
         ? h(Text, {type: 'supporting'}, `modality=${modality} 인 claim 없음`) : null,
+      s.noClaims
+        ? h(Text, {type: 'supporting'}, 'claim 없음 — 승격 0건 (정직 빈)') : null,
       sectionLabel('Modality'),
       modalityChips({active: modality,
         onToggle: (m) => setModality((cur) => (cur === m ? null : m))})));
@@ -199,7 +205,12 @@ function App() {
     panelHead('Evidence & Provenance', s.claimId
       ? `${s.claimId.slice(0, 20)}… · 왕복 추적` : '…'),
     h('div', {style: {padding: 16}},
-      !d ? h(Text, {type: 'supporting'}, s.error ? String(s.error) : '불러오는 중…')
+      !d ? (s.noClaims && !s.error
+        ? emptyState({art: 'empty-witnesses.png', isCompact: true,
+          assetBase: '/assets/img/', title: '검사할 claim 없음',
+          description: '승격된 claim 0건 — 근거 왕복 추적의 재료가 아직 없다. '
+            + '수집 상태는 Watchtower 에서 확인한다.'})
+        : h(Text, {type: 'supporting'}, s.error ? String(s.error) : '불러오는 중…'))
         : h(React.Fragment, {},
             claimFocus({
               badgeLabel: `Claim · ${d.modality || '—'}`,
