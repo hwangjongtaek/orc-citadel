@@ -9,7 +9,10 @@ import pathlib
 
 import pytest
 
-from orc_citadel.collect_large import _save_zone, _stored_urls, arxiv_batches, SOURCES
+from orc_citadel.collect_large import (
+    _save_zone, _stored_urls, arxiv_batches, flush_raw, SOURCES,
+)
+from orc_citadel.raw_shard import RawShardStore
 
 
 def test_sources_registers_amd_official_rss():
@@ -104,18 +107,31 @@ def test_save_zone_diff_content_new_docid(tmp_path):
     raw = tmp_path / "raw"
     a, _ = _save_zone("s", "http://x/1", b"alpha", {}, raw_dir=raw)
     b, _ = _save_zone("s", "http://x/2", b"beta", {}, raw_dir=raw)
+    flush_raw(raw)
     assert a != b
-    assert (raw / "s" / "doc" / a).exists()
-    assert (raw / "s" / "doc" / b).exists()
+    store = RawShardStore(raw)
+    assert store.get_content(a) == b"alpha"
+    assert store.get_content(b) == b"beta"
 
 
-def test_save_zone_writes_metadata(tmp_path):
-    """content.bin + fetch.json 작성 (raw 3-zone 계약)."""
+def test_save_zone_writes_shards_not_per_doc_dirs(tmp_path):
+    """raw 는 source 별 parquet 샤드로 쌓인다 — doc당 디렉터리를 만들지 않는다.
+
+    doc당 디렉터리+2파일은 1,000만 건에서 inode 30M 을 요구해 성립하지 않는다
+    (2026-09-20 실측, 원격 여유 25.34M). 03 §2.1 레이아웃 개정.
+    """
     raw = tmp_path / "raw"
     doc_id, _ = _save_zone("s", "http://x/1", b"data", {"http_status": 200}, raw_dir=raw)
-    d = raw / "s" / "doc" / doc_id
-    assert (d / "content.bin").read_bytes() == b"data"
-    assert (d / "fetch.json").exists()
+    flush_raw(raw)
+
+    assert not (raw / "s" / "doc").exists()
+    assert len(list((raw / "s").glob("shard-*.parquet"))) == 1
+    (record,) = RawShardStore(raw).fetch_records()
+    assert record["doc_id"] == doc_id
+    assert record["url"] == "http://x/1"
+    assert record["http_status"] == 200
+    assert record["robots_allowed"] is True
+    assert record["license"] == "unknown"
 
 
 def _no_doc_get(url):
@@ -535,3 +551,33 @@ def test_collectors_work_without_slo_log():
     assert inspect.signature(cl.collect_arxiv).parameters["slo_log"].default is None
     assert inspect.signature(cl.collect_rss).parameters["slo_log"].default is None
     assert inspect.signature(cl.collect_sec).parameters["slo_log"].default is None
+
+
+def test_collect_urls_flushes_shards_on_return(tmp_path, monkeypatch):
+    """수집 함수가 반환할 때 버퍼는 샤드로 확정돼 있다 — 호출자가 flush 를 기억할 필요 없다."""
+    import orc_citadel.collect_large as cl
+
+    monkeypatch.setattr(cl, "RAW", tmp_path / "raw")
+    monkeypatch.setattr(cl, "_get", lambda url: (b"<html>fixed</html>", {"Content-Type": "text/html"}))
+
+    counts = cl.collect_urls(["http://official/a"], "official-fixed")
+
+    assert counts["saved"] == 1
+    store = RawShardStore(tmp_path / "raw")
+    assert [d["content"] for d in store.iter_docs()] == [b"<html>fixed</html>"]
+
+
+def test_dispatch_covers_every_registered_source_kind():
+    """SOURCES 의 모든 kind 가 러너 디스패치에 있다 — 등록만 하고 안 도는 소스 금지."""
+    from orc_citadel.collect_large import COLLECTORS
+
+    kinds = {kind for kind, _ in SOURCES.values()}
+    assert kinds <= set(COLLECTORS), f"디스패치 누락: {kinds - set(COLLECTORS)}"
+
+
+def test_new_connector_kinds_are_dispatchable():
+    """블로커 ④ — paged_api·bulk_archive·index_stream 이 kind 로 등록돼 있다."""
+    from orc_citadel.collect_large import COLLECTORS
+
+    assert {"paged_api", "bulk_archive", "index_stream"} <= set(COLLECTORS)
+    assert all(callable(fn) for fn in COLLECTORS.values())

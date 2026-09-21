@@ -113,6 +113,27 @@ blueprint §8.1의 우선순위 **API › RSS › sitemap › download**를 sour
 - **`sitemap` 1급 kind (2026-08-19, Spec 1.1.0):** RSS 를 노출하지 않는 정부 정책 사이트(예: **BIS 수출통제**)는 API·RSS 가 없어도 **sitemap.xml(정적 XML, robots `Allow`) 으로 수집 대상 URL 을 정적 열거**할 수 있다. §1.3 표의 "sitemap"(fallback) 을 1급 `SOURCES` kind 로 승격 — `SitemapConnector`(04 §1.2 discover/fetch 계약) + `collect_sitemap`. 변경 탐지는 sitemap `<lastmod>` + `content_hash`. robots 개방 확인 시 **headless·비용 불필요**, 기존 `_get`/`_save_zone`·URL-skip(S1)·content-hash(S2) 재사용.
 - `download`(PDF/바이너리)는 원본 bytes를 그대로 S2에 저장하고 파싱은 S3로 미룬다. 수집 단계에서 본문을 재작성하지 않는다.
 
+> **S4 후보 탐색 (2026-09-20, ADR-404).** near-dup 후보를 전수 비교하지 않고 **MinHash LSH 밴딩**(64 perms = 8밴드 × 8행)으로 좁힌다. 병합 판정은 종전과 같은 `Jaccard 추정 ≥ 0.90`(ADR-403)이라 **의미론은 불변**이고, 바뀌는 것은 후보 집합이다. 전수 비교는 실측 O(N²)였다 — 250→4,000건에서 배증비 2.00→2.41, 1,000만 투영 ≈4.1년. 밴딩 후 배증비는 2.00 전후로 평탄(per-doc 12.4ms). 재현율은 확률적이 되므로 실측했다: **703건 실문서·임계 이상 790쌍에서 누락 0·오검출 0 (재현율 1.0000)**. 문서당 서명은 `dup_signatures`(+`dup_bands`)에 1회 저장해 재계산하지 않는다.
+
+### 1.5 커넥터 kind (2026-09-20 확장 · ADR-405)
+
+`SOURCES[source_id] = (kind, spec)` 의 kind 와 수집 함수는 `collect_large.COLLECTORS` 하나로 디스패치한다 (러너·nightly·viewer 러너가 공유 — 이전에는 if/elif 가 세 벌 중복이었다).
+
+| kind | spec | 대상 | 식별자(URL-skip 축) |
+| --- | --- | --- | --- |
+| `rss` | feed URL | 기업 IR·뉴스 피드 | 엔트리 URL |
+| `sitemap` | sitemap URL | RSS 없는 정부 사이트 | `<loc>` URL |
+| `urls` | URL 목록 | 검토된 고정 공식 URL | URL |
+| **`paged_api`** | config dict | 커서/오프셋 JSON API — HF Hub·NVD·Federal Register·Europe PMC·ClinicalTrials.gov·Crossref·OpenAlex·INSPIRE·World Bank | `url_field` 값, 없으면 `{base}#{id}` |
+| **`bulk_archive`** | 아카이브 URL | zip/tar(.gz) 대량 배포 — FR 월 zip·govinfo bulk·CFPB·Companies House | **`{archive_url}#{entry_path}`** (아카이브 URL 하나로는 내부를 구분할 수 없다) |
+| **`index_stream`** | config dict | URL 을 열거하는 인덱스 — EDGAR `master.idx`·govinfo 컬렉션 | 인덱스가 가리키는 문서 URL |
+
+- **`paged_api` 는 결과 상한에서 조용히 끊지 않는다** — `max_offset` 도달 시 `ResultCapReached` 를 올린다. 기존 `_arxiv_date_windows` 가 10k 초과 월을 말없이 누락하던 결함과 같은 부류를 구조적으로 막는다.
+- **`index_stream` 은 인덱스 중복 수록분을 한 번만 받는다** — EDGAR `master.idx` 는 공동제출을 CIK 별로 중복 수록한다 (2025Q4 중복률 29.7%, Form 4 는 52% — 2026-09-20 도메인 조사 실측).
+- `bulk_archive` 는 해석 불가한 바이트를 0건 성공으로 위장하지 않고 `errors` 로 집계한다.
+- **소스 등록은 별개 결정이다** — 본 확장은 kind 와 디스패치만 제공한다. 실제 `SOURCES` 등록은 라이선스·robots·politeness 확인을 거친다 (§1.1 `compliance`, 11 §5.4).
+
+
 ### 1.4 초기 Scout 5종 (Phase 0 선정)
 
 미국 중심 AI 반도체·데이터센터 공급망 도메인의 최초 커넥터 세트. 전 source가 공식 API/RSS로 수집 가능하며(Easy), 라이선스 재배포는 전 source에서 제한한다(`allow_redistribute=false`, [`11`](./11-observability-and-governance.md) §5.4 정합). 구체·보류(候補)·추가 후보는 ROADMAP §6 Q1 해소 기록 참조.

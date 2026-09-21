@@ -14,6 +14,7 @@ from pathlib import Path
 from orc_citadel.curated_zone import CuratedZone
 from orc_citadel.pipeline_runner import run_pipeline
 from orc_citadel.viewer import Handler
+from raw_fixture import write_raw_shard
 
 
 class _SampleDir:
@@ -22,7 +23,7 @@ class _SampleDir:
     def __init__(self, raw: Path, norm: str):
         self.raw = str(raw)
         self.norm = norm
-        # raw 트리: <raw>/<source>/doc/<doc_id>/content.bin (+ fetch.json)
+        # raw 레이아웃: <raw>/<source>/shard-*.parquet (03 §2.1)
         self.raw_sources = [
             {"source_id": "src-a", "doc_count": 2},
             {"source_id": "src-b", "doc_count": 1},
@@ -38,11 +39,8 @@ def sample_dirs(tmp_path):
 
     raw = tmp_path / "raw"
     for src, n in (("src-a", 2), ("src-b", 1)):
-        for i in range(n):
-            d = raw / src / "doc" / f"doc-{src}-{i}"
-            d.mkdir(parents=True)
-            (d / "content.bin").write_bytes(b"<h1>x</h1>")
-            (d / "fetch.json").write_text('{"url": "https://e"}')
+        write_raw_shard(raw, src, [{"content": f"<h1>{src}-{i}</h1>".encode(),
+                                    "url": "https://e"} for i in range(n)])
     # normalized DuckDB — 문서 1건 persist (norm_docs=1).
     norm_db = str(tmp_path / "oc.duckdb")
     z = NormalizedZone(norm_db)

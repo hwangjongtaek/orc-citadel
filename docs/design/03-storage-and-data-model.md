@@ -46,13 +46,38 @@ Parquet(→Iceberg) 파티션 키는 재처리·시간 질의·삭제 전파를 
 
 ### 2.1 객체 레이아웃
 
+raw zone 은 두 백엔드를 갖는다. **불변식(내용 기반 doc_id·immutable append-only·
+무손실 bytes 보존)은 동일**하고, 물리 배치만 다르다.
+
+**① 파일 백엔드 (기본 · `raw_shard.RawShardStore`)** — source 별 parquet 샤드.
+
+```text
+raw/
+  <source_id>/
+    shard-<ts>-<rand>.parquet   # zstd. 한 샤드에 shard_size(기본 1만)건
+```
+
+샤드 스키마: `doc_id, source_id, url, fetched_at, http_status, robots_allowed,
+license, meta_json, content(BLOB)`. `content` 는 원본 bytes 그대로이며
+`doc_id = sha256(content)[:24]` 는 압축과 무관하게 무압축 bytes 기준이다.
+**기록된 샤드는 수정하지 않는다** — 추가분은 항상 새 샤드다(append-only).
+
+**② 객체 백엔드 (`MinioRawStore`)** — ADR-301 의 객체 키를 유지한다.
+
 ```text
 raw/
   source_id=<src-…>/
     doc_id=<doc-…>/           # doc_id = sha256(raw_bytes)[:24]
       content.bin             # 원본 bytes (수정 금지)
-      fetch.json              # 수집 메타데이터
+      fetch.json              # 수집 메타데이터 (§2.2)
 ```
+
+**① 을 기본으로 삼는 근거 (ADR-308, 2026-09-20 동일 코퍼스 104,471건 실측).**
+doc 당 디렉터리+2파일은 1,000만 건에서 **inode 30M**(원격 여유 25.34M)을 요구해
+성립하지 않는다. 같은 코퍼스에서 샤드는 디스크 888MB→67.3MB(content 실제 298MB —
+나머지는 블록 패딩 낭비), skip 인덱스 18.9s→0.02s, 재처리 입력은 전량 RAM 상주
+(RSS ≈ raw bytes)에서 스트리밍 peak 0.54GB 로 바뀐다. 압축비는 소스별 zstd
+4.44×(arXiv 메타)~43.05×(HTML 보일러플레이트).
 
 ### 2.2 `fetch.json` 스키마
 
@@ -72,6 +97,7 @@ raw/
 ```
 
 - **불변식:** 동일 `url`의 변경된 버전은 **새 `doc_id`로 모두 보존**한다 (덮어쓰기 금지, blueprint §7.1, §8.1).
+- 파일 백엔드(§2.1 ①)에서는 위 필드가 `fetch.json` 파일이 아니라 **샤드 컬럼**으로 저장된다 — 스키마 외 필드는 `meta_json` 에 보존한다.
 - `doc_id`가 내용 기반이므로 동일 bytes 재수집은 동일 객체 → idempotent (S2, 불변식 §3-6).
 - 라이선스·robots는 [`11`](./11-observability-and-governance.md) governance가 강제한다.
 
@@ -295,3 +321,6 @@ blueprint §7.3.
 | ADR-305 | provenance_ref 없는 element는 quarantine | 무출처 사실 차단(blueprint §13) | Accepted · **구현(P1 ③)**: curated zone에 `extraction_records` 테이블 신설 + gate가 `provenance_ref` 없으면 quarantine(`missing_provenance_record`) — 파이프라인이 추출 시 record 영속·ref 부여 (`prototype/orc_citadel/curated_zone.py`·`gate.py`·`pipeline_runner.py`, 2026-08-11) |
 | ADR-306 | 별도 `claims` 테이블 없이 `claim_candidates(status=promoted)`를 claim-of-record로 선언, promote 시 §7 이벤트로 Assertion emission | 후보/정본 이중 테이블 제거, `assertions.claim_id` FK 대상 확정(§4.2) | Accepted |
 | ADR-307 | `assertions`는 append-only SoT가 아니라 `graph_mutations`의 system-versioned projection — 허용 in-place write는 supersession 시 `tx_to` close뿐 | append-only 오표기 정정, SoT 단일화(§6.2, §7) | Accepted |
+| ADR-308 | raw 파일 백엔드를 doc당 디렉터리+2파일에서 **source 별 parquet 샤드(zstd)** 로 전환 (§2.1 ①). 불변식·doc_id 규칙은 불변 | 1,000만 건에서 inode 30M 요구(원격 여유 25.34M)·skip 전수 스캔 18.9s/103k·재처리 전량 RAM 상주가 동시에 무너짐 — 같은 코퍼스 실측으로 디스크 13.2×·skip 945×·스트리밍 전환 (2026-09-20) | Accepted · **구현**: `raw_shard.RawShardStore` + 소비자 4곳(`collect_large._save_zone`/`_stored_urls`, `load_raw_zone.iter_raw_zone`, `viewer._count_raw`/`_fetch_records`) 전환 · 1회 변환기 `scripts/migrate_raw_to_shards.py`(로컬 105,269건 105s 실측). **객체 백엔드(②)는 미전환 — 두 백엔드가 다른 물리 배치를 갖는다(정직 표기)** |
+| ADR-404 | S4 near-dup 후보를 LSH 밴딩으로 좁히고 MinHash 서명을 `dup_signatures`/`dup_bands` 에 영속 | 전수 비교가 실측 O(N²)(1,000만 투영 4.1년)이고, 서명 재계산만도 12.4ms/doc × 1,000만 = 36h — nightly 주기에 들어가지 않음 (2026-09-20) | Accepted · **구현**: `dedup.band_keys` + `CuratedZone.persist_signature`/`band_candidates` · 증분 승격이 후보만 SQL 로 조회 (전체 서명 적재 ≈5GB 회피). 판정 임계(0.90·ADR-403) 불변, 재현율 실측 1.0000(703건·790쌍) |
+| ADR-405 | 커넥터 kind 3종 신설(`paged_api`·`bulk_archive`·`index_stream`)과 단일 디스패치(`COLLECTORS`) | 2026-09-20 도메인 조사에서 AI·경제·과학 3분야가 독립적으로 같은 3종을 지목 — 확보 가능 11.66M 중 대부분이 이 경로 | Accepted · **구현**: `collect_large.collect_paged_api`/`collect_bulk_archive`/`collect_index_stream` + 러너·nightly·viewer 러너 디스패치 통합. 아카이브 엔트리 식별자는 `{archive_url}#{entry_path}`, 결과 상한은 `ResultCapReached` 로 전파(조용한 누락 금지). 소스 등록은 미포함 |

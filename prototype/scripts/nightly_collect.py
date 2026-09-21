@@ -20,7 +20,8 @@ from pathlib import Path
 _REPO = Path(__file__).resolve().parent.parent  # prototype/
 sys.path.insert(0, str(_REPO))
 
-from orc_citadel.collect_large import SOURCES, _stored_urls, collect_rss, collect_sitemap
+import orc_citadel.collect_large as cl
+from orc_citadel.collect_large import SOURCES, _stored_urls
 
 
 def main(slo_log=None) -> dict:
@@ -34,10 +35,7 @@ def main(slo_log=None) -> dict:
     sources: dict[str, dict] = {}
     for source_id, (kind, url) in SOURCES.items():
         known = _stored_urls(source_id)
-        if kind == "sitemap":
-            c = collect_sitemap(url, source_id, slo_log=slo_log, known_urls=known)
-        else:
-            c = collect_rss(url, source_id, slo_log=slo_log, known_urls=known)
+        c = cl.COLLECTORS[kind](url, source_id, slo_log=slo_log, known_urls=known)
         print(f"[{source_id}] ({kind}) saved={c['saved']} skipped={c['skipped']} "
               f"errors={c['errors']} (known_urls={len(known)})", flush=True)
         sources[source_id] = {"saved": c["saved"], "skipped": c["skipped"],

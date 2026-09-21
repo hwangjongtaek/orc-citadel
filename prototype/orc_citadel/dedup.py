@@ -29,6 +29,10 @@ DEDUP_VERSION = "d1"
 JACCARD_THRESHOLD = 0.90
 MIN_TEXT_CHARS = 200
 MINHASH_PERMS = 64  # min-hash 회수(결정적 — 해시 시드 고정)
+# LSH 밴딩 — 64 perms 를 8밴드 × 8행으로 쪼개 후보만 비교한다 (전수 비교 O(N²) 제거).
+# b=8·r=8 에서 밴드 공유 확률 1-(1-s^8)^8: s=0.90 → 0.989, s=0.80 → 0.71, s=0.50 → 0.031.
+# 임계(0.90) 부근 재현율은 확률적이 되며, 병합 판정 자체는 종전처럼 _jaccard_est 가 한다.
+LSH_BANDS = 8
 SHINGLE_K = 5
 
 _WORD = re.compile(r"[a-z0-9]+")
@@ -53,6 +57,15 @@ def _minhash(s: set[str], perms: int = MINHASH_PERMS) -> list[int]:
     return vals
 
 
+def band_keys(sig: list[int], bands: int = LSH_BANDS) -> list[tuple[int, tuple[int, ...]]]:
+    """서명을 `bands` 개 구간으로 분할한 밴드 키 목록 — 결정적.
+
+    같은 밴드 키를 공유하는 문서만 near-dup 후보가 된다 (04 §4.2 재현성 유지).
+    """
+    rows = len(sig) // bands
+    return [(i, tuple(sig[i * rows:(i + 1) * rows])) for i in range(bands)]
+
+
 def _jaccard_est(a: list[int], b: list[int]) -> float:
     """MinHash 시그니처에서 Jaccard 추정 (일치 비율)."""
     return sum(1 for x, y in zip(a, b) if x == y) / len(a)
@@ -75,19 +88,24 @@ class Deduplicator:
     def __init__(self, jaccard_threshold: float = JACCARD_THRESHOLD) -> None:
         self._threshold = jaccard_threshold
 
-    def dedup(self, docs: list[dict]) -> list[Cluster]:
+    def dedup(self, docs: list[dict], signature_sink: dict | None = None) -> list[Cluster]:
         """input: [{doc_id, text, publication_time, source_type}] → Cluster list.
 
         순서와 무관하게 결정적 결과를 낸다(정렬 후 처리, §4.2 재현성).
+
+        `signature_sink` 를 주면 {doc_id: (MinHash 서명, 텍스트 sha256)} 를 채운다 —
+        호출자가 `dup_signatures` 에 영속해 증분 승격이 재계산을 건너뛰게 한다.
+        서명이 없는 짧은 본문(MIN_TEXT_CHARS 미만)은 빈 서명 + 텍스트 해시만 남는다.
         """
         if not docs:
             return []
         ordered = sorted(docs, key=lambda d: d["doc_id"])
-        clusters = _cascade_cluster(ordered, self._threshold)
+        clusters = _cascade_cluster(ordered, self._threshold, signature_sink=signature_sink)
         return [_finalize(members, ordered) for members in clusters]
 
 
-def _cascade_cluster(docs: list[dict], threshold: float) -> list[list[str]]:
+def _cascade_cluster(docs: list[dict], threshold: float,
+                     signature_sink: dict | None = None) -> list[list[str]]:
     """① exact → ② near 계단식 병합. 각 그룹은 doc_id 목록. 결정적."""
     # ① exact: sha256(text) 동일 그룹
     by_hash: dict[str, list[str]] = {}
@@ -99,18 +117,33 @@ def _cascade_cluster(docs: list[dict], threshold: float) -> list[list[str]]:
     # 지배라 근접성 판정의 신뢰가 낮아 near-dup 후보에서 제외한다 (level-② 한계).
     eligible = {d["doc_id"]: d for d in docs if len(d["text"]) >= MIN_TEXT_CHARS}
     sig = {did: _minhash(shingles(d["text"])) for did, d in eligible.items()}
+    if signature_sink is not None:
+        for d in docs:
+            signature_sink[d["doc_id"]] = (
+                sig.get(d["doc_id"], []),
+                hashlib.sha256(d["text"].encode()).hexdigest())
+
+    # LSH 밴딩 — 밴드 키를 공유하는 문서만 후보로 올린다. 전수 비교(O(N²)) 대신
+    # 후보 비교만 수행하며, 병합 판정은 종전과 동일한 _jaccard_est 임계다.
+    buckets: dict[tuple[int, tuple[int, ...]], list[str]] = {}
+    for did in sorted(sig):
+        for key in band_keys(sig[did]):
+            buckets.setdefault(key, []).append(did)
 
     merged: list[list[str]] = []
     for g in groups:
         base = set(g)
         rep = next(iter(g))
         rep_sig = sig.get(rep)
-        for did, d in eligible.items():
-            if did in base:
-                continue
-            other_sig = sig[did]
-            if rep_sig is not None and _jaccard_est(rep_sig, other_sig) >= threshold:
-                base.add(did)
+        if rep_sig is not None:
+            candidates: set[str] = set()
+            for key in band_keys(rep_sig):
+                candidates.update(buckets.get(key, ()))
+            for did in sorted(candidates):
+                if did in base:
+                    continue
+                if _jaccard_est(rep_sig, sig[did]) >= threshold:
+                    base.add(did)
         merged.append(sorted(base))
 
     return _union_by_overlap(merged)

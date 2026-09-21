@@ -17,7 +17,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import unquote, urlparse
 
 from orc_citadel import component_status, viewer_static
+from orc_citadel.collection_control import CollectionControl
 from orc_citadel.investigation_job import build_read_facade
+from orc_citadel.raw_shard import RawShardStore
 from orc_citadel.versioning import extraction_version_tuple
 
 # 컨테이너에서는 VIEWER_HOST=0.0.0.0 으로 외부 바인딩 (docker-compose.yml).
@@ -40,64 +42,72 @@ def _j(fn):
     return wrap
 
 
-def _count_raw(raw_dir: str) -> tuple[list[dict], int]:
-    """raw 존 파일 트리(source/doc/<doc_id>)에서 source×문서 수를 센다 (read-only).
+def _raw_stamp(raw_dir) -> tuple:
+    """raw 존 변경 지문 — `<source>` 디렉터리의 (mtime, size).
 
-    디렉터리 수로만 세어 파일 I/O·파싱 없이 결정적·가볍게. 미존재 시 빈 목록.
-    10만+ 문서 디렉터리 stat 은 요청당 0.3s 라 `_fetch_records` 와 같은 클래스 레벨
-    캐시를 쓴다 (페이지 이동마다 재스캔 금지 — 수집이 돌면 뷰어 재시작으로 갱신).
+    샤드가 추가되면 그 디렉터리의 mtime 이 바뀐다. source 수만큼의 stat 이라
+    요청당 비용이 사실상 없다. 캐시 키에 넣어 **수집이 돌면 재시작 없이**
+    재스캔되게 한다 (2026-09-18 prod 실측: raw 127건 수집 후에도 뷰어가 0 을 표기).
+    """
+    root = pathlib.Path(raw_dir) if raw_dir else None
+    if root is None or not root.is_dir():
+        return ()
+    out = []
+    try:
+        for src in sorted(p.name for p in root.iterdir() if p.is_dir()):
+            try:
+                st = (root / src).stat()
+            except OSError:
+                continue
+            out.append((src, st.st_mtime_ns, st.st_size))
+    except OSError:
+        return ()
+    return tuple(out)
+
+
+def _db_stamp(path) -> tuple | None:
+    """DuckDB 파일 지문 — (inode, mtime, size).
+
+    `rebuild_zones` 는 `.new` → rename 으로 존을 갈아끼운다. 열려 있던 핸들은
+    옛 inode 를 계속 읽으므로 경로만으로는 교체를 알 수 없다 (2026-09-18 prod
+    실측: 승격 후에도 curated 0).
+    """
+    try:
+        st = pathlib.Path(path).stat()
+    except OSError:
+        return None
+    return (st.st_ino, st.st_mtime_ns, st.st_size)
+
+
+def _count_raw(raw_dir: str) -> tuple[list[dict], int]:
+    """raw 샤드에서 source×문서 수를 센다 (read-only·집계 쿼리).
+
+    content 를 읽지 않는 `count_by_source` 한 번 — 옛 레이아웃의 문서 디렉터리
+    전수 stat(10만+ 에서 요청당 0.3s)을 대체한다. 미존재 시 빈 목록.
     """
     cache = Handler._RAW_COUNT_CACHE
-    key = str(pathlib.Path(raw_dir).resolve()) if raw_dir else ""
+    key = (str(pathlib.Path(raw_dir).resolve()) if raw_dir else "", _raw_stamp(raw_dir))
     hit = cache.get(key)
     if hit is not None:
         return [dict(s) for s in hit[0]], hit[1]
-    raw_dir = pathlib.Path(raw_dir)
-    out: list[dict] = []
-    if raw_dir.is_dir():
-        for source in sorted(p.name for p in raw_dir.iterdir() if p.is_dir()):
-            doc_dir = raw_dir / source / "doc"
-            n = sum(1 for d in doc_dir.iterdir() if d.is_dir()) if doc_dir.is_dir() else 0
-            out.append({"source_id": source, "doc_count": n})
+    counts = RawShardStore(raw_dir).count_by_source() if raw_dir else {}
+    out = [{"source_id": source, "doc_count": n} for source, n in sorted(counts.items())]
     total = sum(s["doc_count"] for s in out)
     cache[key] = (out, total)
     return [dict(s) for s in out], total
 
 
 def _fetch_records(raw_dir: str) -> list[dict]:
-    """raw 존 fetch.json 전수 스캔 (1회·클래스 레벨 캐시 — 렌더마다 재스캔 금지).
+    """raw 샤드의 수집 메타 조회 (1회·클래스 레벨 캐시 — 렌더마다 재조회 금지).
 
-    각 문서 디렉터리의 fetch.json 에서 실측된 키만 담는다 (fetched_at·http_status·
-    robots_allowed). 파싱 실패·미존재는 정직 스킵. 캐시 키는 절대경로 문자열.
+    content 컬럼을 읽지 않는 메타 전용 조회다. 캐시 키는 절대경로 + raw 지문.
     """
     cache = Handler._FETCH_CACHE
-    key = str(pathlib.Path(raw_dir).resolve()) if raw_dir else ""
+    key = (str(pathlib.Path(raw_dir).resolve()) if raw_dir else "", _raw_stamp(raw_dir))
     hit = cache.get(key)
     if hit is not None:
         return hit
-    out: list[dict] = []
-    root = pathlib.Path(raw_dir) if raw_dir else None
-    if root is not None and root.is_dir():
-        for source in sorted(p.name for p in root.iterdir() if p.is_dir()):
-            doc_dir = root / source / "doc"
-            if not doc_dir.is_dir():
-                continue
-            for doc in sorted(p.name for p in doc_dir.iterdir() if p.is_dir()):
-                fj = doc_dir / doc / "fetch.json"
-                try:
-                    meta = json.loads(fj.read_text(encoding="utf-8"))
-                except (OSError, ValueError):
-                    continue
-                if not isinstance(meta, dict):
-                    continue
-                out.append({
-                    "source_id": source,
-                    "doc_id": meta.get("doc_id") or doc,
-                    "url": meta.get("url"),
-                    "fetched_at": meta.get("fetched_at"),
-                    "http_status": meta.get("http_status"),
-                    "robots_allowed": meta.get("robots_allowed"),
-                })
+    out = RawShardStore(raw_dir).fetch_records() if raw_dir else []
     cache[key] = out
     return out
 
@@ -504,10 +514,13 @@ class Handler(BaseHTTPRequestHandler):
     investigation_table_prefix = "investigation"
     # 정적 자산 루트 — 없으면 자산 없이 동작한다 (정직 갭).
     static_roots = viewer_static.default_roots()
-    # raw fetch.json 전수 스캔은 1회만 (경로 → 레코드 목록). 렌더마다 재스캔 금지.
-    _FETCH_CACHE: dict[str, list[dict]] = {}
-    # raw 존 source×문서 수 디렉터리 스캔도 1회만 (경로 → (source 목록, 합계)).
-    _RAW_COUNT_CACHE: dict[str, tuple[list[dict], int]] = {}
+    # raw fetch.json 전수 스캔 캐시 — 키는 (경로, raw 지문). 지문이 바뀌면
+    # (= 수집이 돌면) 자동으로 재스캔된다.
+    _FETCH_CACHE: dict[tuple, list[dict]] = {}
+    # raw 존 source×문서 수 디렉터리 스캔 캐시 — 같은 키 규칙.
+    _RAW_COUNT_CACHE: dict[tuple, tuple[list[dict], int]] = {}
+    # facade 가 연 curated 파일의 지문 — 교체되면 다시 연다.
+    _facade_stamp: tuple | None = None
 
     def log_message(self, *a):  # 출력 간소화 (404 등만 남김)
         if self.path.startswith("/api/"):
@@ -525,6 +538,30 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    @classmethod
+    def _ensure_facade(cls) -> None:
+        """curated 존이 교체됐으면 facade 를 다시 연다 (없으면 재사용).
+
+        facade 재생성은 assertion 전수로 그래프 프로젝션을 다시 쌓는 비용이라
+        지문이 같으면 건드리지 않는다. 옛 zone 은 닫아 파일 핸들을 흘리지 않는다.
+        """
+        stamp = _db_stamp(DB)
+        if cls.facade is not None and cls._facade_stamp == stamp:
+            return
+        # 반드시 **먼저 닫고** 연다. DuckDB 는 같은 경로의 DB 인스턴스를 프로세스
+        # 안에서 캐시하므로, 옛 연결이 살아 있으면 새로 연결해도 교체 전 DB 를
+        # 그대로 돌려준다 (실측: 승격 후 재연결해도 assertions 0). 오늘 뷰어
+        # 재시작이 필요했던 진짜 이유가 이것이다 — 파일 핸들만의 문제가 아니다.
+        previous, cls.facade = cls.facade, None
+        close = getattr(getattr(previous, "zone", None), "close", None)
+        if callable(close):
+            try:
+                close()
+            except Exception:  # pragma: no cover - 닫기 실패는 조회를 막지 않는다
+                pass
+        cls.facade = _build()
+        cls._facade_stamp = stamp
+
     def _investigation_store(self):
         import psycopg
 
@@ -536,6 +573,19 @@ class Handler(BaseHTTPRequestHandler):
         store = InvestigationStore(conn, table_prefix=self.investigation_table_prefix)
         store.ensure_tables()
         return store, conn
+
+    def _collection_control(self):
+        return CollectionControl(getattr(self, "collection_data_dir", DB.parent))
+
+    def _serve_collection_get(self, path: str) -> bool:
+        if path not in {"/api/collections/sources", "/api/collections/latest"}:
+            return False
+        control = self._collection_control()
+        if path.endswith("/sources"):
+            self._send_json(200, {"sources": control.sources()})
+        else:
+            self._send_json(200, control.status())
+        return True
 
     @staticmethod
     def _investigation_error(code: str, message: str, **details) -> dict:
@@ -1084,6 +1134,24 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(200, cancelled)
             return
 
+        if parsed.path == "/api/collections":
+            try:
+                payload = self._request_json()
+                source_ids = payload.get("source_ids")
+                if not isinstance(source_ids, list):
+                    raise ValueError("source_ids는 array여야 합니다")
+                created = self._collection_control().trigger(source_ids)
+            except ValueError as exc:
+                self._send_json(400, self._investigation_error(
+                    "invalid_collection_request", str(exc)))
+                return
+            except RuntimeError as exc:
+                self._send_json(409, self._investigation_error(
+                    "collection_already_running", str(exc)))
+                return
+            self._send_json(202, created, headers={"Retry-After": "2"})
+            return
+
         if parsed.path != "/api/investigations":
             self._send_json(
                 404,
@@ -1138,8 +1206,9 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         if self._serve_durable_investigation_get(parsed.path):
             return
-        if Handler.facade is None:
-            Handler.facade = _build()
+        if self._serve_collection_get(parsed.path):
+            return
+        Handler._ensure_facade()
         qs = {k: v for k, v in (p.split("=", 1) for p in parsed.query.split("&") if p)}
 
         if parsed.path == "/api/report":
@@ -1219,8 +1288,8 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path.startswith("/assets/") or parsed.path.startswith("/app/"):
             self._serve_asset(parsed.path); return
 
-        # 공간 라우트는 frontend dist 가 유일한 표시 계층이다 (TS-1 — 인라인
-        # 페이지·/legacy/* 는 8공간 이관 완료로 제거, Step 15). dist 는 커밋
+        # canonical 라우트는 frontend dist 가 유일한 표시 계층이다 (TS-1 —
+        # 인라인 페이지·/legacy/* 는 이관 완료로 제거, Step 15). dist 는 커밋
         # 대상이라 부재는 빌드/배포 결손 — 조용한 대체 화면 없이 정직 503.
         dist_entry = _MIGRATED.get(parsed.path)
         if dist_entry is not None:
@@ -1269,7 +1338,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
 
-# canonical 라우트 → frontend dist 엔트리 (8공간 이관 완료 — TS-1).
+# canonical 라우트 → frontend dist 엔트리 (TS-1).
 _MIGRATED = {
     "/": "gate.html",
     "/witnesses": "witnesses.html",
@@ -1279,11 +1348,12 @@ _MIGRATED = {
     "/council": "council.html",
     "/watchtower": "watchtower.html",
     "/chronicle": "chronicle.html",
+    "/about": "about.html",
 }
 
 
 def main() -> None:
-    Handler.facade = _build()
+    Handler._ensure_facade()
     # 조용한 로그 로거로 교체 (404 이외 억제).
     quiet = type("Q", (BaseHTTPRequestHandler,),
                   {"log_message": lambda self, *a: None,

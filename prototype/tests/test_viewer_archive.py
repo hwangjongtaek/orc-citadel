@@ -13,6 +13,7 @@ import pytest
 from pathlib import Path
 
 from orc_citadel.viewer import Handler
+from raw_fixture import write_raw_shard
 
 HTML = b"""<html><head>
 <title>NVIDIA Conference Call</title>
@@ -48,11 +49,8 @@ def archive_dirs(tmp_path):
     # raw 존 — nvidia 2건·press 1건.
     raw = tmp_path / "raw"
     for src, n in (("official-nvidia", 2), ("press-semi", 1)):
-        for i in range(n):
-            d = raw / src / "doc" / f"doc-{src}-{i}"
-            d.mkdir(parents=True)
-            (d / "content.bin").write_bytes(b"<h1>x</h1>")
-            (d / "fetch.json").write_text('{"url": "https://e"}')
+        write_raw_shard(raw, src, [{"content": f"<h1>{src}-{i}</h1>".encode(),
+                                    "url": "https://e"} for i in range(n)])
 
     raw_str = str(raw)
     norm_str = str(norm_db)

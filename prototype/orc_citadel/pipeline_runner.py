@@ -60,7 +60,7 @@ class PipelineResult:
 
 
 def _run_chain(metas, zone, gate, resolver, judge, result: PipelineResult,
-               mutation_log=None) -> list:
+               mutation_log=None, dedup: bool = True) -> list:
     """문서별 결정적 추출·해소·게이트·claim·어세션 체인. 전체 claim 리스트 반환.
 
     `mutation_log`(① postgres SoT) 제공 시, 승격 claim 의 그래프 mutation 을
@@ -165,10 +165,15 @@ def _run_chain(metas, zone, gate, resolver, judge, result: PipelineResult,
         result.per_doc_elapsed_ms.append(round(_now_ms() - _doc_t0, 3))
 
     # S4 dedup 배선 — 근접 복제를 dup_clusters 로 축소 (04 §4, ADR-403). 결정적.
-    if docs_meta:
+    if docs_meta and dedup:
         from .dedup import Deduplicator
 
-        clusters = Deduplicator().dedup(docs_meta)
+        # 서명을 함께 남긴다 — 이후 증분 승격이 기존 코퍼스와의 복제를 볼 수 있게
+        # (남기지 않으면 full rebuild 뒤 `dup_signatures` 가 비어 조용히 품질이 떨어진다).
+        signatures: dict = {}
+        clusters = Deduplicator().dedup(docs_meta, signature_sink=signatures)
+        for doc_id, (signature, text_hash) in signatures.items():
+            zone.persist_signature(doc_id, list(signature), text_hash=text_hash)
         for cl in clusters:
             zone.persist_cluster(
                 cluster_id=cl.cluster_id,
@@ -241,7 +246,8 @@ def _persist_llm_verdicts(zone, judge) -> None:
     _p(zone, judge)
 
 
-def run_pipeline(metas, zone, judge=None, mutation_log=None, slo_log=None) -> PipelineResult:
+def run_pipeline(metas, zone, judge=None, mutation_log=None, slo_log=None,
+                 dedup: bool = True, reconcile: bool = True) -> PipelineResult:
     """raw docs(meta list)를 단일 진입점으로 실행해 결정적 체인 + 그래프 + 영속 완료.
 
     `mutation_log`(① postgres SoT) 제공 시 graph mutation 을 로그에 기록하고,
@@ -257,27 +263,30 @@ def run_pipeline(metas, zone, judge=None, mutation_log=None, slo_log=None) -> Pi
     result = PipelineResult()
 
     all_claims = _run_chain(metas, zone, gate, resolver, judge, result,
-                            mutation_log=mutation_log)
+                            mutation_log=mutation_log, dedup=dedup)
 
     # 캐노니컬·모순 — judge 주입 시 미결 쌍만 LLM (05 §4.2·§5.2).
     promoted = [c for c in all_claims
                 if gate.result(c.claim_candidate_id) is not None
                 and gate.result(c.claim_candidate_id).promote]
     # LLM 캐노니컬 판정을 누적 → S23 영속 (judge가 _BoundedJudge든 평면 dict든 동작).
-    llm_records: list = []
-    canonicals = canonicalize_claims(promoted, judge=judge, llm_records=llm_records)
-    _persist_llm_canonical(zone, llm_records)
-    for cc in canonicals:
-        zone.persist_canonical(cc)
-        for cid in cc.member_claim_ids:
-            zone.set_claim_canonical(cid, cc.canonical_claim_id)
-    result.canonicals = len(canonicals)
-    result.canonical_members = sum(len(c.member_claim_ids) for c in canonicals)
+    # `reconcile=False` 면 캐노니컬·모순은 호출자가 수행한다 — 증분 승격은 영향받는
+    # (subject, predicate) 블록을 존에서 되읽어 **기존 코퍼스와 함께** 판정한다.
+    if reconcile:
+        llm_records: list = []
+        canonicals = canonicalize_claims(promoted, judge=judge, llm_records=llm_records)
+        _persist_llm_canonical(zone, llm_records)
+        for cc in canonicals:
+            zone.persist_canonical(cc)
+            for cid in cc.member_claim_ids:
+                zone.set_claim_canonical(cid, cc.canonical_claim_id)
+        result.canonicals = len(canonicals)
+        result.canonical_members = sum(len(c.member_claim_ids) for c in canonicals)
 
-    conflicts = find_conflict_candidates(all_claims, judge=judge)
-    for cf in conflicts:
-        zone.persist_conflict(cf)
-    result.conflicts = len(conflicts)
+        conflicts = find_conflict_candidates(all_claims, judge=judge)
+        for cf in conflicts:
+            zone.persist_conflict(cf)
+        result.conflicts = len(conflicts)
     result.promoted_claims = len(promoted)
 
     # LLM verdict 영속 (S23) — judge가 verdict를 기록하는 확장형이면 저장.

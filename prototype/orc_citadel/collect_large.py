@@ -20,7 +20,6 @@ import pathlib
 import time
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
 
 import sys
 
@@ -29,6 +28,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 from orc_citadel.connectors.arxiv import ArxivConnector
 from orc_citadel.connectors.rss import RssConnector
 from orc_citadel.fetch import FetchFramework
+from orc_citadel.raw_shard import RawShardStore
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent  # prototype/
 RAW = ROOT / "data" / "raw"
@@ -49,6 +49,17 @@ SOURCES = {
     # content-hash 기반 doc_id 가 매 런 새로 발급 → 중복 저장(80→고유 40 실측).
     # URL 기반 idempotency(04 §2.1 hash(source_id,url,fetch_window)) 전환 전까지 보류.
 }
+
+# User-confirmed 2026-09-18: Blizzard permits automated collection and raw
+# storage for these official BlizzCon records. Native RSS/sitemap is absent, so
+# the reviewed URLs are intentionally explicit and bounded.
+SOURCES["official-blizzard-blizzcon-2026"] = (
+    "urls",
+    [
+        "https://news.blizzard.com/en-us/article/24301453/everything-announced-at-blizzcon-2026-opening-ceremony",
+        "https://news.blizzard.com/en-us/article/24303675/thats-a-wrap-on-blizzcon-2026",
+    ],
+)
 ARXIV_QUERY = "cat:cs.CR OR cat:cs.AI OR cat:cs.SE OR cat:cs.AR OR cat:eess.SY"
 
 
@@ -119,6 +130,22 @@ def _get(url: str) -> tuple[bytes, dict]:
         return resp.read(), dict(resp.headers)
 
 
+_SHARD_STORES: dict[pathlib.Path, RawShardStore] = {}
+
+
+def _shard_store(raw_dir: pathlib.Path | None = None) -> RawShardStore:
+    """raw 디렉터리별 샤드 스토어 — 수집 런 동안 쓰기 버퍼를 공유한다."""
+    base = pathlib.Path(raw_dir or RAW).resolve()
+    if base not in _SHARD_STORES:
+        _SHARD_STORES[base] = RawShardStore(base)
+    return _SHARD_STORES[base]
+
+
+def flush_raw(raw_dir: pathlib.Path | None = None) -> None:
+    """버퍼 잔량을 샤드로 확정한다 — 각 수집 함수가 반환 직전에 호출한다."""
+    _shard_store(raw_dir).flush()
+
+
 def _save_zone(source_id: str, url: str, content: bytes, meta: dict,
                raw_dir: pathlib.Path | None = None,
                minio_store=None) -> tuple[str, bool]:
@@ -128,9 +155,10 @@ def _save_zone(source_id: str, url: str, content: bytes, meta: dict,
 
     저장 백엔드:
     - `minio_store` 제공 시 → MinIO 객체 스토어(② `MinioRawStore`)에 §2.1 객체 키로 영속.
-    - 미제공 시 로컬 fs `data/raw/<source>/doc/<doc_id>/...` (기존 default).
-    `meta` 는 fetch.json 에 병합되며 governance(11) 필드 license/robots_allowed 기본값이
-    채워진다 (04 §1.4 재배포 제한 정합).
+    - 미제공 시 로컬 fs `data/raw/<source>/shard-*.parquet` (기존 default).
+    샤드 쓰기는 버퍼링되므로 수집 함수는 반환 직전 `flush_raw()` 로 확정한다.
+    `meta` 의 governance(11) 필드 license/robots_allowed 는 기본값이 채워진다
+    (04 §1.4 재배포 제한 정합).
     """
     import hashlib
 
@@ -144,19 +172,7 @@ def _save_zone(source_id: str, url: str, content: bytes, meta: dict,
         minio_store.put(source_id, url, content, meta)
         return doc_id, not existing
 
-    base = raw_dir or RAW
-    doc_id = "doc-" + hashlib.sha256(content).hexdigest()[:24]
-    d = base / source_id / "doc" / doc_id
-    if d.exists():  # 이미 수집 — 재개 시 스킵 (created=False).
-        return doc_id, False
-    d.mkdir(parents=True, exist_ok=True)
-    (d / "content.bin").write_bytes(content)
-    meta.setdefault("license", "unknown")
-    meta.setdefault("robots_allowed", True)
-    meta.update({"doc_id": doc_id, "url": url,
-                 "fetched_at": datetime.now(timezone.utc).isoformat()})
-    (d / "fetch.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2))
-    return doc_id, True
+    return _shard_store(raw_dir).append(source_id, url, content, meta)
 
 
 def collect_arxiv(total: int, windows: int = 0, slo_log=None) -> dict:
@@ -224,6 +240,7 @@ def collect_arxiv(total: int, windows: int = 0, slo_log=None) -> dict:
                 if slo_log is not None:
                     # SLO-05 — fetch 성공한 문서는 저장 성공으로 기록 (시도 1건).
                     slo_log.record_collect("research-arxiv-cs-cr", url, ok=True)
+    flush_raw()
     return counts
 
 
@@ -299,6 +316,7 @@ def collect_rss(feed_url: str, source_id: str, slo_log=None, known_urls=None) ->
         counts["saved"] += 1
         if slo_log is not None:
             slo_log.record_collect(source_id, url, ok=True)
+    flush_raw()
     return counts
 
 
@@ -337,6 +355,286 @@ def collect_sitemap(sitemap_url: str, source_id: str, slo_log=None, known_urls=N
         counts["saved"] += 1
         if slo_log is not None:
             slo_log.record_collect(source_id, url, ok=True)
+    flush_raw()
+    return counts
+
+
+def collect_urls(urls: list[str], source_id: str, slo_log=None, known_urls=None) -> dict:
+    """허가된 고정 공식 URL만 수집한다 (URL allowlist + S1 idempotency)."""
+    counts = {"saved": 0, "skipped": 0, "errors": 0}
+    known = known_urls or set()
+    for url in urls:
+        if url in known:
+            counts["skipped"] += 1
+            continue
+        try:
+            content, headers = _get(url)
+            _doc_id, created = _save_zone(
+                source_id, url, content,
+                {"http_status": 200, "content_type": headers.get("Content-Type"),
+                 "collection_policy": "reviewed_fixed_url"},
+            )
+        except Exception:
+            counts["errors"] += 1
+            if slo_log is not None:
+                slo_log.record_collect(source_id, url, ok=False)
+            continue
+        counts["saved" if created else "skipped"] += 1
+        if slo_log is not None:
+            slo_log.record_collect(source_id, url, ok=True)
+    flush_raw()
+    return counts
+
+
+def _index_urls(config: dict, payload: bytes):
+    """인덱스 payload 에서 문서 URL 을 순서대로 낸다 (중복 제거는 호출자 몫)."""
+    if config.get("format") == "json":
+        data = json.loads(payload)
+        for record in _json_path(data, config.get("records", "results")):
+            url = record.get(config.get("url_field", "url")) if isinstance(record, dict) else record
+            if url:
+                yield str(url)
+        return
+    delimiter = config.get("delimiter", "|")
+    field = int(config.get("field", 0))
+    base_url = config.get("base_url", "")
+    skip_prefixes = tuple(config.get("skip_prefixes", ()))
+    for line in payload.decode("utf-8", errors="replace").splitlines():
+        line = line.strip()
+        if not line or (skip_prefixes and line.startswith(skip_prefixes)):
+            continue
+        parts = line.split(delimiter)
+        if len(parts) <= field:
+            continue
+        value = parts[field].strip()
+        if not value:
+            continue
+        yield value if value.startswith("http") else base_url + value
+
+
+def collect_index_stream(config: dict, source_id: str, slo_log=None,
+                         known_urls=None) -> dict:
+    """URL 을 열거하는 인덱스를 받아 대상 문서를 수집한다 (04 §1.3).
+
+    config: `url`(인덱스) · `format`("delimited"|"json") ·
+      delimited: `delimiter`·`field`·`base_url`·`skip_prefixes`
+      json: `records`(목록 경로)·`url_field`
+
+    인덱스에 같은 문서가 여러 번 실려도 한 번만 받는다 — EDGAR `master.idx` 는
+    공동제출을 CIK 별로 중복 수록한다(2025Q4 중복률 29.7% 실측, 2026-09-20 조사).
+    """
+    counts = {"saved": 0, "skipped": 0, "errors": 0}
+    known = set(known_urls or ())
+    try:
+        payload, _headers = _with_retry(lambda: _get(config["url"]))
+    except Exception:
+        counts["errors"] += 1
+        if slo_log is not None:
+            slo_log.record_collect(source_id, config["url"], ok=False)
+        return counts
+
+    seen: set[str] = set()
+    for url in _index_urls(config, payload):
+        if url in seen:
+            continue           # 인덱스 중복 수록 — 재fetch 금지.
+        seen.add(url)
+        if url in known:
+            counts["skipped"] += 1
+            continue
+        try:
+            content, headers = _with_retry(lambda: _get(url))
+            _doc_id, created = _save_zone(
+                source_id, url, content,
+                {"http_status": 200, "content_type": headers.get("Content-Type"),
+                 "collection_policy": "index_stream"})
+        except Exception:
+            counts["errors"] += 1
+            if slo_log is not None:
+                slo_log.record_collect(source_id, url, ok=False)
+            continue
+        known.add(url)
+        counts["saved" if created else "skipped"] += 1
+        if slo_log is not None:
+            slo_log.record_collect(source_id, url, ok=True)
+
+    flush_raw()
+    return counts
+
+
+def _archive_entries(payload: bytes):
+    """zip / tar(.gz) 의 (엔트리 경로, bytes) 를 순서대로 낸다. 해석 불가면 예외."""
+    import io
+    import tarfile
+    import zipfile
+
+    if zipfile.is_zipfile(io.BytesIO(payload)):
+        with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+            for info in archive.infolist():
+                if info.is_dir():
+                    continue
+                data = archive.read(info)
+                if data:
+                    yield info.filename, data
+        return
+    with tarfile.open(fileobj=io.BytesIO(payload)) as archive:  # tar/tar.gz/tar.bz2
+        for member in archive.getmembers():
+            if not member.isfile():
+                continue
+            handle = archive.extractfile(member)
+            if handle is None:
+                continue
+            data = handle.read()
+            if data:
+                yield member.name, data
+
+
+def collect_bulk_archive(archive_url: str, source_id: str, slo_log=None,
+                         known_urls=None) -> dict:
+    """아카이브 1개를 받아 **내부 엔트리를 개별 문서로** 저장한다 (04 §1.3 download).
+
+    엔트리 식별자는 `{archive_url}#{entry_path}` — 아카이브 URL 하나로는 내부를
+    구분할 수 없어 URL-skip(04 §2.1)이 성립하지 않기 때문이다. `doc_id` 는 종전처럼
+    엔트리 bytes 의 content-hash 다 (03 §2.1 불변).
+    """
+    counts = {"saved": 0, "skipped": 0, "errors": 0}
+    known = set(known_urls or ())
+    try:
+        payload, _headers = _with_retry(lambda: _get(archive_url))
+    except Exception:
+        counts["errors"] += 1
+        if slo_log is not None:
+            slo_log.record_collect(source_id, archive_url, ok=False)
+        return counts
+
+    try:
+        entries = list(_archive_entries(payload))
+    except Exception:
+        # 아카이브로 해석되지 않는 바이트 — 0건 성공으로 위장하지 않는다.
+        counts["errors"] += 1
+        if slo_log is not None:
+            slo_log.record_collect(source_id, archive_url, ok=False)
+        return counts
+
+    for entry_path, data in entries:
+        doc_url = f"{archive_url}#{entry_path}"
+        if doc_url in known:
+            counts["skipped"] += 1
+            continue
+        try:
+            _doc_id, created = _save_zone(
+                source_id, doc_url, data,
+                {"http_status": 200, "collection_policy": "bulk_archive_entry"})
+        except Exception:
+            counts["errors"] += 1
+            if slo_log is not None:
+                slo_log.record_collect(source_id, doc_url, ok=False)
+            continue
+        known.add(doc_url)
+        counts["saved" if created else "skipped"] += 1
+        if slo_log is not None:
+            slo_log.record_collect(source_id, doc_url, ok=True)
+
+    flush_raw()
+    return counts
+
+
+class ResultCapReached(RuntimeError):
+    """페이징이 API 결과 상한에 닿았다 — 조용한 누락 대신 실패로 알린다.
+
+    기존 `_arxiv_date_windows` 는 10k 를 넘는 월을 말없이 버렸다 (2026-09-20 확인).
+    상한에 닿으면 소스 설정이 구간을 더 잘게 나눠야 한다는 신호이므로 전파한다.
+    """
+
+
+def _json_path(payload: dict, path: str):
+    """`a.b.c` 표기로 중첩 필드를 꺼낸다. 없으면 빈 리스트."""
+    node = payload
+    for part in path.split("."):
+        if not isinstance(node, dict) or part not in node:
+            return []
+        node = node[part]
+    return node if isinstance(node, list) else []
+
+
+def _page_url(base: str, params: dict) -> str:
+    """base 에 쿼리 파라미터를 덧붙인다 (기존 쿼리 보존)."""
+    if not params:
+        return base
+    joiner = "&" if "?" in base else "?"
+    return base + joiner + "&".join(f"{k}={v}" for k, v in params.items())
+
+
+def collect_paged_api(config: dict, source_id: str, slo_log=None, known_urls=None) -> dict:
+    """커서/오프셋 JSON API 페이징 수집 — 레코드 1건 = 문서 1건 (04 §1.2).
+
+    config: `url`(base) · `records`(레코드 목록 경로, `a.b` 표기) · 다음 중 하나
+      - 커서형: `cursor_param`, `next_field`
+      - 오프셋형: `offset_param`, `limit_param`, `page_size`, 선택 `max_offset`
+    레코드 URL 은 `url_field` 우선, 없으면 `{base}#{id_field 값}` 합성.
+    """
+    counts = {"saved": 0, "skipped": 0, "errors": 0}
+    known = set(known_urls or ())
+    base = config["url"]
+    records_path = config.get("records", "results")
+    cursor_param, next_field = config.get("cursor_param"), config.get("next_field")
+    offset_param = config.get("offset_param")
+    page_size = int(config.get("page_size", 100))
+    max_offset = config.get("max_offset")
+    cursor, offset = None, 0
+
+    while True:
+        params: dict = {}
+        if offset_param:
+            params[config.get("limit_param", "limit")] = page_size
+            params[offset_param] = offset
+        if cursor and cursor_param:
+            params[cursor_param] = cursor
+        url = _page_url(base, params)
+        try:
+            raw, _headers = _with_retry(lambda: _get(url))
+            payload = json.loads(raw)
+        except Exception:
+            counts["errors"] += 1
+            if slo_log is not None:
+                slo_log.record_collect(source_id, url, ok=False)
+            break
+        records = _json_path(payload, records_path)
+        if not records:
+            break
+        for record in records:
+            doc_url = record.get(config["url_field"]) if config.get("url_field") else None
+            if not doc_url:
+                doc_url = f"{base}#{record.get(config.get('id_field', 'id'), '')}"
+            if doc_url in known:
+                counts["skipped"] += 1
+                continue
+            try:
+                _doc_id, created = _save_zone(
+                    source_id, doc_url, json.dumps(record, ensure_ascii=False,
+                                                   sort_keys=True).encode(),
+                    {"http_status": 200, "content_type": "application/json"})
+            except Exception:
+                counts["errors"] += 1
+                if slo_log is not None:
+                    slo_log.record_collect(source_id, doc_url, ok=False)
+                continue
+            known.add(doc_url)
+            counts["saved" if created else "skipped"] += 1
+            if slo_log is not None:
+                slo_log.record_collect(source_id, doc_url, ok=True)
+        if offset_param:
+            offset += page_size
+            if max_offset is not None and offset >= int(max_offset):
+                flush_raw()
+                raise ResultCapReached(
+                    f"{source_id}: offset {offset} 가 max_offset {max_offset} 에 도달 — "
+                    "수집 구간을 더 잘게 나눠야 한다 (조용한 누락 방지)")
+            continue
+        cursor = payload.get(next_field) if next_field else None
+        if not cursor:
+            break
+
+    flush_raw()
     return counts
 
 
@@ -374,29 +672,28 @@ def collect_sec(limit: int = 5, ciks: list[str] | None = None, slo_log=None) -> 
             counts["saved" if created else "skipped"] += 1
             if slo_log is not None:
                 slo_log.record_collect("gov-sec-edgar", ref.url, ok=True)
+    flush_raw()
     return counts
+
+
+# kind → 수집 함수. 러너·nightly·viewer 러너가 공유하는 단일 디스패치 (04 §1.3).
+COLLECTORS = {
+    "rss": collect_rss,
+    "sitemap": collect_sitemap,
+    "urls": collect_urls,
+    "paged_api": collect_paged_api,
+    "bulk_archive": collect_bulk_archive,
+    "index_stream": collect_index_stream,
+}
 
 
 def _stored_urls(source_id: str, raw_dir=None) -> set[str]:
     """해당 source 의 기존 저장 URL 집합 — S1 재수집 방지용 (04 §2.1 idempotency).
 
-    `raw_dir/<source_id>/doc/*/fetch.json` 의 url 을 수집한다(결정적·read-only).
-    전면 적용: 수집 런이 이 URL 을 `collect_rss(known_urls=...)` 로 넘겨, 이미 저장된
-    URL 의 재수집(중복 doc_id 발생 경로) 을 방지한다.
+    샤드 컬럼 조회 — 동일 코퍼스 103,224건에서 18.9s(fetch.json 전수 파싱) →
+    0.02s 실측 (2026-09-20). 결정적·read-only.
     """
-    import json
-
-    base = raw_dir or RAW
-    urls: set[str] = set()
-    for fj in (base / source_id / "doc").glob("*/fetch.json"):
-        try:
-            meta = json.loads(fj.read_text())
-        except Exception:
-            continue
-        u = meta.get("url")
-        if isinstance(u, str) and u:
-            urls.add(u)
-    return urls
+    return _shard_store(raw_dir).stored_urls(source_id)
 
 
 def main() -> None:
@@ -415,14 +712,10 @@ def main() -> None:
     RAW.mkdir(parents=True, exist_ok=True)
 
     if not args.skip_rss:
-        for source_id, (kind, url) in SOURCES.items():
+        for source_id, (kind, spec) in SOURCES.items():
             known = _stored_urls(source_id)
-            if kind == "sitemap":
-                print(f"[{source_id}] sitemap 수집 (known_urls={len(known)}건 skip 후보)")
-                c = collect_sitemap(url, source_id, known_urls=known)
-            else:
-                print(f"[{source_id}] RSS 수집 (known_urls={len(known)}건 skip 후보)")
-                c = collect_rss(url, source_id, known_urls=known)
+            print(f"[{source_id}] {kind} 수집 (known_urls={len(known)}건 skip 후보)")
+            c = COLLECTORS[kind](spec, source_id, known_urls=known)
             print(f"  -> {c}")
 
     print(f"[research-arxiv-cs-cr] arXiv metadata 페이징 수집 (total={args.limit}, "

@@ -18,6 +18,7 @@ import pytest
 from orc_citadel.curated_zone import CuratedZone
 from orc_citadel.pipeline_runner import run_pipeline
 from orc_citadel.viewer import Handler
+from raw_fixture import write_raw_shard
 
 
 @pytest.fixture
@@ -44,11 +45,8 @@ def norm_db(tmp_path):
 def raw_dir(tmp_path):
     raw = tmp_path / "raw"
     for src, n in (("official-nvidia", 2), ("press-tomshardware", 1)):
-        for i in range(n):
-            d = raw / src / "doc" / f"doc-{src}-{i}"
-            d.mkdir(parents=True)
-            (d / "content.bin").write_bytes(b"<h1>x</h1>")
-            (d / "fetch.json").write_text('{"url": "https://e"}')
+        write_raw_shard(raw, src, [{"content": f"<h1>{src}-{i}</h1>".encode(),
+                                    "url": "https://e"} for i in range(n)])
     return str(raw)
 
 
@@ -146,17 +144,13 @@ def _rich_facade(doc_id="doc-auxw1-00000000000000000001"):
 
 @pytest.fixture
 def rich_raw(tmp_path):
-    """fetch.json 에 fetched_at·http_status·robots_allowed 실측이 들어간 raw 트리."""
+    """fetched_at·http_status·robots_allowed 실측이 들어간 raw 샤드."""
     raw = tmp_path / "raw"
     for src, n in (("official-nvidia", 2), ("press-tomshardware", 1)):
-        for i in range(n):
-            d = raw / src / "doc" / f"doc-{src}-{i}"
-            d.mkdir(parents=True)
-            (d / "content.bin").write_bytes(b"<h1>x</h1>")
-            (d / "fetch.json").write_text(json.dumps({
-                "url": "https://e", "doc_id": f"doc-{src}-{i}",
-                "fetched_at": "2026-08-18T13:02:51.952687+00:00",
-                "http_status": 200, "robots_allowed": True}))
+        write_raw_shard(raw, src, [
+            {"content": f"<h1>{src}-{i}</h1>".encode(), "url": "https://e",
+             "fetched_at": "2026-08-18T13:02:51.952687+00:00",
+             "http_status": 200, "robots_allowed": True} for i in range(n)])
     return str(raw)
 
 
@@ -317,8 +311,9 @@ def test_watchtower_intake_last_fetch_governance(rich_raw):
     assert srcs["official-nvidia"]["last_fetch"] == "2026-08-18T13:02:51.952687+00:00"
     assert srcs["official-nvidia"]["governance"] == \
         {"http_status": 200, "robots_allowed": True}
-    # 클래스 레벨 캐시: 경로별 1회 스캔 (resolve 된 절대경로 키).
-    assert any(p.endswith("/raw") for p in Handler._FETCH_CACHE)
+    # 클래스 레벨 캐시: 키는 (resolve 된 절대경로, raw 존 지문) — 지문이 붙어
+    # 수집으로 문서가 늘면 자동 재스캔된다 (test_viewer_zone_refresh).
+    assert any(path.endswith("/raw") for path, _stamp in Handler._FETCH_CACHE)
     r2 = json.loads(Handler._api_watchtower(self, {}))
     assert r2["intake"] == it
 

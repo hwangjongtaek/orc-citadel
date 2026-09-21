@@ -71,3 +71,35 @@ def test_build_normalized_clears_stale_wal(tmp_path: pathlib.Path) -> None:
     assert out["ok"] == 0 and out["fail"] == 0
     assert not (tmp_path / "oc.duckdb.wal").exists() or \
         (tmp_path / "oc.duckdb.wal").read_bytes() != b"stale-garbage"
+
+
+def test_rebuild_streams_raw_without_materializing(tmp_path, monkeypatch):
+    """재처리는 raw 샤드를 스트리밍으로 두 번 읽는다 — 코퍼스를 RAM 에 올리지 않는다.
+
+    전량 적재(`load_raw_zone`)는 105,271건/1.13GB 실측(2026-09-20)으로 RSS 가 raw
+    bytes 와 1:1 이라 1,000만 건에서 원격 125GB 를 넘긴다 (03 §2.1 개정 동기).
+    """
+    import scripts.rebuild_zones as rz
+    from orc_citadel.raw_shard import RawShardStore
+
+    raw, data = tmp_path / "raw", tmp_path / "data"
+    data.mkdir()
+    store = RawShardStore(raw)
+    store.append("s1", "http://a/1", b"<html><body>Alpha Corp ships chips.</body></html>", {})
+    store.append("s1", "http://a/2", b"<html><body>Beta Inc builds servers.</body></html>", {})
+    store.flush()
+
+    monkeypatch.setattr(rz, "RAW", raw)
+    monkeypatch.setattr(rz, "DATA", data)
+
+    # 전량 적재 경로를 아예 들고 있지 않다 (import 되어 있으면 다시 새어든다).
+    assert not hasattr(rz, "load_raw_zone")
+    assert rz.rebuild() == 0
+    assert (data / "oc.duckdb").exists()
+
+    from orc_citadel.duckdb_zone import NormalizedZone
+    zone = NormalizedZone(str(data / "oc.duckdb"))
+    try:
+        assert len(zone.documents()) == 2
+    finally:
+        zone.close()

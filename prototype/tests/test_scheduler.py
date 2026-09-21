@@ -145,3 +145,101 @@ def test_register_jobs_is_idempotent(tmp_path):
     jobs = s.get_jobs()
     s.shutdown()
     assert sorted(j.id for j in jobs) == [COLLECT_JOB_ID, SLO06_JOB_ID]
+
+
+# --- nightly 승격 (수집 → 승격 → 스냅샷) ------------------------------------
+
+def test_collect_task_promotes_zones_before_snapshot(monkeypatch):
+    """수집만 하고 승격을 안 하면 화면은 어제 지식에 멈춘다.
+
+    2026-09-18 prod 실측: nightly 가 raw 127건을 받아왔지만 승격이 스케줄에 없어
+    curated 는 0 이었고, 사람이 `rebuild_zones` 를 손으로 돌려야 했다. 스냅샷은
+    승격 **뒤**여야 DuckDB UI 가 빈 테이블을 보지 않는다.
+    """
+    from scripts import scheduler_runner as sr
+
+    calls = []
+    monkeypatch.setattr(sr, "_flush_metrics", lambda *a, **k: calls.append("metrics"))
+    monkeypatch.setattr(sr, "_snapshot_parquet", lambda: calls.append("snapshot"))
+    monkeypatch.setattr(sr, "_promote_zones",
+                        lambda summary: calls.append("promote"))
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "scripts.nightly_collect",
+        type("M", (), {"main": staticmethod(
+            lambda slo_log=None: calls.append("collect") or {"total_new": 3})})(),
+    )
+    sr.run_collect()
+
+    assert calls.index("collect") < calls.index("promote") < calls.index("snapshot"), calls
+
+
+def test_promotion_failure_does_not_abort_the_nightly_run(monkeypatch):
+    """승격 실패는 비차단 — 수집 결과·스냅샷까지 잃지 않는다 (_flush_metrics 정책)."""
+    from scripts import scheduler_runner as sr
+
+    calls = []
+    monkeypatch.setattr(sr, "_flush_metrics", lambda *a, **k: None)
+    monkeypatch.setattr(sr, "_snapshot_parquet", lambda: calls.append("snapshot"))
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "scripts.nightly_collect",
+        type("M", (), {"main": staticmethod(lambda slo_log=None: {"total_new": 1})})(),
+    )
+
+    def _boom():
+        raise RuntimeError("raw 존 잠김")
+
+    monkeypatch.setattr(sr, "_promote_new_docs", _boom)
+    sr._promote_zones({"total_new": 1})   # 예외가 전파되면 실패
+    sr.run_collect()
+    assert "snapshot" in calls
+
+
+def test_rebuild_zones_exposes_callable_api():
+    """스케줄러가 argv 파싱 없이 부를 수 있어야 한다 (CLI 는 얇은 래퍼)."""
+    from scripts.rebuild_zones import rebuild
+
+    assert callable(rebuild)
+
+
+def test_collect_task_skips_promotion_when_nothing_new(monkeypatch):
+    """신규 문서 0건이면 승격을 건너뛴다 — 전량 재적재는 공짜가 아니다.
+
+    승격은 raw 전량을 다시 읽는다(로컬 dev 존 1.6GB 실측 — 수 분). 새 문서가
+    없으면 결과가 같으므로 돌릴 이유가 없고, `run_collect` 를 부르는 다른 테스트가
+    실수로 전량 재적재를 트리거하는 사고도 막는다 (실측으로 겪음).
+    """
+    from scripts import scheduler_runner as sr
+
+    calls = []
+    monkeypatch.setattr(sr, "_flush_metrics", lambda *a, **k: None)
+    monkeypatch.setattr(sr, "_snapshot_parquet", lambda: None)
+    monkeypatch.setattr(sr, "_rebuild_zones", lambda: calls.append("rebuild") or 0)
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "scripts.nightly_collect",
+        type("M", (), {"main": staticmethod(lambda slo_log=None: {"total_new": 0})})(),
+    )
+    sr.run_collect()
+    assert calls == [], "신규 0건인데 전량 재적재를 돌렸다"
+
+
+def test_promote_uses_incremental_not_full_rebuild(monkeypatch):
+    """nightly 승격은 신규 문서만 올린다 — 전량 재빌드는 버전 변경 시의 별도 경로다.
+
+    전량 재빌드는 dedup 서명 재계산만 1,000만 건에서 36시간이다 (2026-09-20 실측
+    12.4ms/doc). 신규 1건 때문에 코퍼스 전체를 다시 읽지 않는다.
+    """
+    from scripts import scheduler_runner as sr
+
+    calls = []
+    monkeypatch.setattr(sr, "_promote_new_docs", lambda: calls.append("incremental") or
+                        {"new_docs": 3, "mentions": 9, "claims": 2,
+                         "promoted_claims": 2, "clusters": 0})
+    monkeypatch.setattr(sr, "_rebuild_zones",
+                        lambda: calls.append("full") or 0)
+
+    sr._promote_zones({"total_new": 3})
+
+    assert calls == ["incremental"], "nightly 가 전량 재빌드를 돌렸다"

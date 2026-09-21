@@ -67,6 +67,28 @@ class CuratedZone:
         )
         self._conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS dup_signatures (
+                doc_id        VARCHAR NOT NULL,
+                dedup_version VARCHAR NOT NULL,
+                signature     BIGINT[] NOT NULL,
+                text_hash     VARCHAR,
+                PRIMARY KEY (doc_id, dedup_version)
+            )
+            """
+        )
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS dup_bands (
+                doc_id        VARCHAR NOT NULL,
+                dedup_version VARCHAR NOT NULL,
+                band_idx      INTEGER NOT NULL,
+                band_key      VARCHAR NOT NULL,
+                PRIMARY KEY (doc_id, dedup_version, band_idx)
+            )
+            """
+        )
+        self._conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS dup_clusters (
                 cluster_id                  VARCHAR PRIMARY KEY,
                 root_doc_id                 VARCHAR NOT NULL,
@@ -661,6 +683,32 @@ class CuratedZone:
         ).fetchall()
         return [dict(zip(cols, r)) for r in rows]
 
+    def claims_in_blocks(self, blocks: list[tuple[str, str]],
+                         status: str | None = None) -> list[dict]:
+        """(subject_id, predicate) 블록에 속한 claim 행 — 캐노니컬·모순 판정 입력.
+
+        05 §4.1 blocking 과 같은 축이라, 증분 승격이 영향받는 블록만 되읽는다
+        (코퍼스 전량 적재 회피).
+        """
+        if not blocks:
+            return []
+        cols = ["claim_candidate_id", "doc_id", "predicate", "subject_id", "object_id",
+                "object_literal", "modality", "polarity", "confidence", "seg_order",
+                "char_start", "char_end", "surface_fragment", "event_type_hint",
+                "status", "quarantine_reason", "canonical_claim_id",
+                "ontology_version", "extraction_model"]
+        placeholders = ", ".join("(?, ?)" for _ in blocks)
+        params: list = []
+        for subject_id, predicate in blocks:
+            params.extend([subject_id, predicate])
+        sql = (f'SELECT {", ".join(cols)} FROM claim_candidates '
+               f"WHERE (subject_id, predicate) IN ({placeholders})")
+        if status is not None:
+            sql += " AND status = ?"
+            params.append(status)
+        rows = self._conn.execute(sql + " ORDER BY claim_candidate_id", params).fetchall()
+        return [dict(zip(cols, r)) for r in rows]
+
     def canonical_claims(self) -> list[dict]:
         cols = ["canonical_claim_id", "subject_id", "predicate", "object_id",
                 "canonical_text", "member_claim_ids"]
@@ -688,6 +736,98 @@ class CuratedZone:
                 f'SELECT {", ".join(cols)} FROM claim_candidates WHERE doc_id=?', [doc_id]
             ).fetchall()
         return [dict(zip(cols, r)) for r in rows]
+
+    def persist_signature(self, doc_id: str, signature: list[int],
+                          text_hash: str | None = None,
+                          dedup_version: str | None = None) -> None:
+        """문서 MinHash 서명 1건 upsert — 증분 승격이 재계산을 건너뛰는 근거.
+
+        `text_hash` 는 ① 정확 복제 축 (MinHash near 판정이 제외하는 짧은 본문 포함).
+        """
+        from .dedup import DEDUP_VERSION
+
+        self._conn.execute(
+            """
+            INSERT INTO dup_signatures (doc_id, dedup_version, signature, text_hash)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT (doc_id, dedup_version) DO NOTHING
+            """,
+            [doc_id, dedup_version or DEDUP_VERSION, signature, text_hash],
+        )
+        if signature:
+            from .dedup import band_keys
+
+            for band_idx, rows in band_keys(list(signature)):
+                self._conn.execute(
+                    """
+                    INSERT INTO dup_bands (doc_id, dedup_version, band_idx, band_key)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT (doc_id, dedup_version, band_idx) DO NOTHING
+                    """,
+                    [doc_id, dedup_version or DEDUP_VERSION, band_idx, repr(rows)],
+                )
+
+    def band_candidates(self, keys: list[tuple[int, tuple[int, ...]]],
+                        dedup_version: str | None = None) -> dict[str, list[int]]:
+        """주어진 밴드 키를 공유하는 문서의 {doc_id: 서명} — near-dup 후보만 읽는다.
+
+        전체 서명 적재(1,000만 건 ≈5GB)를 피하는 경로다.
+        """
+        from .dedup import DEDUP_VERSION
+
+        if not keys:
+            return {}
+        pairs = [[band_idx, repr(tuple(rows))] for band_idx, rows in keys]
+        placeholders = ", ".join("(?, ?)" for _ in pairs)
+        params: list = [dedup_version or DEDUP_VERSION]
+        for pair in pairs:
+            params.extend(pair)
+        rows = self._conn.execute(
+            f"""SELECT DISTINCT s.doc_id, s.signature
+                FROM dup_bands b JOIN dup_signatures s
+                  ON s.doc_id = b.doc_id AND s.dedup_version = b.dedup_version
+                WHERE b.dedup_version = ?
+                  AND (b.band_idx, b.band_key) IN ({placeholders})""",
+            params,
+        ).fetchall()
+        return {doc_id: list(sig) for doc_id, sig in rows}
+
+    def docs_with_text_hash(self, text_hash: str,
+                            dedup_version: str | None = None) -> list[str]:
+        """정확 텍스트 해시가 같은 doc_id — ① 정확 복제 축 (전량 적재 없이 단건 조회)."""
+        from .dedup import DEDUP_VERSION
+
+        rows = self._conn.execute(
+            """SELECT doc_id FROM dup_signatures
+               WHERE dedup_version = ? AND text_hash = ? ORDER BY doc_id""",
+            [dedup_version or DEDUP_VERSION, text_hash],
+        ).fetchall()
+        return [r[0] for r in rows]
+
+    def text_hash_index(self, dedup_version: str | None = None) -> dict[str, list[str]]:
+        """{정규화 텍스트 해시: [doc_id]} — ① 정확 복제 그룹 조회."""
+        from .dedup import DEDUP_VERSION
+
+        rows = self._conn.execute(
+            """SELECT text_hash, doc_id FROM dup_signatures
+               WHERE dedup_version = ? AND text_hash IS NOT NULL
+               ORDER BY text_hash, doc_id""",
+            [dedup_version or DEDUP_VERSION],
+        ).fetchall()
+        out: dict[str, list[str]] = {}
+        for text_hash, doc_id in rows:
+            out.setdefault(text_hash, []).append(doc_id)
+        return out
+
+    def signatures(self, dedup_version: str | None = None) -> dict[str, list[int]]:
+        """해당 dedup_version 의 {doc_id: 서명} — LSH 후보 인덱스 입력."""
+        from .dedup import DEDUP_VERSION
+
+        rows = self._conn.execute(
+            "SELECT doc_id, signature FROM dup_signatures WHERE dedup_version = ?",
+            [dedup_version or DEDUP_VERSION],
+        ).fetchall()
+        return {doc_id: list(sig) for doc_id, sig in rows}
 
     def persist_cluster(
         self,
