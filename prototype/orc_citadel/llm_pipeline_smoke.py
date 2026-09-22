@@ -26,7 +26,7 @@ from orc_citadel.load_raw_zone import load_raw_zone
 from orc_citadel.parse import extract_html, parse_document
 from orc_citadel.resolve import EntityResolver
 
-DB_PATH = pathlib.Path(__file__).resolve().parent.parent / "data" / "curated_llm.duckdb"
+WAREHOUSE_ROOT = pathlib.Path(__file__).resolve().parent.parent / "data" / "iceberg"
 
 # 비용 상한 (LLM 미결 쌍 판정 수).
 LLM_CAP = 20
@@ -119,12 +119,10 @@ def _build_bounded_judge() -> _BoundedJudge:
 def main() -> None:
     store, metas = load_raw_zone()
     print(f"== LLM 하이브리드 E2E 스모크: {len(metas)} raw docs (LLM cap={LLM_CAP}) ==")
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    if DB_PATH.exists():
-        DB_PATH.unlink()
-
-    zone = CuratedZone(str(DB_PATH))
+    WAREHOUSE_ROOT.mkdir(parents=True, exist_ok=True)
+    zone = CuratedZone(WAREHOUSE_ROOT)
     zone.initialize()
+    zone.reset()
     resolver = EntityResolver()
     gate = Gate()
 

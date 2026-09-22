@@ -1,0 +1,377 @@
+from __future__ import annotations
+
+from datetime import datetime, timezone
+import json
+
+import pytest
+
+from orc_citadel.event_stream import EventEnvelope, InvalidEnvelope, STAGE_TOPICS
+from orc_citadel.incremental_promote import PromotionDataError
+from orc_citadel.promotion_consumer import (
+    BATCH_SIZE,
+    GROUP_ID,
+    PromotionConsumer,
+    consumer_config,
+)
+
+
+def test_consumer_config_is_stable_manual_and_bounded() -> None:
+    config = consumer_config("redpanda:9092")
+
+    assert GROUP_ID == "orc-citadel-s2-promotion-v1"
+    assert config["bootstrap.servers"] == "redpanda:9092"
+    assert config["group.id"] == GROUP_ID
+    assert config["enable.auto.commit"] is False
+    assert config["enable.auto.offset.store"] is False
+    assert BATCH_SIZE == 1_000
+
+
+
+def _raw_event(doc_id: str = "doc-" + "a" * 24, **changes) -> EventEnvelope:
+    fields = {
+        "event_version": 1,
+        "event_id": f"evt-{doc_id}",
+        "stage": "S2",
+        "event_type": "raw_stored",
+        "status": "succeeded",
+        "input_ref": "https://example.test/a",
+        "output_ref": f"raw://official-news/{doc_id}",
+        "idempotency_key": doc_id,
+        "correlation_id": f"corr-{doc_id}",
+        "attempt_count": 0,
+        "occurred_at": datetime(2026, 9, 22, tzinfo=timezone.utc),
+        "payload": {"source_id": "official-news"},
+    }
+    fields.update(changes)
+    return EventEnvelope(**fields)
+
+
+class _Message:
+    def __init__(self, value: bytes, *, offset: int = 0, key: bytes | None = None):
+        self._value = value
+        self._offset = offset
+        self._key = key
+
+    def value(self):
+        return self._value
+
+    def key(self):
+        return self._key
+
+    def topic(self):
+        return STAGE_TOPICS["S2"].primary
+
+    def partition(self):
+        return 0
+
+    def offset(self):
+        return self._offset
+
+    def error(self):
+        return None
+
+
+class _ConsumerClient:
+    def __init__(self, messages, order=None):
+        self.messages = messages
+        self.order = order if order is not None else []
+        self.subscriptions = []
+        self.commits = []
+        self.consume_args = None
+
+    def subscribe(self, topics):
+        self.subscriptions.append(topics)
+
+    def consume(self, *, num_messages, timeout):
+        self.consume_args = (num_messages, timeout)
+        messages, self.messages = self.messages, []
+        return messages
+
+    def commit(self, *, message, asynchronous):
+        self.order.append(("commit", message.offset()))
+        self.commits.append((message, asynchronous))
+
+
+class _Producer:
+    def __init__(self, order=None):
+        self.order = order if order is not None else []
+        self.published = []
+
+    def publish(self, envelope, *, route="primary"):
+        self.order.append(("publish", envelope.stage, route))
+        self.published.append((envelope, route))
+
+
+def test_successful_batch_promotes_referenced_ids_then_acks_s3_before_commit(tmp_path) -> None:
+    event = _raw_event()
+    messages = [
+        _Message(event.to_json(), offset=4),
+        _Message(event.to_json(), offset=5),
+    ]
+    order = []
+    client = _ConsumerClient(messages, order)
+    producer = _Producer(order)
+    promotions = []
+
+    def promote(raw_dir, data_dir, refs):
+        order.append(("promote", tuple(refs)))
+        promotions.append((raw_dir, data_dir, refs))
+        return {"new_docs": 1, "mentions": 1, "claims": 1,
+                "promoted_claims": 1, "clusters": 0}
+
+    worker = PromotionConsumer(
+        client, producer, raw_dir=tmp_path / "raw", data_dir=tmp_path / "data",
+        promote=promote,
+    )
+    processed = worker.run_once(timeout=0.25)
+
+    assert client.subscriptions == [[STAGE_TOPICS["S2"].primary,
+                                     STAGE_TOPICS["S2"].retry]]
+    assert client.consume_args == (BATCH_SIZE, 0.25)
+    assert processed == 2
+    assert promotions == [(tmp_path / "raw", tmp_path / "data",
+                           [("official-news", event.idempotency_key)] * 2)]
+    assert [(out.stage, out.event_type, route)
+            for out, route in producer.published] == [
+                ("S3", "normalization_completed", "primary"),
+                ("S3", "normalization_completed", "primary"),
+            ]
+    assert order.index(("promote", (("official-news", event.idempotency_key),) * 2)) < \
+        order.index(("publish", "S3", "primary")) < order.index(("commit", 4))
+    assert [async_ for _, async_ in client.commits] == [False, False]
+
+
+def test_invalid_envelope_and_reference_are_acked_to_quarantine_then_committed(tmp_path) -> None:
+    doc_id = "doc-" + "b" * 24
+    bad_reference = _raw_event(doc_id, output_ref=f"raw://wrong/{doc_id}")
+    path_source = _raw_event(
+        doc_id,
+        output_ref=f"raw://../../outside/{doc_id}",
+        payload={"source_id": "../../outside"},
+    )
+    messages = [
+        _Message(b"not-json", offset=1, key=doc_id.encode()),
+        _Message(bad_reference.to_json(), offset=2, key=doc_id.encode()),
+        _Message(path_source.to_json(), offset=3, key=doc_id.encode()),
+    ]
+    order = []
+    client = _ConsumerClient(messages, order)
+    producer = _Producer(order)
+
+    def should_not_promote(*args):
+        raise AssertionError("invalid input reached promotion")
+
+    processed = PromotionConsumer(
+        client, producer, raw_dir=tmp_path / "raw", data_dir=tmp_path / "data",
+        promote=should_not_promote,
+    ).run_once()
+
+    assert processed == 3
+    assert [(event.stage, event.status, route)
+            for event, route in producer.published] == [
+                ("S2", "quarantined", "quarantine"),
+                ("S2", "quarantined", "quarantine"),
+                ("S2", "quarantined", "quarantine"),
+            ]
+    assert [event.idempotency_key for event, _ in producer.published] == [
+        doc_id, doc_id, doc_id]
+    assert max(i for i, item in enumerate(order) if item[0] == "publish") < \
+        min(i for i, item in enumerate(order) if item[0] == "commit")
+
+
+def test_data_defect_is_quarantined_and_committed(tmp_path) -> None:
+    event = _raw_event("doc-" + "c" * 24)
+    client = _ConsumerClient([_Message(event.to_json(), key=event.idempotency_key.encode())])
+    producer = _Producer()
+
+    def reject_data(raw_dir, data_dir, refs):
+        raise PromotionDataError(refs[0][1], "unparseable document")
+
+    processed = PromotionConsumer(
+        client, producer, raw_dir=tmp_path / "raw", data_dir=tmp_path / "data",
+        promote=reject_data,
+    ).run_once()
+
+    assert processed == 1
+    assert [(out.status, route) for out, route in producer.published] == [
+        ("quarantined", "quarantine"),
+    ]
+    assert len(client.commits) == 1
+
+
+def test_data_defect_quarantines_only_the_exact_source_reference(tmp_path) -> None:
+    doc_id = "doc-" + "f" * 24
+    good = _raw_event(
+        doc_id,
+        output_ref=f"raw://good-source/{doc_id}",
+        payload={"source_id": "good-source"},
+    )
+    bad = _raw_event(
+        doc_id,
+        output_ref=f"raw://bad-source/{doc_id}",
+        payload={"source_id": "bad-source"},
+    )
+    client = _ConsumerClient([
+        _Message(good.to_json(), offset=1),
+        _Message(bad.to_json(), offset=2),
+    ])
+    producer = _Producer()
+    calls = []
+
+    def reject_one_source(raw_dir, data_dir, refs):
+        calls.append(refs)
+        if ("bad-source", doc_id) in refs:
+            raise PromotionDataError(
+                doc_id, "unparseable document", source_id="bad-source")
+        return {"new_docs": 1, "mentions": 0, "claims": 0,
+                "promoted_claims": 0, "clusters": 0}
+
+    processed = PromotionConsumer(
+        client, producer, raw_dir=tmp_path / "raw", data_dir=tmp_path / "data",
+        promote=reject_one_source,
+    ).run_once()
+
+    assert processed == 2
+    assert calls == [
+        [("good-source", doc_id), ("bad-source", doc_id)],
+        [("good-source", doc_id)],
+    ]
+    assert [(out.status, out.output_ref, route)
+            for out, route in producer.published] == [
+                ("quarantined", f"raw://bad-source/{doc_id}", "quarantine"),
+                ("succeeded", f"iceberg://normalized/documents/{doc_id}", "primary"),
+            ]
+    assert len(client.commits) == 2
+
+
+@pytest.mark.parametrize(
+    ("attempt_count", "route", "status"),
+    [(0, "retry", "retrying"), (1, "dlq", "failed"), (2, "dlq", "failed")],
+)
+def test_unexpected_failure_routes_incremented_retry_or_dlq_before_commit(
+        tmp_path, attempt_count, route, status) -> None:
+    event = _raw_event("doc-" + "d" * 24, attempt_count=attempt_count)
+    order = []
+    client = _ConsumerClient([_Message(event.to_json())], order)
+    producer = _Producer(order)
+
+    def fail(*args):
+        raise RuntimeError("catalog temporarily unavailable")
+
+    processed = PromotionConsumer(
+        client, producer, raw_dir=tmp_path / "raw", data_dir=tmp_path / "data",
+        promote=fail, max_retries=2,
+    ).run_once()
+
+    assert processed == 1
+    [(out, actual_route)] = producer.published
+    assert actual_route == route
+    assert out.stage == "S2"
+    assert out.status == status
+    assert out.attempt_count == attempt_count + 1
+    assert order.index(("publish", "S2", route)) < order.index(("commit", 0))
+
+
+def test_retry_drops_untrusted_payload_padding_and_still_commits(tmp_path) -> None:
+    payload = {"source_id": "official-news", "padding": []}
+    while True:
+        candidate = {
+            "source_id": "official-news",
+            "padding": [*payload["padding"], "x" * 8192],
+        }
+        try:
+            _raw_event(payload=candidate)
+        except InvalidEnvelope:
+            break
+        payload = candidate
+    low, high = 0, 8192
+    event = _raw_event(payload=payload)
+    while low <= high:
+        middle = (low + high) // 2
+        candidate = {**payload, "tail": "x" * middle}
+        try:
+            event = _raw_event(payload=candidate)
+        except InvalidEnvelope:
+            high = middle - 1
+        else:
+            low = middle + 1
+    client = _ConsumerClient([
+        _Message(event.to_json(), key=event.idempotency_key.encode())
+    ])
+    producer = _Producer()
+
+    def fail(*_args):
+        raise RuntimeError("e" * 2048)
+
+    processed = PromotionConsumer(
+        client, producer, raw_dir=tmp_path / "raw", data_dir=tmp_path / "data",
+        promote=fail, max_retries=2,
+    ).run_once()
+
+    assert processed == 1
+    [(retry, route)] = producer.published
+    assert route == "retry"
+    assert retry.attempt_count == 1
+    assert set(retry.payload) == {"source_id", "error"}
+    assert len(retry.to_json()) < 4096
+    assert len(client.commits) == 1
+
+
+def test_broker_publish_failure_leaves_offsets_uncommitted(tmp_path) -> None:
+    event = _raw_event("doc-" + "e" * 24)
+    client = _ConsumerClient([_Message(event.to_json())])
+
+    class RejectingProducer:
+        def publish(self, envelope, *, route="primary"):
+            raise RuntimeError("broker did not acknowledge")
+
+    def promote(*args):
+        return {"new_docs": 1, "mentions": 0, "claims": 0,
+                "promoted_claims": 0, "clusters": 0}
+
+    worker = PromotionConsumer(
+        client, RejectingProducer(), raw_dir=tmp_path / "raw",
+        data_dir=tmp_path / "data", promote=promote,
+    )
+    with pytest.raises(RuntimeError, match="acknowledge"):
+        worker.run_once()
+
+    assert client.commits == []
+
+
+def test_oversized_and_deep_events_are_quarantined_small_then_committed(tmp_path) -> None:
+    base = json.loads(_raw_event().to_json())
+    oversized = dict(base)
+    oversized["payload"] = {
+        "source_id": "official-news",
+        "padding": "x" * (1024 * 1024),
+    }
+    nested: object = "leaf"
+    for _ in range(40):
+        nested = {"next": nested}
+    deep = dict(base)
+    deep["payload"] = {"source_id": "official-news", "nested": nested}
+    messages = [
+        _Message(json.dumps(oversized).encode(), offset=1),
+        _Message(json.dumps(deep).encode(), offset=2),
+        _Message(b"not-json", offset=3, key=b"k" * (600 * 1024)),
+    ]
+    client = _ConsumerClient(messages)
+    producer = _Producer()
+
+    processed = PromotionConsumer(
+        client, producer, raw_dir=tmp_path / "raw", data_dir=tmp_path / "data",
+        promote=lambda *_args: (_ for _ in ()).throw(
+            AssertionError("poison record reached promotion")),
+    ).run_once()
+
+    assert processed == 3
+    assert len(client.commits) == 3
+    assert [(event.status, route) for event, route in producer.published] == [
+        ("quarantined", "quarantine"),
+        ("quarantined", "quarantine"),
+        ("quarantined", "quarantine"),
+    ]
+    assert all(len(event.idempotency_key) < 64
+               for event, _ in producer.published)
+    assert all(len(event.to_json()) < 1_024 for event, _ in producer.published)

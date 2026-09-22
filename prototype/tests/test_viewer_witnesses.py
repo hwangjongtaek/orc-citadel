@@ -27,10 +27,10 @@ HTML = b"""<html><head>
 
 @pytest.fixture
 def norm_db(tmp_path):
-    from orc_citadel.duckdb_zone import NormalizedZone
+    from orc_citadel.iceberg_zone import NormalizedZone
     from orc_citadel.parse import extract_html
 
-    path = str(tmp_path / "oc.duckdb")
+    path = str(tmp_path / "iceberg")
     z = NormalizedZone(path)
     z.initialize()
     doc = extract_html(HTML, "https://e/n")
@@ -66,16 +66,16 @@ def _facade():
 def test_document_endpoint_returns_segments(norm_db):
     """`/api/document` — doc_id 의 segments 를 read-only 노출 (원문 왕복)."""
     doc_id = "doc-wit000000000000000000001"
-    self = types.SimpleNamespace(facade=_facade(), normalized_db=norm_db)
+    self = types.SimpleNamespace(facade=_facade(), normalized_root=norm_db)
     # 파이프라인 doc_id 는 content hash base — 실제 id 를 zone 에서 취한다.
     claims = self.facade.zone.claims()
     doc_id = claims[0]["doc_id"] if claims and "doc_id" in claims[0] else doc_id
     # normalized 존에는 test HTML 의 sha256 doc_id 로 persist 됨 — documents() 로 확인.
-    from orc_citadel.duckdb_zone import NormalizedZone
+    from orc_citadel.iceberg_zone import NormalizedZone
     nz = NormalizedZone(norm_db)
     real = nz.documents()[0]["doc_id"]
     nz.close()
-    self = types.SimpleNamespace(facade=_facade(), normalized_db=norm_db)
+    self = types.SimpleNamespace(facade=_facade(), normalized_root=norm_db)
     r = json.loads(Handler._api_document(self, {"doc": real}))
     assert r["doc_id"] == real
     assert r["segments"] and all({"segment_id", "ord", "kind", "text",
@@ -85,7 +85,7 @@ def test_document_endpoint_returns_segments(norm_db):
 
 def test_document_endpoint_honest_empty(norm_db):
     """미존재/미가동 DB 는 정직 빈 segments."""
-    self = types.SimpleNamespace(facade=_facade(), normalized_db=norm_db)
+    self = types.SimpleNamespace(facade=_facade(), normalized_root=norm_db)
     r = json.loads(Handler._api_document(self, {"doc": "doc-does-not-exist"}))
     assert r["segments"] == [] or r.get("available") is False
 

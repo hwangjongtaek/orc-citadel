@@ -1,11 +1,11 @@
 # 04 · 수집·파싱 (Scouts · Archivists)
 
-> **상태:** ✅ Stable · **Spec:** 1.0.0 · **Blueprint 매핑:** §8.1–§8.3
+> **상태:** ✅ Stable · **Spec:** 1.7.0 · **Blueprint 매핑:** §8.1–§8.3
 > 상위 규약: [README](./README.md) · 관련: [01-architecture](./01-architecture.md), [03-storage](./03-storage-and-data-model.md), [05-resolution](./05-resolution-and-extraction.md)
 
 허용된 소스에서 문서를 수집(Fetch)하고, 원문을 손실 없이 정규화(Parse/Normalize)하며, 복제·파생을 출처 계보로 축소(Dedup)하는 파이프라인 전반(stage S1·S3·S4)을 확정한다. 본 문서는 커넥터 모델과 세 stage의 계약을 소유하며, 저장 스키마·ID 체계는 [`03`](./03-storage-and-data-model.md)을, 추출·해소(S5–S6)는 [`05`](./05-resolution-and-extraction.md)를 정본으로 참조한다.
 
-**stage 소유 범위:** S1(Fetch), S3(Parse/Normalize), S4(Dedup). S2(Store raw)의 객체 레이아웃·`fetch.json` 스키마는 [`03`](./03-storage-and-data-model.md) §2가 소유하며, 본 문서 S1이 그 필드를 채운다. 모든 stage는 `(input_ref, idempotency_key, version_tuple)` → `(output_ref, correlation_id)` 계약([`01`](./01-architecture.md) §4)을 따른다.
+**stage 소유 범위:** S1(Fetch), S3(Parse/Normalize), S4(Dedup). S2(Store raw)의 shard layout·수집 metadata schema는 [`03`](./03-storage-and-data-model.md) §2가 소유하며, 본 문서 S1이 그 필드를 채운다. 모든 stage는 `(input_ref, idempotency_key, version_tuple)` → `(output_ref, correlation_id)` 계약([`01`](./01-architecture.md) §4)을 따르고, S1/S2 경계는 acked reference-only Redpanda event로 연결한다.
 
 ## 1. Scouts (Source connectors) 커넥터 모델
 
@@ -48,7 +48,7 @@ blueprint §8.1. Scouts는 외부 세계에서 자료를 가져오는 수집 주
 ```
 
 - `source_type` ∈ `official`/`press`/`gov`/`research`/`exchange`. 초기 도메인(AI 반도체·데이터센터 공급망, [`README`](./README.md) §4)의 발행 주체 분류다.
-- `compliance.license`는 수집 정책이자 [`03`](./03-storage-and-data-model.md) `fetch.json.license`로 전파된다. 재배포 게이트는 `compliance.allow_redistribute`(bool, 기본 `false`)로 선언하며, retention·재배포 강제는 [`11`](./11-observability-and-governance.md) §5.4 governance가 이 필드명을 인용해 수행한다. `allow_store_raw`는 raw bytes 저장 허용 여부, `allow_redistribute`는 원문·발췌의 외부 재배포 허용 여부로 분리한다.
+- `compliance.license`는 수집 정책이자 [`03`](./03-storage-and-data-model.md) §2.2 논리 metadata의 `license`로 전파된다. 재배포 gate는 `compliance.allow_redistribute`(bool, 기본 `false`)로 선언하며, retention·재배포 강제는 [`11`](./11-observability-and-governance.md) §5.4 governance가 이 field를 인용해 수행한다. `allow_store_raw`는 raw bytes 저장 허용 여부, `allow_redistribute`는 원문·발췌의 외부 재배포 허용 여부로 분리한다.
 - `robots_respect: false`는 라이선스가 명시적으로 허용한 소스에 한해 ADR로만 승인한다. 수집 권한·라이선스 우회 크롤러는 명시적 비목표다(blueprint §비목표).
 
 ### 1.2 Connector 인터페이스 (Python 추상)
@@ -128,9 +128,13 @@ blueprint §8.1의 우선순위 **API › RSS › sitemap › download**를 sour
 | **`bulk_archive`** | 아카이브 URL | zip/tar(.gz) 대량 배포 — FR 월 zip·govinfo bulk·CFPB·Companies House | **`{archive_url}#{entry_path}`** (아카이브 URL 하나로는 내부를 구분할 수 없다) |
 | **`index_stream`** | config dict | URL 을 열거하는 인덱스 — EDGAR `master.idx`·govinfo 컬렉션 | 인덱스가 가리키는 문서 URL |
 
-- **`paged_api` 는 결과 상한에서 조용히 끊지 않는다** — `max_offset` 도달 시 `ResultCapReached` 를 올린다. 기존 `_arxiv_date_windows` 가 10k 초과 월을 말없이 누락하던 결함과 같은 부류를 구조적으로 막는다.
+- **`paged_api`는 결과 상한에서 조용히 끊지 않는다** — `max_offset` 도달 시 `ResultCapReached`를 올리고, collection boundary가 이를 `S1/result_cap_reached`, `status=terminal` event로 acked publish한다. 기존 `_arxiv_date_windows`가 10k 초과 월을 말없이 누락하던 결함과 같은 부류를 event-stream 경계에서도 구조적으로 막는다.
 - **`index_stream` 은 인덱스 중복 수록분을 한 번만 받는다** — EDGAR `master.idx` 는 공동제출을 CIK 별로 중복 수록한다 (2025Q4 중복률 29.7%, Form 4 는 52% — 2026-09-20 도메인 조사 실측).
-- `bulk_archive` 는 해석 불가한 바이트를 0건 성공으로 위장하지 않고 `errors` 로 집계한다.
+- `bulk_archive` 는 compressed response를 1 MiB chunk로 disk spool에 직접 내려받고
+  decompressed entry를 한 건씩 저장한다. compressed 2 GiB, ZIP central directory
+  128 MiB, entry 512 MiB, expanded total 8 GiB, 100,000 entries, expansion ratio 200
+  상한을 `ZipFile` materialization 전에 검사해 zip bomb·disk/OOM 고갈을 차단한다.
+  해석 불가·상한 초과를 0건 성공으로 위장하지 않고 `errors` 로 집계한다.
 - **소스 등록은 별개 결정이다** — 본 확장은 kind 와 디스패치만 제공한다. 실제 `SOURCES` 등록은 라이선스·robots·politeness 확인을 거친다 (§1.1 `compliance`, 11 §5.4).
 
 
@@ -162,7 +166,7 @@ blueprint §8.1의 우선순위 **API › RSS › sitemap › download**를 sour
 
 ## 2. Fetch stage (S1) 계약
 
-blueprint §8.1. 입력은 `source config` + `DiscoveredRef`, 출력은 S2로 넘길 원본 bytes와 `fetch.json` 필드다.
+blueprint §8.1. 입력은 `source config` + `DiscoveredRef`, 출력은 S2가 raw shard에 기록할 원본 bytes와 수집 metadata field다.
 
 ### 2.1 Idempotency
 
@@ -178,17 +182,17 @@ fetch(url) → content_hash 계산
    ├─ 직전 저장본과 동일 hash (또는 HTTP 304) → unchanged, 파이프라인 트리거 안 함
    └─ 다른 hash → 변경 감지
          └─ doc_id = "doc-" + sha256(raw_bytes)[:24]   ← 새 버전은 새 doc_id (03 §2.1)
-               → S2가 raw/source_id=…/doc_id=…/ 에 content.bin + fetch.json 저장
+               → S2가 raw/<source_id>/shard-*.parquet 에 content + metadata row 저장
                → S3(parse) 신규 트리거
 ```
 
 - **새 버전 → 새 `doc_id`:** 동일 `url`의 변경분은 덮어쓰지 않고 새 `doc_id`로 **모두 보존**한다([`03`](./03-storage-and-data-model.md) §2.2 불변식, ADR-301). `doc_id`가 내용 기반([`README`](./README.md) §2.2, ADR-001)이므로 동일 bytes 재수집은 동일 객체 → S2 idempotent.
 - 변경 탐지는 조건부 GET(ETag/Last-Modified)로 대역폭을 아끼고, 최종 판정은 항상 `content_hash`로 한다(헤더가 거짓말해도 hash가 진실).
-- 비교 기준이 되는 **직전 저장본의 `content_hash`·ETag**는 `url`별 최신 fetch 상태로 보관한다. 저장위치는 [`03`](./03-storage-and-data-model.md) §2.2 `fetch.json`(최신 `doc_id`) 및 소스 수집 상태(PostgreSQL, [`01`](./01-architecture.md) §5)이며, 조건부 GET 헤더 주입과 hash 비교의 입력이 된다.
+- 비교 기준이 되는 직전 저장본의 `content_hash`·ETag는 shard의 수집 metadata와 source 수집 상태(PostgreSQL, [`01`](./01-architecture.md) §5)에서 읽는다. 조건부 GET header 주입과 hash 비교의 입력이며, 별도 `fetch.json` object를 전제하지 않는다.
 
-### 2.3 `fetch.json` 필드 채움
+### 2.3 수집 metadata 필드 채움
 
-S1은 [`03`](./03-storage-and-data-model.md) §2.2가 소유하는 `fetch.json` 스키마를 채운다. 채움 규칙만 아래에 고정하고 스키마 원본은 [`03`](./03-storage-and-data-model.md)이 정본이다.
+S1은 [`03`](./03-storage-and-data-model.md) §2.2의 논리 metadata schema를 채운다. filesystem과 MinIO 모두 같은 raw shard column/`meta_json`으로 저장하며, 채움 규칙만 아래에 고정한다.
 
 | 필드 | 채움 규칙(S1) |
 | --- | --- |
@@ -201,6 +205,26 @@ S1은 [`03`](./03-storage-and-data-model.md) §2.2가 소유하는 `fetch.json` 
 | `license` | `config.compliance.license` 전파 |
 | `robots_allowed` | discover 시점 robots 평가 결과 |
 | `fetch_correlation_id` | S1 correlation ID([`11`](./11-observability-and-governance.md)) |
+
+### 2.4 S1/S2 event emission
+
+모든 collection path(RSS·sitemap·fixed URL·arXiv·SEC·paged API·bulk archive·
+index stream)는 raw shard가 durable해진 뒤 local SQLite outbox에 raw metadata를
+reconcile한다. 저장된 문서마다 `S1/document_fetched`와 `S2/raw_stored` envelope를
+이 순서로 발행하고, 각 broker acknowledgement 뒤 stage ack를 기록한다. raw commit과
+publish 사이에 process/broker가 실패해도 다음 dispatch가 URL skip보다 먼저 pending
+raw row를 다시 reconcile·drain하므로 event를 잃지 않는다.
+
+두 event는 raw bytes를 싣지 않는다. `S2/raw_stored.output_ref`는
+`raw://<source_id>/doc-<24hex>`이고 `idempotency_key`는 `doc_id`다. source는 path-safe
+slug만 허용하고 consumer는 reference의 정확한 `(source_id, doc_id)` raw row를 먼저
+검증한다. 동일 content가 여러 source에 존재하면 normalized의 단일 `source_id/url`은
+`(source_id, url)` 사전순 최소 raw provenance로 결정해 delivery order와 무관하게
+안정화한다. 재발행·재배달은 같은 content hash로 idempotent replay된다.
+
+APScheduler는 collection dispatch와 metrics만 담당한다. 직접 normalized/curated
+promotion, zone rebuild, snapshot을 호출하지 않으며, 승격 책임은 [`01`](./01-architecture.md)
+§4.1의 always-on S2 promotion consumer에 있다.
 
 ## 3. Parse/Normalize stage (S3)
 
@@ -283,30 +307,34 @@ blueprint §11·§14. Scouts·S1–S4의 건전성을 감시한다. **지표 정
 | 지표군 | 의미 | 배출 stage |
 | --- | --- | --- |
 | freshness | source별 최신 수집 시각 vs 기대 주기(`schedule.cron`) 지연 | S1 |
-| backlog | ingestion queue 적체·미처리 문서 수 | S1→S3→S4 |
-| failure | fetch/parse/dedup 실패율, dead-letter 유입률 | S1·S3·S4 |
+| backlog | Redpanda S1–S4 primary/retry 적체·미처리 reference 수 | S1→S3→S4 |
+| failure | fetch/parse/dedup 실패율, retry/DLQ/quarantine 유입률 | S1·S3·S4 |
 
 - 모든 stage 이벤트는 공통 correlation ID로 end-to-end 추적된다([`01`](./01-architecture.md) §1, [`11`](./11-observability-and-governance.md)). 상세·임계값은 [`11`](./11-observability-and-governance.md)에 위임한다.
 
 ## 6. 실패·재시도
 
-불변식 §3-6(Idempotency). 모든 stage는 idempotency key로 재실행 안전하며, retry해도 동일 결과를 중복 생성하지 않는다.
+불변식 §3-6(Idempotency). S1–S7은 각각 primary/retry/DLQ/quarantine topic을 가지며,
+모든 envelope는 versioned reference-only JSON이다. 상세 전달·offset 계약의 정본은
+[`01`](./01-architecture.md) §4.1이다.
 
 - **Idempotent 재실행:** S1은 `hash(source_id,url,fetch_window)`, S3는 `doc_id+parser_version`, S4는 `doc_id+dedup_version`로 재실행을 흡수한다. 부분 실패 후 재시도는 이미 완료된 단위를 no-op 처리한다.
-- **version 구성·bump 트리거:** `parser_version`은 문단/문장 분할 규칙·분할기 pin·정규화(offset 매핑) 로직의 조합을 식별하며, 그중 어느 하나라도 바뀌면 상향한다(→ 재파싱, §3.3). `dedup_version`은 3수준 판정 파라미터(ADR-403 임계값·MinHash/LSH 설정·LLM 판정 프롬프트/모델)의 조합을 식별하며, 어느 하나라도 바뀌면 상향한다(→ cluster 재생성, §4.2). 두 버전은 결정적이어서 동일 버전은 동일 산출물을 낸다.
-- **Backoff:** 일시 오류(네트워크·`429`/`5xx`)는 exponential backoff + jitter(`politeness.backoff`)로 재시도한다. rate limit은 소스별 토큰버킷을 넘지 않는다.
-- **Dead-letter:** 재시도 예산 소진, 영구 오류(파싱 불가·인코딩 판정 실패·`4xx` non-retryable)는 원본 bytes·오류 컨텍스트·correlation ID와 함께 dead-letter로 보낸다. **원본은 절대 유실하지 않으며**(raw는 immutable, [`03`](./03-storage-and-data-model.md) §2), 재처리는 `parser_version`/`dedup_version` 상향 후 동일 key로 안전하게 재실행한다.
-- 실패한 문서는 authoritative graph로 진입하지 않는다. provenance/파싱이 불완전한 element는 quarantine 경로([`03`](./03-storage-and-data-model.md) §8.3, [`05`](./05-resolution-and-extraction.md))로 격리한다.
+- **version 구성·bump trigger:** `parser_version`은 문단/문장 분할 규칙·분할기 pin·정규화(offset mapping) logic의 조합을, `dedup_version`은 MinHash/LSH·threshold·LLM 판정 설정을 식별한다. 구성 변경은 해당 version을 올리며 같은 version은 같은 결정적 산출물을 낸다.
+- **수집측 acknowledgement:** S1/S2 event는 raw shard durable write 뒤 `acks=all`로 publish한다. `ResultCapReached`는 재시도 가능한 broker 오류가 아니라 명시적 terminal S1 event다.
+- **승격측 manual offset:** 안정 group `orc-citadel-s2-promotion-v1`이 S2 primary+retry를 최대 1,000건씩 소비한다. auto commit/store는 끄며 Iceberg durable write와 S3 `normalization_completed` acknowledgement 또는 S2 retry/DLQ/quarantine acknowledgement가 모두 끝난 뒤에만 input offset을 commit한다.
+- **Retry / DLQ:** 예상하지 못한 transient failure는 `attempt_count`를 먼저 증가시킨다. 증가값이 `< max_retries`면 retry, `>= max_retries`면 DLQ다. publish 실패 중 input offset을 먼저 commit하지 않는다.
+- **Quarantine:** invalid envelope/reference, path-safe slug가 아닌 source, parsing/schema/provenance 등 재시도로 해소할 수 없는 data defect는 quarantine으로 보낸다. inbound/outbound envelope는 1 MiB, JSON depth 32, scalar 8,192자 상한을 적용하고 invalid Kafka key는 고정 길이 hash로 바꾼다. quarantine은 DLQ가 아니며 실패 문서는 authoritative graph에 진입하지 않는다.
+- **Raw 보존:** 어떤 failure route에서도 원본 shard row는 삭제하지 않는다. parser/dedup version 상향 뒤 같은 key로 안전하게 재처리할 수 있다.
 
 ## 7. 의사결정 로그
 
 | ID | 결정 | 근거 | 상태 |
 | --- | --- | --- | --- |
-| ADR-401 | `doc_id`는 내용 기반 `sha256(raw_bytes)[:24]`, 변경분은 새 `doc_id`로 전부 보존 | S2 idempotency + 버전 추적([`README`](./README.md) §2.2, [`03`](./03-storage-and-data-model.md) ADR-301) | Accepted |
+| ADR-401 | `doc_id`는 내용 기반 `"doc-" + sha256(raw_bytes)[:24]`, 변경분은 새 `doc_id`로 전부 보존 | S2 idempotency + 버전 추적([`README`](./README.md) §2.2, [`03`](./03-storage-and-data-model.md) ADR-301) | Accepted |
 | ADR-402 | S1 idempotency key = `hash(source_id, url, fetch_window)`, S2 idempotency(`doc_id`)와 분리 | 수집 창 중복 방지와 bytes 중복 저장 방지를 독립 계층으로(불변식 §3-6) | Accepted |
 | ADR-403 | near-dup은 MinHash/SimHash LSH로 후보 축소 후 애매 구간만 embedding 보강. 초기 임계값은 아래 placeholder로 고정하고 golden set 실측으로 조정 | LLM 없이 저비용 정밀, 임계값 튜닝 가능(blueprint §8.3) | Accepted · **구현(P1 A)**: `Deduplicator`를 `run_pipeline`에 배선해 `dup_clusters` 영속 + 결정적 cluster_id(`sorted(members)+dedup_version`) (`prototype/orc_citadel/dedup.py`·`pipeline_runner.py`, 2026-08-11) |
-| ADR-404 | LLM 의미적 파생 판정은 near-dup이 남긴 후보 쌍에만 계단식 호출(S4 수준 ③) | LLM 비용 통제 + 재현성(version tuple 부착) | Accepted |
-| ADR-405 | 파싱 실패·인코딩 판정 실패는 dead-letter로 보내되 raw bytes는 유실 없이 보존, 버전 상향 후 재처리 | immutable raw 불변식·재현성([`03`](./03-storage-and-data-model.md) §2, 불변식 §3-1) | Accepted |
+| ADR-406 | 파싱·encoding·schema 등 재시도로 해소할 수 없는 data defect는 quarantine으로 보내고 raw bytes는 보존한다. transient failure만 retry budget을 거쳐 DLQ로 보낸다 | immutable raw 불변식·재현성([`03`](./03-storage-and-data-model.md) §2)과 운영 실패/데이터 결함 route 분리 | Accepted · Implemented 2026-09-22 |
+| ADR-407 | LLM 의미적 파생 판정은 near-dup이 남긴 후보 쌍에만 계단식 호출(S4 수준 ③) | LLM 비용 통제 + 재현성(version tuple 부착) | Accepted |
 
 ### ADR-403 near-dup 파라미터 (초기값 · 실측 조정)
 

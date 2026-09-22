@@ -1,27 +1,22 @@
-"""DuckDB 영속화 스모크 — 실수집 문서를 정규화 zone에 영속·조회 (design 03 §3).
-
-실수집 raw 파일 → extract_html → parse → NormalizedZone.persist →
-DuckDB documents()/segments() 조회로 offset 왕복을 검증하고, raw HTML과의
-연결(내용 기반 doc_id)을 확인한다. 파생 DB는 prototype/data/ 아래(gitignore).
-"""
+"""Real raw documents -> normalized Iceberg persistence smoke."""
 from __future__ import annotations
 
 import pathlib
 
-from orc_citadel.duckdb_zone import NormalizedZone
+from orc_citadel.iceberg_zone import NormalizedZone
 from orc_citadel.load_raw_zone import load_raw_zone
 from orc_citadel.parse import extract_html
 from orc_citadel.identity import doc_id_for
 
-DB_PATH = pathlib.Path(__file__).resolve().parent.parent / "data" / "oc.duckdb"
+ICEBERG_ROOT = pathlib.Path(__file__).resolve().parent.parent / "data" / "iceberg"
 
 
 def main() -> None:
     store, metas = load_raw_zone()
-    print(f"== DuckDB 영속화 스모크: {len(metas)} real docs ==")
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    print(f"== Iceberg normalized smoke: {len(metas)} real docs ==")
+    ICEBERG_ROOT.mkdir(parents=True, exist_ok=True)
 
-    zone = NormalizedZone(str(DB_PATH))
+    zone = NormalizedZone(ICEBERG_ROOT)
     zone.initialize()
     ok = 0
     for m in metas:
@@ -46,7 +41,7 @@ def main() -> None:
     print(f"total segments: {total_segs}")
 
     # (선택) Parquet export 스모크 — 조회/그래프 입력용 (05 이후).
-    pq = DB_PATH.parent / "parquet"
+    pq = ICEBERG_ROOT.parent / "parquet"
     pq.mkdir(parents=True, exist_ok=True)
     zone.export_parquet(pq)
     print(f"parquet exported to {pq}: {sorted(p.name for p in pq.glob('*.parquet'))}")

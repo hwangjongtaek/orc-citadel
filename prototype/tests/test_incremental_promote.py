@@ -18,8 +18,13 @@ import pathlib
 import pytest
 
 from orc_citadel.curated_zone import CuratedZone
-from orc_citadel.duckdb_zone import NormalizedZone
-from orc_citadel.incremental_promote import new_doc_ids, promote_incremental
+from orc_citadel.iceberg_zone import NormalizedZone
+from orc_citadel.incremental_promote import (
+    new_doc_ids,
+    promote_doc_ids,
+    promote_raw_refs,
+    promote_incremental,
+)
 from orc_citadel.raw_shard import RawShardStore
 
 HTML = b"""<html><head>
@@ -56,7 +61,7 @@ def test_new_doc_ids_is_empty_when_zone_matches_shards(workspace):
     _seed(raw, ["a", "b"])
     promote_incremental(raw, data)
 
-    assert new_doc_ids(raw, data / "oc.duckdb") == []
+    assert list(new_doc_ids(raw, data / "iceberg")) == []
 
 
 def test_new_doc_ids_lists_only_unpromoted_docs(workspace):
@@ -65,7 +70,7 @@ def test_new_doc_ids_lists_only_unpromoted_docs(workspace):
     promote_incremental(raw, data)
     store = _seed(raw, ["c"])
 
-    got = new_doc_ids(raw, data / "oc.duckdb")
+    got = list(new_doc_ids(raw, data / "iceberg"))
 
     expected = [d["doc_id"] for d in store.iter_docs() if d["url"].endswith("/c")]
     assert got == expected
@@ -78,7 +83,7 @@ def test_promote_creates_zones_on_first_run(workspace):
     summary = promote_incremental(raw, data)
 
     assert summary["new_docs"] == 2
-    zone = NormalizedZone(str(data / "oc.duckdb"))
+    zone = NormalizedZone(data / "iceberg")
     try:
         assert len(zone.documents()) == 2
     finally:
@@ -95,7 +100,7 @@ def test_promote_appends_without_reprocessing_existing(workspace):
     summary = promote_incremental(raw, data)
 
     assert summary["new_docs"] == 1
-    zone = NormalizedZone(str(data / "oc.duckdb"))
+    zone = NormalizedZone(data / "iceberg")
     try:
         assert len(zone.documents()) == 3
     finally:
@@ -111,13 +116,101 @@ def test_promote_is_noop_when_nothing_new(workspace):
                                               "promoted_claims": 0, "clusters": 0}
 
 
+def test_requested_doc_duplicate_delivery_is_all_zero_without_duplicate_outputs(workspace):
+    raw, data = workspace
+    store = RawShardStore(raw)
+    content = HTML.replace(b"</article>", CLAIM_SENTENCE * 12 + b"</article>")
+    doc_id, _ = store.append("official-nvidia-news", "https://e/a", content, {})
+    store.flush()
+
+    first = promote_doc_ids(raw, data, [doc_id])
+    normalized = NormalizedZone(data / "iceberg")
+    curated = CuratedZone(data / "iceberg")
+    try:
+        normalized_after_first = normalized.counts()
+        curated_after_first = curated.counts()
+    finally:
+        curated.close()
+        normalized.close()
+
+    second = promote_doc_ids(raw, data, [doc_id])
+
+    normalized = NormalizedZone(data / "iceberg")
+    curated = CuratedZone(data / "iceberg")
+    try:
+        assert first["new_docs"] == 1
+        assert second == {"new_docs": 0, "mentions": 0, "claims": 0,
+                          "promoted_claims": 0, "clusters": 0}
+        assert normalized.counts() == normalized_after_first
+        assert curated.counts() == curated_after_first
+        assert curated_after_first["dup_signatures"] == 1
+        assert curated_after_first["dup_bands"] > 0
+    finally:
+        curated.close()
+        normalized.close()
+
+
+def test_promote_raw_ref_uses_stable_canonical_source_for_identical_bytes(workspace):
+    raw, data = workspace
+    store = RawShardStore(raw)
+    doc_id, _ = store.append(
+        "source-a", "https://a.test/article", HTML, {})
+    store.append("source-b", "https://b.test/article", HTML, {})
+    store.flush()
+
+    first = promote_raw_refs(raw, data, [("source-b", doc_id)])
+    second = promote_raw_refs(raw, data, [("source-a", doc_id)])
+    third = promote_raw_refs(raw, data, [("source-b", doc_id)])
+
+    zone = NormalizedZone(data / "iceberg")
+    try:
+        (document,) = zone.documents([doc_id])
+    finally:
+        zone.close()
+    assert first["new_docs"] == 1
+    assert second["new_docs"] == third["new_docs"] == 0
+    assert document["source_id"] == "source-a"
+    assert document["url"] == "https://a.test/article"
+
+
+def test_retry_repairs_curated_after_normalized_commit(tmp_path, monkeypatch):
+    """normalized 커밋 뒤 curated 실패가 나도 Kafka 재배달이 누락을 복구한다."""
+    import orc_citadel.incremental_promote as module
+
+    raw, data = tmp_path / "raw", tmp_path / "data"
+    data.mkdir()
+    store = RawShardStore(raw)
+    content = HTML.replace(b"</article>", CLAIM_SENTENCE * 12 + b"</article>")
+    doc_id, _ = store.append("official-nvidia-news", "https://e/repair", content, {})
+    store.flush()
+    real_run_pipeline = module.run_pipeline
+
+    def fail_after_normalized(*_args, **_kwargs):
+        raise RuntimeError("curated commit interrupted")
+
+    monkeypatch.setattr(module, "run_pipeline", fail_after_normalized)
+    with pytest.raises(RuntimeError, match="curated commit interrupted"):
+        module.promote_doc_ids(raw, data, [doc_id])
+    monkeypatch.setattr(module, "run_pipeline", real_run_pipeline)
+
+    summary = module.promote_doc_ids(raw, data, [doc_id])
+
+    curated = CuratedZone(data / "iceberg")
+    try:
+        assert summary["new_docs"] == 0
+        assert curated.mentions(doc_id)
+        assert curated.counts()["dup_signatures"] == 1
+    finally:
+        curated.close()
+
+
 def test_promote_persists_signature_per_new_doc(workspace):
     """서명은 문서당 1회 계산해 남긴다 — 다음 승격이 재계산하지 않는다."""
     raw, data = workspace
     _seed(raw, ["a", "b"])
     promote_incremental(raw, data)
 
-    zone = CuratedZone(str(data / "curated.duckdb"))
+    zone = CuratedZone(data / "iceberg")
     try:
         assert len(zone.signatures()) == 2
     finally:
@@ -141,7 +234,7 @@ def test_promote_detects_duplicate_against_previously_promoted_doc(workspace):
     store2.flush()
     promote_incremental(raw, data)
 
-    zone = CuratedZone(str(data / "curated.duckdb"))
+    zone = CuratedZone(data / "iceberg")
     try:
         clusters = zone.clusters()
     finally:
@@ -201,7 +294,7 @@ def test_canonicalizes_new_claim_with_previously_promoted_equivalent(workspace):
     second.flush()
     promote_incremental(raw, data)
 
-    zone = CuratedZone(str(data / "curated.duckdb"))
+    zone = CuratedZone(data / "iceberg")
     try:
         canonicals = zone.canonical_claims()
         claims = zone.claims()

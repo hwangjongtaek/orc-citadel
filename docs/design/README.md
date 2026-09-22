@@ -4,9 +4,9 @@
 > 프로젝트 진행 중 스키마·계약·의사결정의 **Single Source of Truth(SSOT)** 역할을 한다.
 > 진행 내역은 [`docs/ROADMAP.md`](../ROADMAP.md)에서 관리한다.
 
-- **Spec version:** `1.6.0` (Campaign Ledger HTML report artifact + 안전 열람 계약, 2026-09-21)
+- **Spec version:** `1.7.0` (Lakekeeper/Iceberg 저장·Redpanda 수집/승격 cutover, 2026-09-22)
 - **Ontology version 기준선:** `1.0.0` (→ [`02-ontology.md`](./02-ontology.md))
-- **최종 갱신:** 2026-09-21
+- **최종 갱신:** 2026-09-22
 
 ## 1. 문서 지도
 
@@ -64,6 +64,10 @@
 - **ULID**를 UUIDv4 대신 채택하는 이유: 시간 정렬 가능성(생성 순서 보존)으로 이벤트 로그·페이지네이션에 유리.
 - ID는 불변이다. 엔터티 병합 시 `SAME_AS`/canonical 매핑으로 표현하고 ID를 재작성하지 않는다 (→ [`05`](./05-resolution-and-extraction.md), [`06`](./06-graph-service.md)).
 - 위 표는 **영속 도메인·시스템 엔터티**를 다룬다. 운영·일시(transient) 식별자(비동기 job `job-`, correlation `corr-`, 조사 step `step-`, structured query `sq-`, alert `alt-`)는 각 하위 문서가 로컬로 정의한다.
+- 위 표의 `Event (evt-)`는 ontology/domain event 식별자다. Redpanda transport
+  `EventEnvelope.event_id`는 재발행 시 동일성을 유지하도록
+  `evt-<sha256(event_type + ":" + idempotency_key)[:24]>`로 결정적으로 생성한다.
+  transport 멱등성의 정본 key는 별도 `idempotency_key`이며 ULID 규칙을 적용하지 않는다.
 
 ### 2.3 버전 축(Version Axes)
 

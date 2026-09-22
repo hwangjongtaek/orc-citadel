@@ -19,6 +19,42 @@ services:
       timeout: 3s
       retries: 10
 
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v25.2.9
+    command:
+      - redpanda
+      - start
+      - --smp=1
+      - --memory=1G
+      - --reserve-memory=0M
+      - --overprovisioned
+      - --node-id=0
+      - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr=internal://redpanda:9092,external://127.0.0.1:19092
+    ports:
+      - "127.0.0.1:19092:19092"
+      - "127.0.0.1:9644:9644"
+    volumes:
+      - redpanda-data:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health -X brokers=localhost:9092 --exit-when-healthy"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+  redpanda-init:
+    profiles: ["prototype"]
+    build: ./prototype
+    command: ["python", "-m", "orc_citadel.event_stream", "bootstrap"]
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    restart: "no"
+
   minio:
     image: quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z
     command: server /data --console-address ":9001"
@@ -26,8 +62,8 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:?}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?}
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
     volumes:
       - minio-data:/data
     healthcheck:
@@ -36,6 +72,31 @@ services:
       timeout: 3s
       retries: 10
 
+
+  lakekeeper:
+    image: quay.io/lakekeeper/catalog:v0.13.4
+    command: ["serve"]
+    environment:
+      LAKEKEEPER__PG_HOST_R: postgres
+      LAKEKEEPER__PG_HOST_W: postgres
+      LAKEKEEPER__PG_PORT: "5432"
+      LAKEKEEPER__PG_USER: ${POSTGRES_USER:?}
+      LAKEKEEPER__PG_PASSWORD: ${POSTGRES_PASSWORD:?}
+      LAKEKEEPER__PG_DATABASE: ${POSTGRES_DB:?}
+      LAKEKEEPER__PG_SSL_MODE: disable
+      LAKEKEEPER__PG_ENCRYPTION_KEY: ${LAKEKEEPER_PG_ENCRYPTION_KEY:?}
+      LAKEKEEPER__AUTHZ_BACKEND: allowall
+    ports:
+      - "127.0.0.1:8181:8181"
+    healthcheck:
+      test: ["CMD", "/home/nonroot/lakekeeper", "healthcheck"]
+      interval: 5s
+      timeout: 10s
+      retries: 10
+      start_period: 5s
+    depends_on:
+      postgres:
+        condition: service_healthy
   neo4j:
     image: neo4j:5.26-community
     environment:
@@ -120,16 +181,31 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:?}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
       POSTGRES_DB: ${POSTGRES_DB:?}
+      ICEBERG_CATALOG_URI: ${ICEBERG_CATALOG_URI:?}
+      ICEBERG_WAREHOUSE: ${ICEBERG_WAREHOUSE:?}
+      LAKEKEEPER_WAREHOUSE_BUCKET: ${LAKEKEEPER_WAREHOUSE_BUCKET:?}
+      ICEBERG_S3_ENDPOINT: ${ICEBERG_S3_ENDPOINT:?}
+      ICEBERG_S3_REGION: ${ICEBERG_S3_REGION:?}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?}
       LLM_PROVIDER: ${LLM_PROVIDER:-}
       LLM_MODEL: ${LLM_MODEL:-}
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_BASE_URL: ${LLM_BASE_URL:-}
       LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-}
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
     depends_on:
       postgres:
         condition: service_healthy
+      minio:
+        condition: service_healthy
+      lakekeeper:
+        condition: service_healthy
+      redpanda-init:
+        condition: service_completed_successfully
     volumes:
       - ./prototype/data:/app/data
+      - ./deploy/lakekeeper:/app/deploy/lakekeeper:ro
       # 정적 자산 — 이미지에는 prototype/ 만 들어간다. 히어로 PNG 19MB 를
       # 이미지에 굽지 않으려고 원본을 read-only 로 물린다 (viewer_static.py).
       - ./docs/mockups/assets:/app/static/img:ro
@@ -139,6 +215,31 @@ services:
       - ./design-system/fonts/dist:/app/static/fonts:ro
       # 8공간 라우트의 유일한 표시 계층 — 없으면 viewer 가 정직 503 (dist 는 커밋 대상).
       - ./frontend/dist:/app/static/app-dist:ro
+
+  promotion-consumer:
+    profiles: ["prototype"]
+    build: ./prototype
+    command: ["python", "-m", "orc_citadel.promotion_consumer"]
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+      ICEBERG_CATALOG_URI: ${ICEBERG_CATALOG_URI:?}
+      ICEBERG_WAREHOUSE: ${ICEBERG_WAREHOUSE:?}
+      LAKEKEEPER_WAREHOUSE_BUCKET: ${LAKEKEEPER_WAREHOUSE_BUCKET:?}
+      ICEBERG_S3_ENDPOINT: ${ICEBERG_S3_ENDPOINT:?}
+      ICEBERG_S3_REGION: ${ICEBERG_S3_REGION:?}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?}
+    depends_on:
+      minio:
+        condition: service_healthy
+      lakekeeper:
+        condition: service_healthy
+      redpanda-init:
+        condition: service_completed_successfully
+    volumes:
+      - ./prototype/data:/app/data
+      - ./deploy/lakekeeper:/app/deploy/lakekeeper:ro
+    restart: unless-stopped
 
   investigation-worker:
     profiles: ["prototype"]
@@ -164,4 +265,5 @@ volumes:
   minio-data:
   neo4j-data:
   opensearch-data:
+  redpanda-data:
   grafana-data:

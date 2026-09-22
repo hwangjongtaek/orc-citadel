@@ -2,7 +2,7 @@
 
 실수집 claim은 전부 announces·positive라 같은 subject+predicate에서 상충 쌍이 없다
 (정직한 실측) — 결정적 충돌 후보 규칙(05 §5.1)의 정당성은 합성 케이스로 시연한다.
-conflict_candidates는 curated zone에 영속 (02 §3.1·ADR-504). 파생 DB gitignore.
+conflict_candidates는 curated zone에 영속 (02 §3.1·ADR-504). 파생 Iceberg는 gitignore.
 """
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from orc_citadel.load_raw_zone import load_raw_zone
 from orc_citadel.parse import extract_html, parse_document
 from orc_citadel.resolve import EntityResolver
 
-DB_PATH = pathlib.Path(__file__).resolve().parent.parent / "data" / "curated.duckdb"
+WAREHOUSE_ROOT = pathlib.Path(__file__).resolve().parent.parent / "data" / "iceberg"
 
 
 def _real_claims(metas):
@@ -37,12 +37,10 @@ def _real_claims(metas):
 def main() -> None:
     store, metas = load_raw_zone()
     print(f"== S10 충돌 후보 스모크: {len(metas)} real docs ==")
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    if DB_PATH.exists():
-        DB_PATH.unlink()
-
-    zone = CuratedZone(str(DB_PATH))
+    WAREHOUSE_ROOT.mkdir(parents=True, exist_ok=True)
+    zone = CuratedZone(WAREHOUSE_ROOT)
     zone.initialize()
+    zone.reset()
 
     # 1) 실수집 — 모순 후보 (정직한 0건 기대).
     real = _real_claims(metas)

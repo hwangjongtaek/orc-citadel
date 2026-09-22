@@ -116,16 +116,21 @@ def _build_default_client():
 
     return build_llm_client()
 
+_AUTO_CLIENT = object()
+
 
 class ClaudeJudge:
     """Anthropic Claude 판정 — LlmJudge 규약(05 §5)·version tuple 부착(07 §6.1).
 
-    클라이언트를 주입받으면 그대로 사용, 없으면 anthropic 기본 래퍼. 검증 실패·예외
-    시 `None`(canonical/contradiction) 또는 stub 폴백 — 자동 병합·반박 금지(ADR-507).
+    클라이언트 인자를 생략하면 환경 기반 기본 client를 만들고, 명시적으로 `None`을
+    주입하면 offline stub을 사용한다. 검증 실패·예외 시 `None`(canonical/contradiction)
+    또는 stub 폴백 — 자동 병합·반박 금지(ADR-507).
     """
 
-    def __init__(self, client=None, slo_log=None):
-        self._client = client if client is not None else _build_default_client()
+    def __init__(self, client=_AUTO_CLIENT, slo_log=None):
+        self._client = (
+            _build_default_client() if client is _AUTO_CLIENT else client
+        )
         self._stub = DeterministicStub()
         self._canonical_prompt = _CANONICAL_SCHEMA_INSTRUCTION
         self._contradiction_prompt = _CONTRADICTION_SCHEMA_INSTRUCTION

@@ -18,7 +18,7 @@ from raw_fixture import write_raw_shard
 
 
 class _SampleDir:
-    """테스트용 인젝션 디렉터리 — raw 파일 트리 + normalized DuckDB."""
+    """Test injection paths for raw shards and normalized Iceberg."""
 
     def __init__(self, raw: Path, norm: str):
         self.raw = str(raw)
@@ -34,15 +34,15 @@ class _SampleDir:
 
 @pytest.fixture
 def sample_dirs(tmp_path):
-    from orc_citadel.duckdb_zone import NormalizedZone
+    from orc_citadel.iceberg_zone import NormalizedZone
     from orc_citadel.parse import extract_html
 
     raw = tmp_path / "raw"
     for src, n in (("src-a", 2), ("src-b", 1)):
         write_raw_shard(raw, src, [{"content": f"<h1>{src}-{i}</h1>".encode(),
                                     "url": "https://e"} for i in range(n)])
-    # normalized DuckDB — 문서 1건 persist (norm_docs=1).
-    norm_db = str(tmp_path / "oc.duckdb")
+    # normalized Iceberg — 문서 1건 persist.
+    norm_db = str(tmp_path / "iceberg")
     z = NormalizedZone(norm_db)
     z.initialize()
     doc = extract_html(HTML, "https://e/n")
@@ -91,7 +91,7 @@ def _gate(self):
 def test_gate_includes_zone_counts_and_ranking(sample_dirs):
     facade = _build_facade()
     self = types.SimpleNamespace(facade=facade, raw_dir=sample_dirs.raw,
-                                 normalized_db=sample_dirs.norm)
+                                 normalized_root=sample_dirs.norm)
     r = _gate(self)
     # curated 카운트 — 인메모리 facade 자료 (assertions ≥1).
     assert r["curated"]["assertions"] >= 1
@@ -106,7 +106,7 @@ def test_gate_includes_zone_counts_and_ranking(sample_dirs):
 def test_gate_includes_raw_and_normalized_counts(sample_dirs):
     facade = _build_facade()
     self = types.SimpleNamespace(facade=facade, raw_dir=sample_dirs.raw,
-                                 normalized_db=sample_dirs.norm)
+                                 normalized_root=sample_dirs.norm)
     r = _gate(self)
     assert r["raw_doc_count"] == sample_dirs.raw_docs
     assert r["raw_sources"] == sample_dirs.raw_sources

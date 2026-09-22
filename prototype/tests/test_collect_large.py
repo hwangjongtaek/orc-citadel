@@ -180,7 +180,7 @@ def test_collect_sec_saves_gov(monkeypatch):
     monkeypatch.setattr(SecEdgarConnector, "fetch",
                         lambda self, ref, prior_etag=None: FakeFetchResult())
 
-    def fake_save(source_id, url, content, meta, raw_dir=None):
+    def fake_save(source_id, url, content, meta, raw_dir=None, minio_store=None):
         if (source_id, url) in saved_keys:
             return f"doc-{hash(url)%1000:03d}", False
         saved_keys.add((source_id, url))

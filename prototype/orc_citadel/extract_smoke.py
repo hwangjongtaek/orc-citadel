@@ -3,7 +3,7 @@
 실수집 raw → extract_html → parse → extract_mentions → CuratedZone.persist_mention →
 mentions() 조회로 span 왕복(offset·surface 정합)을 검증하고, Parquet export까지 확인한다.
 S4 dedup cluster도 같은 curated zone에 영속해 출처 계보와 한 곳에 모은다.
-파생 DB는 prototype/data/ 아래(gitignore).
+파생 Iceberg warehouse는 prototype/data/ 아래(gitignore).
 """
 from __future__ import annotations
 
@@ -15,15 +15,14 @@ from orc_citadel.extract import extract_mentions
 from orc_citadel.load_raw_zone import load_raw_zone
 from orc_citadel.parse import extract_html, parse_document
 
-DB_PATH = pathlib.Path(__file__).resolve().parent.parent / "data" / "curated.duckdb"
+WAREHOUSE_ROOT = pathlib.Path(__file__).resolve().parent.parent / "data" / "iceberg"
 
 
 def main() -> None:
     store, metas = load_raw_zone()
     print(f"== S5 추출+curated 영속 스모크: {len(metas)} real docs ==")
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-
-    zone = CuratedZone(str(DB_PATH))
+    WAREHOUSE_ROOT.mkdir(parents=True, exist_ok=True)
+    zone = CuratedZone(WAREHOUSE_ROOT)
     zone.initialize()
 
     ok = 0
@@ -73,7 +72,7 @@ def main() -> None:
     print(f"dedup clusters persisted: {len(clusters)}")
 
     # Parquet export
-    pq = DB_PATH.parent / "curated-parquet"
+    pq = WAREHOUSE_ROOT.parent / "curated-parquet"
     zone.export_parquet(pq)
     print(f"parquet: {sorted(p.name for p in pq.glob('*.parquet'))}")
 

@@ -2,7 +2,7 @@
 
 mention(span·해소 entity·type) 게이트로 authoritative 노드 승격을 검증하고,
 POSSIBLY_SAME_AS edge 후보(score·resolution_ref) 게이트로 create_edge 승격을 확인한다.
-SAME_AS 자동 병합은 결정적 식별자만(ADR-507) — edge는 후보/승격만. 파생 DB gitignore.
+SAME_AS 자동 병합은 결정적 식별자만(ADR-507) — edge는 후보/승격만. 파생 Iceberg는 gitignore.
 """
 from __future__ import annotations
 
@@ -16,18 +16,16 @@ from orc_citadel.load_raw_zone import load_raw_zone
 from orc_citadel.parse import extract_html, parse_document
 from orc_citadel.resolve import EntityResolver
 
-DB_PATH = pathlib.Path(__file__).resolve().parent.parent / "data" / "curated.duckdb"
+WAREHOUSE_ROOT = pathlib.Path(__file__).resolve().parent.parent / "data" / "iceberg"
 
 
 def main() -> None:
     store, metas = load_raw_zone()
     print(f"== S12 mention/edge 게이트 스모크: {len(metas)} real docs ==")
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    if DB_PATH.exists():
-        DB_PATH.unlink()
-
-    zone = CuratedZone(str(DB_PATH))
+    WAREHOUSE_ROOT.mkdir(parents=True, exist_ok=True)
+    zone = CuratedZone(WAREHOUSE_ROOT)
     zone.initialize()
+    zone.reset()
     resolver = EntityResolver()
     gate = Gate()
 

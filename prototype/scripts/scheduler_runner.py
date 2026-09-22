@@ -2,8 +2,8 @@
 
 `orc_citadel.scheduler.build_scheduler_jobs()` 의 job 정의(순수 dict)를
 APScheduler `BackgroundScheduler` 에 등록하고 **상주 실행**한다. cron 대신
-파이썬 프로세스가 자기 주기(07:07 수집·07:37 SLO-06)로 dispatch — cron 외부
-의존·샌드박스 hang 우회. 상주성은 launchd 가 유지.
+파이썬 프로세스가 자기 주기(07:07 수집·07:37 SLO-06)로 collection dispatch —
+cron 외부 의존·샌드박스 hang 우회. 상주성은 launchd 가 유지.
 
 - **단일 발화 주체**: 활성 스케줄러는 정확히 1개 (단일 호스트). 태스크 함수와
   job 정의는 분리 — 태스크는 기존 `scripts/nightly_*.main()` 이 소유 (단일 책임).
@@ -15,7 +15,6 @@ APScheduler `BackgroundScheduler` 에 등록하고 **상주 실행**한다. cron
 from __future__ import annotations
 
 import sys
-import time
 from pathlib import Path
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -45,80 +44,19 @@ def _flush_metrics(job_id: str, summary: dict | None, slo_log) -> None:
               flush=True)
 
 
-def _snapshot_parquet() -> None:
-    """런 종료 훅 — DuckDB 존 parquet 스냅샷 (specs/ui-overhaul-astryx 16a).
-
-    **비차단**: safe_snapshot 은 예외를 전파하지 않는다 — 존 잠금·부재여도
-    런은 성공하고, 실패한 존은 직전 스냅샷이 유지된다.
-    """
-    from orc_citadel.parquet_snapshot import safe_snapshot
-    res = safe_snapshot()
-    if res.get("exported"):
-        zones = {z: v.get("tables", v.get("error")) for z, v in res["zones"].items()}
-        print(f"[parquet] snapshot {zones}", flush=True)
-    else:
-        print(f"[parquet] export 실패(비차단 — 런은 정상): "
-              f"{res.get('error') or res.get('zones')}", flush=True)
-
-
 def _rebuild_zones() -> int:
-    """전량 재빌드 — 파서·추출 버전이 바뀌어 과거 산출을 다시 만들어야 할 때만.
-
-    nightly 는 `_promote_new_docs`(증분)를 쓴다. 테스트가 갈아끼울 수 있게 얇게 감싼다.
-    """
+    """Explicit manual full rebuild; never invoked by the nightly scheduler."""
     from scripts.rebuild_zones import rebuild
     return rebuild()
 
 
-def _promote_new_docs() -> dict:
-    """증분 승격 진입점 — 존에 없는 문서만 올린다 (테스트 seam)."""
-    from orc_citadel.incremental_promote import promote_incremental
-    return promote_incremental(DATA / "raw", DATA)
-
-
-def _promote_zones(summary: dict | None) -> None:
-    """런 종료 훅 — raw → normalized·curated 승격 (수집 직후, 스냅샷 직전).
-
-    수집만 하고 승격하지 않으면 화면은 어제 지식에 멈춘다 (2026-09-18 prod 실측:
-    raw 127건을 받고도 curated 0 — 사람이 손으로 `rebuild_zones` 를 돌려야 했다).
-
-    **증분이다** — 존에 아직 없는 문서만 올린다. 전량 재빌드는 dedup 서명 재계산만
-    1,000만 건에서 36시간(12.4ms/doc 실측)이라 nightly 주기에 들어가지 않는다.
-    전량 경로(`_rebuild_zones`)는 파서·추출 버전 변경 시의 별도 작업으로 남는다.
-
-    **신규 0건이면 건너뛴다.** 신규 판별 자체도 DuckDB anti-join 한 번이다.
-
-    **비차단**: _flush_metrics·_snapshot_parquet 과 같은 정책이다 — 승격이 실패해도
-    수집 결과(raw)는 이미 영속했고 다음 런이 다시 시도한다. 대신 실패를 조용히
-    넘기지 않고 로그로 남긴다.
-    """
-    total_new = int((summary or {}).get("total_new") or 0)
-    if total_new <= 0:
-        print("[promote] 신규 문서 0건 — 승격 생략 (존은 직전 상태 유지)", flush=True)
-        return
-    t0 = time.perf_counter()
-    try:
-        summary = _promote_new_docs()
-    except Exception as exc:  # noqa: BLE001 - 비차단 훅
-        print(f"[promote] 승격 실패(비차단 — 수집은 정상): {exc!r}", flush=True)
-        return
-    elapsed = time.perf_counter() - t0
-    print(f"[promote] 증분 승격 완료 {elapsed:.1f}s — 신규 {summary['new_docs']}건 · "
-          f"mentions {summary['mentions']} · claims {summary['claims']}"
-          f"(승격 {summary['promoted_claims']}) · 복제 클러스터 {summary['clusters']}",
-          flush=True)
-
-
 def run_collect() -> None:
-    """nightly 수집 태스크 — 수집 → 승격 → 스냅샷 (RSS/sitemap 신규만)."""
+    """Dispatch nightly collection; the S2 consumer owns asynchronous promotion."""
     from orc_citadel.slo_observation_log import SloObservationLog
     from scripts.nightly_collect import main as nightly_collect
     slo_log = SloObservationLog()
     summary = nightly_collect(slo_log=slo_log)
     _flush_metrics("nightly_collect", summary, slo_log)
-    # 승격이 스냅샷보다 **먼저** 와야 parquet 이 승격된 존을 담는다.
-    _promote_zones(summary)
-    _snapshot_parquet()
 
 
 def run_slo06() -> None:

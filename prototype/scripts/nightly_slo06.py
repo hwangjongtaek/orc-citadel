@@ -84,7 +84,7 @@ def _measure_candidates(judge):
     from orc_citadel.gate import Gate
 
     store, metas = load_raw_zone()
-    zone = CuratedZone(path=":memory:")
+    zone = CuratedZone(":memory:")
     zone.initialize()
     resolver = EntityResolver()
     gate = Gate()

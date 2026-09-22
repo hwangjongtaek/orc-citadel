@@ -18,9 +18,9 @@ from .planner import InvestigationPlanner
 from .synthesis import Audit, Synthesizer
 
 
-def build_read_facade(db_path: str | Path) -> ApiFacade:
-    """Worker마다 독립된 read-only DuckDB 연결과 그래프 projection을 연다."""
-    zone = CuratedZone(str(db_path), read_only=True)
+def build_read_facade(warehouse_root: str | Path) -> ApiFacade:
+    """Open the shared Iceberg warehouse and project its curated assertions."""
+    zone = CuratedZone(warehouse_root, read_only=True)
     graph = GraphService()
     for assertion in zone.assertions():
         for node, event_id in (

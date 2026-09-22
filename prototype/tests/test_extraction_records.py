@@ -41,7 +41,7 @@ def zone():
 # ---- §8.2 extraction_records persist ----
 def test_extraction_records_table_schema(zone):
     """§8.2 정본 컬럼이 모두 존재 (추출 기록 영속 계약)."""
-    cols = {r[0] for r in zone._conn.execute("DESCRIBE extraction_records").fetchall()}
+    cols = set(zone.columns("extraction_records"))
     expected = {
         "extraction_id", "element_id", "doc_id", "segment_id",
         "char_start", "char_end", "content_hash", "fetched_at",

@@ -7,7 +7,7 @@
 - 각 doc: extract_html→parse→mentions→resolve→(mention 게이트)→claims→(claim 게이트)
   →canonicalize→contradiction→assertion→authoritative mention.
 - aggregate 통계 + 불변식 점검 (결정성·멱등성, 전 doc 무결성).
-파생 DB는 prototype/data/ 아래(gitignore).
+파생 Iceberg warehouse는 prototype/data/ 아래(gitignore).
 """
 from __future__ import annotations
 
@@ -27,18 +27,16 @@ from orc_citadel.load_raw_zone import load_raw_zone
 from orc_citadel.parse import extract_html, parse_document
 from orc_citadel.resolve import EntityResolver
 
-DB_PATH = pathlib.Path(__file__).resolve().parent.parent / "data" / "curated.duckdb"
+WAREHOUSE_ROOT = pathlib.Path(__file__).resolve().parent.parent / "data" / "iceberg"
 
 
 def main() -> None:
     store, metas = load_raw_zone()
     print(f"== 대량 파이프라인 E2E 스모크: {len(metas)} raw docs ==")
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    if DB_PATH.exists():
-        DB_PATH.unlink()
-
-    zone = CuratedZone(str(DB_PATH))
+    WAREHOUSE_ROOT.mkdir(parents=True, exist_ok=True)
+    zone = CuratedZone(WAREHOUSE_ROOT)
     zone.initialize()
+    zone.reset()
     resolver = EntityResolver()
     gate = Gate()
 

@@ -14,7 +14,7 @@ from orc_citadel.investigation_report import HtmlReportGenerator
 from orc_citadel.llm_providers import build_llm_client
 from orc_citadel.postgres_mutation_log import build_dsn
 
-DATA_DB = pathlib.Path(__file__).resolve().parent.parent / "data" / "curated.duckdb"
+WAREHOUSE_ROOT = pathlib.Path(__file__).resolve().parent.parent / "data" / "iceberg"
 POLL_SECONDS = 1
 
 
@@ -26,7 +26,7 @@ def main() -> None:
         worker = InvestigationWorker(
             store,
             worker_id=worker_id,
-            facade_factory=lambda: build_read_facade(DATA_DB),
+            facade_factory=lambda: build_read_facade(WAREHOUSE_ROOT),
             report_generator=HtmlReportGenerator(build_llm_client()),
         )
         while True:

@@ -12,6 +12,7 @@ sys.path.insert(0, str(_REPO))
 
 import orc_citadel.collect_large as cl
 from orc_citadel.collect_large import SOURCES, _stored_urls
+from orc_citadel.event_stream import KafkaEventProducer
 
 
 def _write_status(path: Path, state: dict) -> None:
@@ -21,13 +22,16 @@ def _write_status(path: Path, state: dict) -> None:
     temporary.replace(path)
 
 
-def collect_selected(source_ids: list[str]) -> dict:
+def collect_selected(source_ids: list[str], event_producer=None) -> dict:
     """등록 source만 URL-idempotent 방식으로 수집한다."""
+    if event_producer is None:
+        event_producer = KafkaEventProducer.from_env()
     sources = {}
     for source_id in source_ids:
         kind, spec = SOURCES[source_id]
         known = _stored_urls(source_id)
-        result = cl.COLLECTORS[kind](spec, source_id, known_urls=known)
+        result = cl.COLLECTORS[kind](
+            spec, source_id, known_urls=known, event_producer=event_producer)
         sources[source_id] = {
             "saved": result["saved"], "skipped": result["skipped"], "errors": result["errors"],
         }
@@ -36,10 +40,6 @@ def collect_selected(source_ids: list[str]) -> dict:
 
 
 
-def promote_zones(summary: dict) -> None:
-    """수집 성공 뒤 raw를 조사 가능한 normalized·curated 존으로 승격한다."""
-    from scripts.scheduler_runner import _promote_zones
-    _promote_zones(summary)
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser()
@@ -50,7 +50,6 @@ def main(argv: list[str] | None = None) -> None:
     state = json.loads(state_path.read_text(encoding="utf-8"))
     try:
         summary = collect_selected(args.source_ids)
-        promote_zones(summary)
     except Exception as exc:
         state.update({"status": "failed", "error": str(exc),
                       "completed_at": datetime.now(timezone.utc).isoformat()})

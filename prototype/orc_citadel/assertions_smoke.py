@@ -2,7 +2,7 @@
 
 promoted claim의 정규 삼항 Assertion(bitemporal: valid+transaction)을 materialize하고
 curated zone에 영속한다. append-only create_node 이벤트(게이트) ↔ Assertion projection
-재구축 관계 확인. 파생 DB는 prototype/data/ 아래(gitignore).
+재구축 관계 확인. 파생 Iceberg warehouse는 prototype/data/ 아래(gitignore).
 """
 from __future__ import annotations
 
@@ -18,18 +18,16 @@ from orc_citadel.load_raw_zone import load_raw_zone
 from orc_citadel.parse import extract_html, parse_document
 from orc_citadel.resolve import EntityResolver
 
-DB_PATH = pathlib.Path(__file__).resolve().parent.parent / "data" / "curated.duckdb"
+WAREHOUSE_ROOT = pathlib.Path(__file__).resolve().parent.parent / "data" / "iceberg"
 
 
 def main() -> None:
     store, metas = load_raw_zone()
     print(f"== S11 Assertion materialization 스모크: {len(metas)} real docs ==")
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    if DB_PATH.exists():
-        DB_PATH.unlink()
-
-    zone = CuratedZone(str(DB_PATH))
+    WAREHOUSE_ROOT.mkdir(parents=True, exist_ok=True)
+    zone = CuratedZone(WAREHOUSE_ROOT)
     zone.initialize()
+    zone.reset()
     resolver = EntityResolver()
     gate = Gate()
     observed = datetime(2026, 8, 3, 12, 0, tzinfo=timezone.utc)

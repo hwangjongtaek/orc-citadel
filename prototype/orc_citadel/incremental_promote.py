@@ -16,95 +16,253 @@ from __future__ import annotations
 
 import hashlib
 import pathlib
+import sqlite3
+import tempfile
+from collections.abc import Iterable, Iterator
+from dataclasses import dataclass
+from itertools import islice
 
-import duckdb
+import pyarrow.parquet as pq
 
 from .curated_zone import CuratedZone
 from .dedup import (DEDUP_VERSION, JACCARD_THRESHOLD, MIN_TEXT_CHARS, _finalize,
                     _jaccard_est, _minhash, band_keys, shingles)
-from .duckdb_zone import NormalizedZone
+from .iceberg_zone import NormalizedZone
 from .parse import extract_html
 from .canonicalize import canonicalize_claims
 from .contradiction import find_conflict_candidates
 from .extract_claims import ClaimCandidate
 from .pipeline_runner import run_pipeline
+from .identity import doc_id_for
 from .raw_shard import RawShardStore
 
 # 한 번에 존에 올리는 문서 수 — 콜드 스타트(전 코퍼스가 신규)에서도 메모리를 유한하게.
 BATCH_SIZE = 1_000
 
+_EMPTY_SUMMARY = {
+    "new_docs": 0,
+    "mentions": 0,
+    "claims": 0,
+    "promoted_claims": 0,
+    "clusters": 0,
+}
 
-def new_doc_ids(raw_dir, normalized_db) -> list[str]:
-    """샤드에는 있으나 normalized 존에 없는 doc_id — DuckDB anti-join (파이썬 적재 없음)."""
-    shards = [str(p) for p in sorted(pathlib.Path(raw_dir).glob("*/shard-*.parquet"))]
+
+@dataclass(frozen=True)
+class PromotionInputError(ValueError):
+    """A referenced raw document cannot be promoted as valid input."""
+
+    doc_id: str
+    reason: str
+    source_id: str | None = None
+
+    def __str__(self) -> str:
+        prefix = f"{self.source_id}/" if self.source_id is not None else ""
+        return f"{prefix}{self.doc_id}: {self.reason}"
+
+
+class MissingRawDocument(PromotionInputError):
+    """The requested content-addressed raw document does not exist."""
+
+
+class PromotionDataError(PromotionInputError):
+    """The requested raw document exists but cannot be parsed."""
+
+
+def new_doc_ids(raw_dir, normalized_root) -> Iterator[str]:
+    """Yield raw doc IDs absent from Iceberg in deterministic order.
+
+    The anti-join lives in a temporary on-disk SQLite database. Arrow streams only
+    ``doc_id`` from each raw shard, so cold-start memory stays bounded without a
+    Python corpus-sized set.
+    """
+    shards = sorted(pathlib.Path(raw_dir).glob("*/shard-*.parquet"))
     if not shards:
-        return []
-    normalized_db = pathlib.Path(normalized_db)
-    con = duckdb.connect()
+        return
+    zone = NormalizedZone(normalized_root)
     try:
-        if not normalized_db.exists():
-            rows = con.execute(
-                "SELECT DISTINCT doc_id FROM read_parquet(?) ORDER BY doc_id", [shards]
-            ).fetchall()
-            return [r[0] for r in rows]
-        # ATTACH 는 prepared parameter 를 받지 않는다 — 경로는 호출자 소유라 이스케이프만.
-        con.execute(f"ATTACH '{str(normalized_db)}' AS zone (READ_ONLY)")
-        rows = con.execute(
-            """SELECT DISTINCT s.doc_id FROM read_parquet(?) s
-               WHERE s.doc_id NOT IN (SELECT doc_id FROM zone.documents)
-               ORDER BY s.doc_id""",
-            [shards],
-        ).fetchall()
-        return [r[0] for r in rows]
+        zone.initialize()
+        with tempfile.TemporaryDirectory(prefix="orc-citadel-antijoin-") as scratch:
+            conn = sqlite3.connect(pathlib.Path(scratch) / "ids.sqlite")
+            conn.execute("CREATE TABLE promoted(doc_id TEXT PRIMARY KEY)")
+            conn.execute("CREATE TABLE raw(doc_id TEXT PRIMARY KEY)")
+            for chunk in _batched(zone.iter_document_ids(), BATCH_SIZE):
+                conn.executemany("INSERT OR IGNORE INTO promoted VALUES (?)",
+                                 ((doc_id,) for doc_id in chunk))
+            for shard in shards:
+                for batch in pq.ParquetFile(shard).iter_batches(
+                        batch_size=BATCH_SIZE, columns=["doc_id"]):
+                    conn.executemany("INSERT OR IGNORE INTO raw VALUES (?)",
+                                     ((doc_id,) for doc_id in batch.column(0).to_pylist()))
+            conn.commit()
+            cursor = conn.execute(
+                "SELECT doc_id FROM raw WHERE NOT EXISTS "
+                "(SELECT 1 FROM promoted WHERE promoted.doc_id=raw.doc_id) ORDER BY doc_id")
+            while rows := cursor.fetchmany(BATCH_SIZE):
+                for (doc_id,) in rows:
+                    yield doc_id
+            conn.close()
     finally:
-        con.close()
+        zone.close()
 
 
 def promote_incremental(raw_dir, data_dir) -> dict:
     """신규 문서만 승격하고 요약을 반환한다."""
-    raw_dir, data_dir = pathlib.Path(raw_dir), pathlib.Path(data_dir)
-    empty = {"new_docs": 0, "mentions": 0, "claims": 0, "promoted_claims": 0, "clusters": 0}
-    ids = new_doc_ids(raw_dir, data_dir / "oc.duckdb")
-    if not ids:
-        return empty
+    totals = dict(_EMPTY_SUMMARY)
+    ids = new_doc_ids(pathlib.Path(raw_dir), pathlib.Path(data_dir) / "iceberg")
+    for batch in _batched(ids, BATCH_SIZE):
+        result = promote_doc_ids(raw_dir, data_dir, batch)
+        for key, value in result.items():
+            totals[key] += value
+    return totals
+
+
+def _bounded(items: Iterable, label: str) -> list:
+    bounded = list(islice(items, BATCH_SIZE + 1))
+    if len(bounded) > BATCH_SIZE:
+        raise ValueError(f"{label} batch exceeds BATCH_SIZE={BATCH_SIZE}")
+    return bounded
+
+
+def promote_doc_ids(raw_dir, data_dir, ids: Iterable[str]) -> dict:
+    """Promote a bounded set of content IDs for manual callers."""
+    requested = list(dict.fromkeys(_bounded(ids, "promotion")))
+    if not requested:
+        return dict(_EMPTY_SUMMARY)
+    for doc_id in requested:
+        if not isinstance(doc_id, str) or not doc_id:
+            raise MissingRawDocument(str(doc_id), "doc_id must be a non-empty string")
 
     store = RawShardStore(raw_dir)
-    normalized = NormalizedZone(str(data_dir / "oc.duckdb"))
-    curated = CuratedZone(str(data_dir / "curated.duckdb"))
-    totals = dict(empty)
+    raw_docs: dict[str, dict] = {}
+    for doc in store.iter_docs(doc_ids=requested):
+        raw_docs.setdefault(doc["doc_id"], doc)
+    return _promote_documents(data_dir, requested, raw_docs)
+
+
+def promote_raw_refs(raw_dir, data_dir,
+                     refs: Iterable[tuple[str, str]]) -> dict:
+    """Promote bounded exact ``(source_id, doc_id)`` raw references."""
+    requested_refs = list(dict.fromkeys(_bounded(refs, "raw reference")))
+    if not requested_refs:
+        return dict(_EMPTY_SUMMARY)
+    for source_id, doc_id in requested_refs:
+        if not isinstance(source_id, str) or not source_id:
+            raise MissingRawDocument(str(doc_id), "source_id must be a non-empty string")
+        if not isinstance(doc_id, str) or not doc_id:
+            raise MissingRawDocument(str(doc_id), "doc_id must be a non-empty string")
+
+    store = RawShardStore(raw_dir)
+    exact = {
+        (doc["source_id"], doc["doc_id"]): doc
+        for doc in store.iter_docs(
+            source_ids=list(dict.fromkeys(source for source, _ in requested_refs)),
+            doc_ids=list(dict.fromkeys(doc_id for _, doc_id in requested_refs)),
+        )
+    }
+    for source_id, doc_id in requested_refs:
+        if (source_id, doc_id) not in exact:
+            raise MissingRawDocument(
+                doc_id, f"raw document not found for source {source_id}", source_id)
+    for source_id, doc_id in requested_refs:
+        doc = exact[(source_id, doc_id)]
+        if doc_id_for(doc["content"]) != doc_id:
+            raise PromotionDataError(
+                doc_id, "raw content hash does not match doc_id", source_id)
+
+    requested_ids = list(dict.fromkeys(doc_id for _, doc_id in requested_refs))
+    canonical: dict[str, dict] = {}
+    for doc in store.iter_docs(doc_ids=requested_ids):
+        if doc_id_for(doc["content"]) != doc["doc_id"]:
+            continue
+        current = canonical.get(doc["doc_id"])
+        if current is None or (doc["source_id"], doc["url"]) < (
+                current["source_id"], current["url"]):
+            canonical[doc["doc_id"]] = doc
+
+    # Normalized identity is content-based and has one source/url slot. Resolve
+    # every same-content reference to the lexicographically smallest immutable
+    # raw provenance, so redelivery order cannot flip normalized metadata.
+    groups: list[tuple[dict[str, dict], dict[str, str]]] = []
+    for source_id, doc_id in requested_refs:
+        doc = canonical[doc_id]
+        for raw_docs, error_sources in groups:
+            if doc_id not in raw_docs:
+                raw_docs[doc_id] = doc
+                error_sources[doc_id] = source_id
+                break
+        else:
+            groups.append(({doc_id: doc}, {doc_id: source_id}))
+
+    totals = dict(_EMPTY_SUMMARY)
+    for raw_docs, error_sources in groups:
+        result = _promote_documents(
+            data_dir, list(raw_docs), raw_docs, error_sources=error_sources)
+        for key, value in result.items():
+            totals[key] += value
+    return totals
+
+
+def _promote_documents(data_dir, requested: list[str],
+                       raw_docs: dict[str, dict], *,
+                       error_sources: dict[str, str] | None = None) -> dict:
+    error_sources = error_sources or {}
+    for doc_id in requested:
+        doc = raw_docs.get(doc_id)
+        if doc is None:
+            raise MissingRawDocument(doc_id, "raw document not found")
+        if doc_id_for(doc["content"]) != doc_id:
+            raise PromotionDataError(
+                doc_id, "raw content hash does not match doc_id",
+                error_sources.get(doc_id, doc["source_id"]))
+
+    data_dir = pathlib.Path(data_dir)
+    normalized = NormalizedZone(data_dir / "iceberg")
+    curated = CuratedZone(data_dir / "iceberg")
     try:
         normalized.initialize()
         curated.initialize()
-        for batch in _batched(ids, BATCH_SIZE):
-            metas = []
-            texts: dict[str, str] = {}
-            for doc in store.iter_docs(doc_ids=batch):
-                try:
-                    parsed = extract_html(doc["content"], doc["url"])
-                except Exception:
-                    continue
-                normalized.persist(doc["source_id"], doc["url"], doc["content"], parsed)
-                texts[doc["doc_id"]] = parsed.text
-                metas.append(doc)
-            if not metas:
-                continue
-            # dedup 은 영속 서명으로 직접 수행한다 — 배치 내부만 보는 기본 경로는 끈다.
-            result = run_pipeline(metas, curated, dedup=False, reconcile=False)
-            totals["new_docs"] += len(metas)
-            totals["mentions"] += result.mentions
-            totals["claims"] += result.claims
-            totals["promoted_claims"] += result.promoted_claims
-            totals["clusters"] += _dedup_against_corpus(curated, normalized, texts)
-            _reconcile_against_corpus(curated, [m["doc_id"] for m in metas])
-        return totals
+        promoted = {row["doc_id"] for row in normalized.documents(requested)}
+        metas = []
+        pending = []
+        texts: dict[str, str] = {}
+        for doc_id in requested:
+            doc = raw_docs[doc_id]
+            try:
+                parsed = extract_html(doc["content"], doc["url"])
+            except Exception as exc:
+                raise PromotionDataError(
+                    doc_id, f"raw document parse failed: {exc}",
+                    error_sources.get(doc_id, doc["source_id"])) from exc
+            pending.append((doc["source_id"], doc["url"], doc["content"], parsed))
+            texts[doc_id] = parsed.text
+            metas.append(doc)
+
+        normalized.persist_many(pending)
+        result = run_pipeline(metas, curated, dedup=False, reconcile=False)
+        totals = {
+            "new_docs": sum(doc_id not in promoted for doc_id in requested),
+            "mentions": result.mentions,
+            "claims": result.claims,
+            "promoted_claims": result.promoted_claims,
+            "clusters": _dedup_against_corpus(curated, normalized, texts),
+        }
+        _reconcile_against_corpus(curated, [m["doc_id"] for m in metas])
+        return dict(_EMPTY_SUMMARY) if promoted == set(requested) else totals
     finally:
         curated.close()
         normalized.close()
 
 
-def _batched(items: list[str], size: int):
-    for i in range(0, len(items), size):
-        yield items[i:i + size]
+def _batched(items: Iterable[str], size: int):
+    batch = []
+    for item in items:
+        batch.append(item)
+        if len(batch) == size:
+            yield batch
+            batch = []
+    if batch:
+        yield batch
 
 
 def _claim_from_row(row: dict) -> ClaimCandidate:
@@ -186,7 +344,7 @@ def _dedup_against_corpus(curated: CuratedZone, normalized: NormalizedZone,
 def _cluster_doc_meta(doc_ids: set[str], normalized: NormalizedZone,
                       texts: dict[str, str]) -> list[dict]:
     """클러스터에 걸린 문서의 root 선정·독립성 판정 입력 (기존 멤버는 존에서 복원)."""
-    by_id = {d["doc_id"]: d for d in normalized.documents() if d["doc_id"] in doc_ids}
+    by_id = {d["doc_id"]: d for d in normalized.documents(doc_ids)}
     out = []
     for doc_id in sorted(doc_ids):
         row = by_id.get(doc_id, {})

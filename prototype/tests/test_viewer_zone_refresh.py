@@ -1,15 +1,8 @@
-"""뷰어 존 갱신 계약 — 수집·승격이 재시작 없이 화면에 반영된다.
+"""Viewer curated-cache invalidation follows committed Iceberg snapshots.
 
-2026-09-18 prod 실측: nightly 수집(raw 127건)과 승격(claims 107건)이 끝난 뒤에도
-뷰어는 raw 0 / curated 0 을 계속 표기했다. 원인은 둘 다 프로세스 수명 캐시다.
-
-  ① raw 카운트·fetch 레코드가 클래스 캐시에 박혀 재스캔되지 않는다.
-  ② facade 가 기동 시 1회 연 `curated.duckdb` 핸들을 유지한다 — `rebuild_zones`
-     는 `.new` → rename 으로 교체하므로, 뷰어는 교체 전 inode 를 계속 읽는다.
-
-nightly 가 매일 도는 환경에서 매일 재발하는 조건이라 재시작 의존을 없앤다.
-다만 **바뀌지 않았을 때는 다시 열지 않는다** — facade 재생성은 assertion 전수로
-그래프 프로젝션을 다시 쌓는 비용이다.
+Nightly collection and promotion must become visible without process restart.
+The facade is reused while snapshot IDs are unchanged because rebuilding it
+reprojects every assertion into the serving graph.
 """
 
 from __future__ import annotations
@@ -82,32 +75,28 @@ def test_fetch_records_pick_up_newly_collected_docs(tmp_path: Path) -> None:
     assert len(viewer._fetch_records(str(raw))) == 2
 
 
-def test_facade_reopens_after_curated_file_is_replaced(tmp_path: Path, monkeypatch) -> None:
-    """승격은 파일을 rename 으로 갈아끼운다 — 옛 inode 를 계속 읽으면 안 된다."""
-    db = tmp_path / "curated.duckdb"
-    _curated(db, promoted=False)
-    monkeypatch.setattr(viewer, "DB", db)
+def test_facade_reopens_after_curated_snapshot_changes(tmp_path: Path, monkeypatch) -> None:
+    root = tmp_path / "iceberg"
+    _curated(root, promoted=False)
+    monkeypatch.setattr(viewer, "ICEBERG_ROOT", root)
     Handler.facade = None
     Handler._facade_stamp = None
 
     Handler._ensure_facade()
     assert len(Handler.facade.zone.assertions()) == 0
 
-    new = tmp_path / "curated.duckdb.new"
-    _curated(new, promoted=True)
-    db.unlink()
-    new.rename(db)
+    _curated(root, promoted=True)
 
     Handler._ensure_facade()
     assert len(Handler.facade.zone.assertions()) > 0, \
-        "교체된 존을 못 본다 — 뷰어 재시작 없이 반영돼야 한다"
+        "committed curated snapshots must be visible without viewer restart"
 
 
-def test_facade_is_reused_when_curated_file_is_unchanged(tmp_path: Path, monkeypatch) -> None:
-    """변경이 없으면 재사용 — facade 재생성은 assertion 전수 재적재 비용이다."""
-    db = tmp_path / "curated.duckdb"
-    _curated(db, promoted=True)
-    monkeypatch.setattr(viewer, "DB", db)
+def test_facade_is_reused_when_curated_snapshot_is_unchanged(
+        tmp_path: Path, monkeypatch) -> None:
+    root = tmp_path / "iceberg"
+    _curated(root, promoted=True)
+    monkeypatch.setattr(viewer, "ICEBERG_ROOT", root)
     Handler.facade = None
     Handler._facade_stamp = None
 

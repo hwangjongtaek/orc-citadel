@@ -104,13 +104,13 @@ def test_run_signal_q4_persists_signal_edges_to_log(pg):
     from orc_citadel.curated_zone import CuratedZone
 
     with TemporaryDirectory() as td:
-        zone = CuratedZone(f"{td}/curated.duckdb")
+        zone = CuratedZone(f"{td}/iceberg")
         zone.initialize()
         metas = [{
             "source_id": "official-nvidia-news", "url": "https://demo/supply",
             "doc_id": "doc-supply", "content": SUPPLY_HTML,
         }]
-        res, g = run_signal_q4(metas, zone_path=f"{td}/curated.duckdb",
+        res, g = run_signal_q4(metas, zone_path=f"{td}/iceberg",
                                mutation_log=_log(pg))
         # 로그 replay 그래프에 공급망 엣지가 실존 (object 바인딩, quarantine 0).
         assert len(g.edges()) >= 1

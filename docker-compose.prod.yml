@@ -16,8 +16,20 @@ services:
   postgres:
     ports: !override []
 
+  redpanda:
+    ports: !override []
+    restart: unless-stopped
+
+  redpanda-init:
+    profiles: !reset []
+    image: orc-citadel-prototype:latest
+
   minio:
     ports: !override []
+
+  lakekeeper:
+    ports: !override []
+    restart: unless-stopped
 
   neo4j:
     ports: !override []
@@ -49,6 +61,7 @@ services:
       - "${VIEWER_BIND:-127.0.0.1}:8791:8791"
     volumes:
       - proddata:/app/data
+      - ./deploy/lakekeeper:/app/deploy/lakekeeper:ro
       # base 와 동일 — rsync 가 docs/·design-system/ 을 원격에 보내므로 그대로 물린다.
       - ./docs/mockups/assets:/app/static/img:ro
       - ./docs/mockups/astryx.css:/app/static/astryx.css:ro
@@ -76,6 +89,7 @@ services:
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_BASE_URL: ${LLM_BASE_URL:-}
       LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-}
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
     depends_on:
       postgres:
         condition: service_healthy
@@ -135,6 +149,10 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:?}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?}
       NEO4J_PASSWORD: ${NEO4J_PASSWORD:?}
+      ICEBERG_CATALOG_URI: ${ICEBERG_CATALOG_URI:?}
+      ICEBERG_WAREHOUSE: ${ICEBERG_WAREHOUSE:?}
+      ICEBERG_S3_ENDPOINT: ${ICEBERG_S3_ENDPOINT:?}
+      ICEBERG_S3_REGION: ${ICEBERG_S3_REGION:?}
       LLM_PROVIDER: ${LLM_PROVIDER:-anthropic}
       LLM_MODEL: ${LLM_MODEL:-}
       LLM_API_KEY: ${LLM_API_KEY:-}
@@ -143,9 +161,18 @@ services:
       # 소비. glm-4.7-flash 실측: 2048 도 잘림(평균 2031/30건 pass 2) → 8192 권장.
       # 예산은 상한일 뿐 과금은 실사용 토큰 기준.
       LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-}
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
     depends_on:
       prototype:
         condition: service_started
+    restart: unless-stopped
+
+  promotion-consumer:
+    profiles: !reset []
+    image: orc-citadel-prototype:latest
+    volumes: !override
+      - proddata:/app/data
+      - ./deploy/lakekeeper:/app/deploy/lakekeeper:ro
     restart: unless-stopped
 
 volumes:

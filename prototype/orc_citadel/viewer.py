@@ -21,14 +21,16 @@ from urllib.parse import parse_qs, unquote, urlparse
 from orc_citadel import component_status, viewer_static
 from orc_citadel.collection_control import CollectionControl
 from orc_citadel.investigation_job import build_read_facade
+from orc_citadel.iceberg_zone import NormalizedZone
 from orc_citadel.raw_shard import RawShardStore
 from orc_citadel.versioning import extraction_version_tuple
 
 # 컨테이너에서는 VIEWER_HOST=0.0.0.0 으로 외부 바인딩 (docker-compose.yml).
 HOST, PORT = os.environ.get("VIEWER_HOST", "127.0.0.1"), int(os.environ.get("VIEWER_PORT", "8791"))
-DB = pathlib.Path(__file__).resolve().parent.parent / "data" / "curated.duckdb"
-RAW_DIR = DB.parent / "raw"          # raw zone flat 파일 (설계 03 §2.1)
-NORM_DB = DB.parent / "oc.duckdb"    # normalized zone DuckDB (03 §3)
+DATA_DIR = pathlib.Path(__file__).resolve().parent.parent / "data"
+ICEBERG_ROOT = DATA_DIR / "iceberg"
+RAW_DIR = DATA_DIR / "raw"          # raw zone flat files (design 03 §2.1)
+NORM_ROOT = ICEBERG_ROOT            # shared normalized/curated Iceberg warehouse
 _MAX_JSON_REQUEST_BYTES = 1024 * 1024
 
 
@@ -73,18 +75,6 @@ def _raw_stamp(raw_dir) -> tuple:
     return tuple(out)
 
 
-def _db_stamp(path) -> tuple | None:
-    """DuckDB 파일 지문 — (inode, mtime, size).
-
-    `rebuild_zones` 는 `.new` → rename 으로 존을 갈아끼운다. 열려 있던 핸들은
-    옛 inode 를 계속 읽으므로 경로만으로는 교체를 알 수 없다 (2026-09-18 prod
-    실측: 승격 후에도 curated 0).
-    """
-    try:
-        st = pathlib.Path(path).stat()
-    except OSError:
-        return None
-    return (st.st_ino, st.st_mtime_ns, st.st_size)
 
 
 def _count_raw(raw_dir: str) -> tuple[list[dict], int]:
@@ -165,25 +155,26 @@ def _intake_panel(raw_dir: str, window_hours: int = 24) -> dict:
             "last_fetch_by_source": last_fetch_by_source}
 
 
-def _count_normalized(norm_db: str) -> dict:
-    """normalized zone 문서·segment 수 (read-only 연결 — 잠금 충돌 회피).
+def _normalized(root):
+    """Open a fresh catalog client for a thread-safe, snapshot-consistent read."""
+    if not os.environ.get("ICEBERG_CATALOG_URI") and (
+            not root or (str(root) != ":memory:" and not pathlib.Path(root).is_dir())):
+        return None
+    zone = NormalizedZone(root)
+    zone.initialize()
+    return zone
 
-    read_only=True 로 열어 수집 파이프라인과 동시 실행해도 잠금이 안 건다.
-    DB 미존재 시 0 (honest-gap).
-    """
-    import duckdb
+
+def _count_normalized(root) -> dict:
+    zone = None
     try:
-        c = duckdb.connect(str(norm_db), read_only=True)
+        zone = _normalized(root)
+        return zone.counts() if zone else {"documents": 0, "segments": 0}
     except Exception:
         return {"documents": 0, "segments": 0}
-    try:
-        docs = c.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
-        segs = c.execute("SELECT COUNT(*) FROM segments").fetchone()[0]
-    except Exception:
-        docs = segs = 0
     finally:
-        c.close()
-    return {"documents": docs, "segments": segs}
+        if zone:
+            zone.close()
 
 
 # design 02 §2.3 — Source.source_type vocab (source_id 접두사에서 결정적 파생).
@@ -196,41 +187,20 @@ def _source_type(source_id: str) -> str:
     return head if head in _SOURCE_TYPE_TOKENS else "source"
 
 
-def _freshness(norm_db: str) -> dict:
-    """normalized 문서 publication_time 기준 실측 신선도 (분) — 없으면 not-measured.
-
-    가짜 지연을 채우지 않는다: publication_time 이 하나도 없으면 measured=False.
-    """
-    import datetime as _dt
-    import duckdb
+def _freshness(root) -> dict:
+    zone = None
     try:
-        c = duckdb.connect(str(norm_db), read_only=True)
+        zone = _normalized(root)
+        return zone.freshness() if zone else {
+            "measured": False,
+            "note": "normalized Iceberg 미가동 (honest-gap §6.2)",
+        }
     except Exception:
-        return {"measured": False, "note": "normalized DuckDB 미가동 (honest-gap §6.2)"}
-    try:
-        rows = c.execute(
-            "SELECT publication_time FROM documents "
-            "WHERE publication_time IS NOT NULL").fetchall()
-    except Exception:
-        rows = []
+        return {"measured": False,
+                "note": "normalized Iceberg 미가동 (honest-gap §6.2)"}
     finally:
-        c.close()
-    times = [r[0] for r in rows if r[0]]
-    if not times:
-        return {"measured": False, "note": "publication_time 없음 → 지연 미측정 (honest-gap §6.2)"}
-    now = _dt.datetime.now(_dt.timezone.utc)
-    ages = []
-    for t in times:
-        if t.tzinfo is None:
-            t = t.replace(tzinfo=_dt.timezone.utc)
-        ages.append((now - t).total_seconds() / 60.0)
-    ages.sort()
-    return {
-        "measured": True, "n": len(ages),
-        "min_age_min": round(ages[0], 1),
-        "median_age_min": round(ages[len(ages) // 2], 1),
-        "max_age_min": round(ages[-1], 1),
-    }
+        if zone:
+            zone.close()
 
 
 def _slo_panel() -> dict:
@@ -279,15 +249,9 @@ def _spire_catalog() -> list[dict]:
     return out
 
 
-# Grand Archive — source_type 은 source_id 접두사에서 결정적 파생 (뷰어 표기와 동일 규칙).
-ARCHIVE_TYPE_TOKENS = ("official", "press", "gov", "research", "exchange")
-_STYPE_SQL = ("CASE WHEN split_part(source_id, '-', 1) IN ("
-              + ", ".join(f"'{t}'" for t in ARCHIVE_TYPE_TOKENS)
-              + ") THEN split_part(source_id, '-', 1) ELSE 'source' END")
 # 문서 전량(실측 10만+) 직렬화가 /archive 를 멈추게 했다 — 응답은 한 페이지로 제한한다.
 ARCHIVE_LIMIT_DEFAULT, ARCHIVE_LIMIT_MAX = 50, 500
-_ARCHIVE_SORTS = {"doc_id": "doc_id",
-                  "publication": "publication_time DESC NULLS LAST, doc_id"}
+_ARCHIVE_SORTS = {"doc_id", "publication"}
 
 
 def _recent_run_metrics(connect=None, limit: int = 5) -> dict:
@@ -342,134 +306,54 @@ def _qs_int(raw, default: int, lo: int, hi: int) -> int:
     return max(lo, min(hi, v))
 
 
-def _archive_filter(source_type: str | None = None, source: str | None = None,
-                    language: str | None = None, q: str | None = None,
-                    doc_ids: list[str] | None = None) -> tuple[str, list]:
-    """documents 필터 축 → (WHERE 절, 파라미터). 미지정 축은 절을 만들지 않는다."""
-    cl: list[str] = []
-    p: list = []
-    if source_type:
-        cl.append(f"{_STYPE_SQL} = ?"); p.append(source_type)
-    if source:
-        cl.append("source_id = ?"); p.append(source)
-    if language == "unknown":
-        cl.append("(language IS NULL OR language = '')")
-    elif language:
-        cl.append("language = ?"); p.append(language)
-    if q:
-        cl.append("(title ILIKE ? OR url ILIKE ? OR doc_id ILIKE ?)")
-        p += [f"%{q}%"] * 3
-    if doc_ids is not None:
-        if doc_ids:
-            cl.append("doc_id IN (" + ", ".join(["?"] * len(doc_ids)) + ")")
-            p += list(doc_ids)
-        else:
-            cl.append("1 = 0")   # 대상 doc_id 없음 → 정직 빈 (전량 반환 아님)
-    return (" WHERE " + " AND ".join(cl)) if cl else "", p
 
 
-def _archive_normalized(norm_db: str, *, limit: int = ARCHIVE_LIMIT_DEFAULT,
+def _archive_normalized(root, *, limit: int = ARCHIVE_LIMIT_DEFAULT,
                         offset: int = 0, source_type: str | None = None,
                         source: str | None = None, language: str | None = None,
                         q: str | None = None, doc_ids: list[str] | None = None,
                         sort: str = "doc_id") -> tuple[list[dict], dict, dict, dict]:
-    """normalized 존 documents 한 *페이지*(+segment 수)·집계·facet — read-only 연결.
-
-    `normalized_zone.documents()`/`segments()` 와 동일 스키마를 read_only DuckDB
-    로 직접 조회해, 수집 파이프라인과의 잠금 충돌을 피한다. 전량을 싣던 것을 SQL
-    LIMIT/OFFSET 한 페이지로 좁히고, segment 수는 그 페이지 doc_id 에 한해 GROUP BY
-    한다 (segments 전수 GROUP BY 금지). facet 카운트는 검색(q)·doc_ids 범위 안에서
-    GROUP BY 실측이라 페이지 밖 문서도 반영한다 — facet 선택 자체로는 좁히지 않아
-    선택 해제용 chip 이 사라지지 않는다. DB 미존재/오류는 빈(정직).
-
-    반환: (docs, counts{documents,segments}, page{limit,offset,total,sort},
-    facets{source_type,language}).
-    """
-    import duckdb
-
     counts = {"documents": 0, "segments": 0}
-    page = {"limit": limit, "offset": offset, "total": 0, "sort": sort}
+    chosen_sort = sort if sort in _ARCHIVE_SORTS else "doc_id"
+    page = {"limit": limit, "offset": offset, "total": 0, "sort": chosen_sort}
     facets: dict[str, dict] = {"source_type": {}, "language": {}}
+    zone = None
     try:
-        c = duckdb.connect(str(norm_db), read_only=True)
+        zone = _normalized(root)
+        if zone is None:
+            return [], counts, page, facets
+        return zone.archive_page(
+            limit=limit, offset=offset, source_type=source_type, source=source,
+            language=language, q=q, doc_ids=doc_ids, sort=chosen_sort)
     except Exception:
         return [], counts, page, facets
-    order = _ARCHIVE_SORTS.get(sort, _ARCHIVE_SORTS["doc_id"])
-    page["sort"] = sort if sort in _ARCHIVE_SORTS else "doc_id"
-    where, params = _archive_filter(source_type, source, language, q, doc_ids)
-    fwhere, fparams = _archive_filter(q=q, doc_ids=doc_ids)
-    try:
-        counts["documents"] = c.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
-        counts["segments"] = c.execute("SELECT COUNT(*) FROM segments").fetchone()[0]
-        page["total"] = c.execute(
-            "SELECT COUNT(*) FROM documents" + where, params).fetchone()[0]
-        facets["source_type"] = {t: n for t, n in c.execute(
-            f"SELECT {_STYPE_SQL} AS t, COUNT(*) FROM documents{fwhere} "
-            "GROUP BY t ORDER BY t", fparams).fetchall()}
-        facets["language"] = {l: n for l, n in c.execute(
-            "SELECT COALESCE(NULLIF(language, ''), 'unknown') AS l, COUNT(*) "
-            f"FROM documents{fwhere} GROUP BY l ORDER BY l", fparams).fetchall()}
-        rows = c.execute(
-            "SELECT doc_id, source_id, url, title, language, publication_time, "
-            f"revision_time, parser_version, char_len FROM documents{where} "
-            f"ORDER BY {order} LIMIT ? OFFSET ?", params + [limit, offset]).fetchall()
-        ids = [r[0] for r in rows]
-        segmap = dict(c.execute(
-            "SELECT doc_id, COUNT(*) FROM segments WHERE doc_id IN ("
-            + ", ".join(["?"] * len(ids)) + ") GROUP BY doc_id", ids).fetchall()) if ids else {}
-    except Exception:
-        rows, segmap = [], {}
     finally:
-        c.close()
-    cols = ["doc_id", "source_id", "url", "title", "language",
-            "publication_time", "revision_time", "parser_version", "char_len"]
-    docs = [dict(zip(cols, r)) | {"segments": segmap.get(r[0], 0)} for r in rows]
-    return docs, counts, page, facets
+        if zone:
+            zone.close()
 
 
-def _archive_facets(norm_db: str) -> tuple[dict, list[dict]]:
-    """Archive facet 실측 — segment kinds GROUP BY count·동일 URL 그룹(≥2, ≤20).
-
-    normalized 존 read_only DuckDB (잠금 회피). DB 미가동/미존재는 정직 빈.
-    """
-    import duckdb
-    kinds: dict[str, int] = {}
-    groups: list[dict] = []
+def _archive_facets(root) -> tuple[dict, list[dict]]:
+    zone = None
     try:
-        c = duckdb.connect(str(norm_db), read_only=True)
+        zone = _normalized(root)
+        return zone.archive_facets() if zone else ({}, [])
     except Exception:
-        return kinds, groups
-    try:
-        kinds = {k: n for k, n in c.execute(
-            "SELECT kind, COUNT(*) FROM segments GROUP BY kind").fetchall()}
-        for url, n, ids in c.execute(
-                "SELECT url, COUNT(*), LIST(doc_id) FROM documents "
-                "GROUP BY url HAVING COUNT(*) >= 2 ORDER BY url LIMIT 20").fetchall():
-            groups.append({"url": url, "count": n, "doc_ids": list(ids)[:5]})
-    except Exception:
-        pass
+        return {}, []
     finally:
-        c.close()
-    return kinds, groups
+        if zone:
+            zone.close()
 
 
-def _search_documents(norm_db: str, q: str) -> list[dict]:
-    """normalized 존 documents 제목·URL ILIKE 검색 (read-only). 미가동은 정직 빈."""
-    import duckdb
+def _search_documents(root, q: str) -> tuple[list[dict], int]:
+    zone = None
     try:
-        c = duckdb.connect(str(norm_db), read_only=True)
+        zone = _normalized(root)
+        return zone.search_documents(q) if zone else ([], 0)
     except Exception:
-        return []
-    try:
-        rows = c.execute(
-            "SELECT doc_id, title, source_id FROM documents "
-            "WHERE title ILIKE ? OR url ILIKE ? ORDER BY doc_id",
-            [f"%{q}%", f"%{q}%"]).fetchall()
-    except Exception:
-        rows = []
+        return [], 0
     finally:
-        c.close()
-    return [{"doc_id": d, "title": t, "source_id": s} for d, t, s in rows]
+        if zone:
+            zone.close()
 
 
 def _parse_dt(s: str | None):
@@ -514,7 +398,7 @@ def _postgres_replay_status() -> dict:
 
 
 def _build():
-    return build_read_facade(DB)
+    return build_read_facade(ICEBERG_ROOT)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -527,7 +411,7 @@ class Handler(BaseHTTPRequestHandler):
     _FETCH_CACHE: dict[tuple, list[dict]] = {}
     # raw 존 source×문서 수 디렉터리 스캔 캐시 — 같은 키 규칙.
     _RAW_COUNT_CACHE: dict[tuple, tuple[list[dict], int]] = {}
-    # facade 가 연 curated 파일의 지문 — 교체되면 다시 연다.
+    # Snapshot IDs change only after committed curated Iceberg writes.
     _facade_stamp: tuple | None = None
 
     def log_message(self, *a):  # 출력 간소화 (404 등만 남김)
@@ -565,27 +449,23 @@ class Handler(BaseHTTPRequestHandler):
 
     @classmethod
     def _ensure_facade(cls) -> None:
-        """curated 존이 교체됐으면 facade 를 다시 연다 (없으면 재사용).
-
-        facade 재생성은 assertion 전수로 그래프 프로젝션을 다시 쌓는 비용이라
-        지문이 같으면 건드리지 않는다. 옛 zone 은 닫아 파일 핸들을 흘리지 않는다.
-        """
-        stamp = _db_stamp(DB)
-        if cls.facade is not None and cls._facade_stamp == stamp:
-            return
-        # 반드시 **먼저 닫고** 연다. DuckDB 는 같은 경로의 DB 인스턴스를 프로세스
-        # 안에서 캐시하므로, 옛 연결이 살아 있으면 새로 연결해도 교체 전 DB 를
-        # 그대로 돌려준다 (실측: 승격 후 재연결해도 assertions 0). 오늘 뷰어
-        # 재시작이 필요했던 진짜 이유가 이것이다 — 파일 핸들만의 문제가 아니다.
+        """Rebuild the graph projection only after a committed Iceberg snapshot."""
+        if cls.facade is not None:
+            zone = getattr(cls.facade, "zone", None)
+            if zone is None:
+                return
+            stamp = zone.snapshot_token()
+            if cls._facade_stamp == stamp:
+                return
         previous, cls.facade = cls.facade, None
         close = getattr(getattr(previous, "zone", None), "close", None)
         if callable(close):
             try:
                 close()
-            except Exception:  # pragma: no cover - 닫기 실패는 조회를 막지 않는다
+            except Exception:  # pragma: no cover - closing failure must not block reads
                 pass
         cls.facade = _build()
-        cls._facade_stamp = stamp
+        cls._facade_stamp = cls.facade.zone.snapshot_token()
 
     def _investigation_store(self):
         import psycopg
@@ -600,7 +480,7 @@ class Handler(BaseHTTPRequestHandler):
         return store, conn
 
     def _collection_control(self):
-        return CollectionControl(getattr(self, "collection_data_dir", DB.parent))
+        return CollectionControl(getattr(self, "collection_data_dir", DATA_DIR))
 
     def _serve_collection_get(self, path: str) -> bool:
         if path not in {"/api/collections/sources", "/api/collections/latest"}:
@@ -967,16 +847,17 @@ class Handler(BaseHTTPRequestHandler):
                                       "predicate": r.get("predicate"),
                                       "object_literal": r.get("object_literal"),
                                       "subject_id": r.get("subject_id")})
-        docs = _search_documents(getattr(self, "normalized_db", NORM_DB), q)
+        docs, document_count = _search_documents(
+            getattr(self, "normalized_root", NORM_ROOT), q)
         out["counts"] = {"entities": len(out["entities"]),
                          "claims": len(out["claims"]),
-                         "documents": len(docs)}
+                         "documents": document_count}
         # 고정 정렬 축: id. 결정적.
         out["entities"].sort(key=lambda x: x["entity_id"])
         out["claims"].sort(key=lambda x: x["claim_id"])
         out["entities"] = out["entities"][:10]
         out["claims"] = out["claims"][:10]
-        out["documents"] = docs[:10]
+        out["documents"] = docs
         return out
 
     @_j
@@ -1027,7 +908,7 @@ class Handler(BaseHTTPRequestHandler):
     def _api_gate(self, qs):
         """Citadel Gate — 존 카운트(raw/normalized/curated)·랭킹 top N·신호 분포."""
         raw_dir = getattr(self, "raw_dir", RAW_DIR)
-        norm_db = getattr(self, "normalized_db", NORM_DB)
+        norm_root = getattr(self, "normalized_root", NORM_ROOT)
         z = self.facade.zone
         top = [{
             "subject_id": r.subject_id, "rank": r.rank, "signal": r.signal,
@@ -1036,7 +917,7 @@ class Handler(BaseHTTPRequestHandler):
             "independent_source_count": r.confidence["independent_source_count"],
         } for r in self.facade._ranking.ranked(limit=5)]
         raw_sources, raw_total = _count_raw(raw_dir)
-        norm = _count_normalized(norm_db)
+        norm = _count_normalized(norm_root)
         return {
             "raw_sources": raw_sources,
             "raw_doc_count": raw_total,
@@ -1060,7 +941,7 @@ class Handler(BaseHTTPRequestHandler):
         sources[].governance(fetch.json 표본 실측 — http_status·robots_allowed).
         """
         raw_dir = getattr(self, "raw_dir", RAW_DIR)
-        norm_db = getattr(self, "normalized_db", NORM_DB)
+        norm_root = getattr(self, "normalized_root", NORM_ROOT)
         raw_sources, _ = _count_raw(raw_dir)
         recs = _fetch_records(raw_dir)
         intake = _intake_panel(raw_dir)
@@ -1083,7 +964,7 @@ class Handler(BaseHTTPRequestHandler):
                     "robots_allowed": (robots[0] if robots else None),
                 },
             })
-        return {"sources": sources, "freshness": _freshness(norm_db),
+        return {"sources": sources, "freshness": _freshness(norm_root),
                 "intake": intake, "slo": _slo_panel(),
                 # 표시용 run 메트릭 요약 (TS-6) — drill-down 은 Grafana 몫.
                 "run_metrics": _recent_run_metrics(
@@ -1116,7 +997,7 @@ class Handler(BaseHTTPRequestHandler):
         (source_type·language 는 normalized 존 GROUP BY, cluster_role 은 curated
         dup_clusters 전역 — 정규화 존 밖 축이라 검색 범위로 좁히지 않는다).
         """
-        norm_db = getattr(self, "normalized_db", NORM_DB)
+        norm_root = getattr(self, "normalized_root", NORM_ROOT)
         raw_dir = getattr(self, "raw_dir", RAW_DIR)
         limit = _qs_int(qs.get("limit"), ARCHIVE_LIMIT_DEFAULT, 1, ARCHIVE_LIMIT_MAX)
         offset = _qs_int(qs.get("offset"), 0, 0, 10 ** 9)
@@ -1150,7 +1031,7 @@ class Handler(BaseHTTPRequestHandler):
             doc_ids = [d for d, rr in sorted(role_map.items())
                        if rr == role and (keep is None or d in keep)]
         docs, counts, page, facets = _archive_normalized(
-            norm_db, limit=limit, offset=offset, source_type=source_type,
+            norm_root, limit=limit, offset=offset, source_type=source_type,
             source=source, language=language, q=q, doc_ids=doc_ids, sort=sort)
         for d in docs:
             d["cluster_role"] = role_map.get(d.get("doc_id"))
@@ -1159,7 +1040,7 @@ class Handler(BaseHTTPRequestHandler):
                  "language": language or "", "role": role or "", "q": q or "",
                  "doc_ids": ",".join(want)}
         raw_sources, raw_total = _count_raw(raw_dir)
-        segment_kinds, url_groups = _archive_facets(norm_db)
+        segment_kinds, url_groups = _archive_facets(norm_root)
         return {
             "normalized_documents": docs,
             "normalized_counts": counts,
@@ -1319,32 +1200,20 @@ class Handler(BaseHTTPRequestHandler):
 
     @_j
     def _api_document(self, qs):
-        """normalized 존 세그먼트 read-only — 원문 왕복(§3-2). DB 미가동/미존재는 정직 빈."""
+        """normalized Iceberg segments for source-span round trips."""
         doc_id = unquote(qs.get("doc", ""))
-        import duckdb
-        db = getattr(self, "normalized_db", NORM_DB)
+        zone = None
         try:
-            c = duckdb.connect(str(db), read_only=True)
+            zone = _normalized(getattr(self, "normalized_root", NORM_ROOT))
+            if zone is None:
+                raise RuntimeError("catalog unavailable")
+            return zone.document(doc_id)
         except Exception:
             return {"doc_id": doc_id, "available": False, "segments": [],
-                    "note": "normalized DuckDB 미가동 (honest-gap §6.2)"}
-        try:
-            drows = c.execute(
-                "SELECT doc_id, source_id, url, title, language, publication_time, "
-                "parser_version FROM documents WHERE doc_id=?", [doc_id]).fetchall()
-            srows = c.execute(
-                "SELECT segment_id, ord, kind, text, char_start, char_end "
-                "FROM segments WHERE doc_id=? ORDER BY ord", [doc_id]).fetchall()
-        except Exception:
-            drows, srows = [], []
+                    "note": "normalized Iceberg 미가동 (honest-gap §6.2)"}
         finally:
-            c.close()
-        dcols = ["doc_id", "source_id", "url", "title", "language",
-                 "publication_time", "parser_version"]
-        scols = ["segment_id", "ord", "kind", "text", "char_start", "char_end"]
-        return {"doc_id": doc_id, "available": True,
-                "documents": [dict(zip(dcols, r)) for r in drows],
-                "segments": [dict(zip(scols, r)) for r in srows]}
+            if zone:
+                zone.close()
 
     @_j
     def _api_council(self, qs):

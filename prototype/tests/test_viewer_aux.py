@@ -23,7 +23,7 @@ from raw_fixture import write_raw_shard
 
 @pytest.fixture
 def norm_db(tmp_path):
-    from orc_citadel.duckdb_zone import NormalizedZone
+    from orc_citadel.iceberg_zone import NormalizedZone
     from orc_citadel.parse import extract_html
 
     html = (b"<html><head><title>NVIDIA Call</title>"
@@ -32,7 +32,7 @@ def norm_db(tmp_path):
             b"<body><article><h1>NVIDIA Call</h1>"
             b"<p>NVIDIA announces new accelerator products.</p>"
             b"</article></body></html>")
-    path = str(tmp_path / "oc.duckdb")
+    path = str(tmp_path / "iceberg")
     z = NormalizedZone(path)
     z.initialize()
     doc = extract_html(html, "https://e/n")
@@ -72,7 +72,7 @@ def _facade():
 
 def test_watchtower_includes_freshness_tile(norm_db, raw_dir):
     self = types.SimpleNamespace(facade=_facade(), raw_dir=raw_dir,
-                                 normalized_db=norm_db)
+                                 normalized_root=norm_db)
     r = json.loads(Handler._api_watchtower(self, {}))
     assert "freshness" in r
     # normalized publication_time 실측 → measured=True, 아니면 정직 not-measured.
@@ -180,20 +180,20 @@ def test_search_claims_hit_predicate():
                for c in r["claims"])
 
 
-def test_search_documents_via_normalized_ilike(tmp_path):
-    """documents 는 normalized DuckDB read_only ILIKE — 미가동 DB 는 정직 빈."""
+def test_search_documents_via_normalized_iceberg(tmp_path):
+    """documents search uses normalized Iceberg; an unavailable catalog is honestly empty."""
     self = types.SimpleNamespace(facade=_rich_facade(),
-                                 normalized_db=str(tmp_path / "missing.duckdb"))
+                                 normalized_root=str(tmp_path / "missing"))
     r = json.loads(Handler._api_search(self, {"q": "nvidia"}))
     assert r["documents"] == []
-    from orc_citadel.duckdb_zone import NormalizedZone
+    from orc_citadel.iceberg_zone import NormalizedZone
     from orc_citadel.parse import extract_html
-    path = str(tmp_path / "oc.duckdb")
+    path = str(tmp_path / "iceberg")
     z = NormalizedZone(path)
     z.initialize()
     z.persist("test", "https://e/n", RICH_HTML, extract_html(RICH_HTML, "https://e/n"))
     z.close()
-    self2 = types.SimpleNamespace(facade=_rich_facade(), normalized_db=path)
+    self2 = types.SimpleNamespace(facade=_rich_facade(), normalized_root=path)
     r2 = json.loads(Handler._api_search(self2, {"q": "Conference"}))
     assert r2["documents"] and {"doc_id", "title", "source_id"} <= set(r2["documents"][0])
 
@@ -243,10 +243,10 @@ def test_graph_nodes_carry_labels():
 
 def test_archive_extends_roles_and_facets(tmp_path):
     """`/api/archive` 확장 — cluster_role·segment_kinds·url_groups 실측."""
-    from orc_citadel.duckdb_zone import NormalizedZone
+    from orc_citadel.iceberg_zone import NormalizedZone
     from orc_citadel.parse import extract_html
 
-    path = str(tmp_path / "oc.duckdb")
+    path = str(tmp_path / "iceberg")
     z = NormalizedZone(path)
     z.initialize()
     z.persist("test", "https://e/n", RICH_HTML, extract_html(RICH_HTML, "https://e/n"))
@@ -254,12 +254,12 @@ def test_archive_extends_roles_and_facets(tmp_path):
               extract_html(RICH_HTML + b"<!--v-->", "https://e/n"))  # 동일 URL 2번째
     z.close()
     # 계보: 첫 문서를 root 로 갖는 클러스터 → normalized 문서에 역할 매핑.
-    import duckdb
-    root_doc = duckdb.connect(path, read_only=True).execute(
-        "SELECT doc_id FROM documents ORDER BY doc_id LIMIT 1").fetchone()[0]
+    reader = NormalizedZone(path)
+    root_doc = reader.documents()[0]["doc_id"]
+    reader.close()
     facade = _rich_facade()
     facade.zone.persist_cluster("clus-test-role", root_doc, [root_doc], [], "minhash")
-    self = types.SimpleNamespace(facade=facade, normalized_db=path,
+    self = types.SimpleNamespace(facade=facade, normalized_root=path,
                                  raw_dir=str(tmp_path / "none"))
     r = json.loads(Handler._api_archive(self, {}))
     docs = r["normalized_documents"]
@@ -299,7 +299,7 @@ def test_watchtower_intake_last_fetch_governance(rich_raw):
     Handler._FETCH_CACHE.clear()
     facade = _rich_facade()
     self = types.SimpleNamespace(facade=facade, raw_dir=rich_raw,
-                                 normalized_db="")
+                                 normalized_root="")
     r = json.loads(Handler._api_watchtower(self, {}))
     it = r["intake"]
     assert it["measured"] is True and it["window_hours"] == 24
@@ -323,7 +323,7 @@ def test_watchtower_intake_honest_without_fetched_at(raw_dir):
     Handler._FETCH_CACHE.clear()
     facade = _rich_facade()
     self = types.SimpleNamespace(facade=facade, raw_dir=raw_dir,
-                                 normalized_db="")
+                                 normalized_root="")
     r = json.loads(Handler._api_watchtower(self, {}))
     assert r["intake"]["measured"] is False
     assert r["intake"]["arrivals_per_hour"] == []

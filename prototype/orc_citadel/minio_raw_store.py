@@ -1,151 +1,257 @@
-"""P1 저장 계층 키스톤 ② — MinIO raw 객체 스토어 (design 03 §2, ADR-301).
+"""Immutable source-sharded Parquet raw storage on MinIO.
 
-raw zone(§2.1)이 로컬 fs + in-memory `RawStore`뿐이던 것을 **MinIO 객체 스토어**에
-영속화한다. §2 객체 레이아웃을 그대로 따른다:
-
-```text
-raw/
-  source_id=<src-…>/
-    doc_id=<doc-…>/            # doc_id = sha256(raw_bytes)[:24]
-      content.bin              # 원본 bytes (수정 금지)
-      fetch.json               # §2.2 수집 메타데이터
-```
-
-- **불변식 (§2/§2.1, ADR-301):** 동일 `url`의 변경 버전은 **새 `doc_id`로 모두 보존**
-  (덮어쓰기 금지). `doc_id`가 내용 기반이므로 동일 bytes 재수집은 동일 객체 → idempotent
-  (불변식 §3-6).
-- `fetch.json` 필드 중 license/robots_allowed 등 governance([`11`](./11-...))는 이
-  저장 계층 증분 범위 밖 — 여기선 core 필드만 기록 (후속 증분에서 반영).
+Objects use ``raw/<source_id>/shard-<timestamp>-<id>.parquet``.  Rows have the
+same logical schema as :class:`RawShardStore`; original bytes remain in the
+``content`` BLOB and committed shards are never rewritten.
 """
 from __future__ import annotations
 
 import hashlib
-import io
 import json
 import os
+import pathlib
+import tempfile
 from datetime import datetime, timezone
+from typing import Iterator
 
-from .identity import doc_id_for
+import duckdb
 
-try:  # minio 드라이버 선택 — 없으면 모듈 import는 유지 (테스트 importorskip)
+from .identity import doc_id_for, new_ulid
+from .raw_shard import validate_source_id
+
+try:
     from minio import Minio
-except Exception:  # pragma: no cover
+except Exception:  # pragma: no cover - optional driver at import time
     Minio = None
 
 
+_COLUMNS = ("doc_id VARCHAR, source_id VARCHAR, url VARCHAR, fetched_at VARCHAR, "
+            "http_status INTEGER, robots_allowed BOOLEAN, license VARCHAR, "
+            "meta_json VARCHAR, content BLOB")
+_SHARD_SIZE = 10_000
+
+
 def build_minio_client() -> "Minio":
-    """MinIO 클라이언트. .env(환경)의 MINIO_ROOT_USER/PASSWORD/HOST/PORT 사용."""
+    """Build the MinIO client from the established environment variables."""
     if Minio is None:
         raise RuntimeError("minio 드라이버 미설치")
-    user = os.environ.get("MINIO_ROOT_USER", "citadel")
-    password = os.environ.get("MINIO_ROOT_PASSWORD", "citadel-local-minio")
-    host = os.environ.get("MINIO_HOST", "localhost")
-    port = os.environ.get("MINIO_PORT", "9000")
     return Minio(
-        f"{host}:{port}",
-        access_key=user,
-        secret_key=password,
+        f"{os.environ.get('MINIO_HOST', 'localhost')}:{os.environ.get('MINIO_PORT', '9000')}",
+        access_key=os.environ.get("MINIO_ROOT_USER", "citadel"),
+        secret_key=os.environ.get("MINIO_ROOT_PASSWORD", "citadel-local-minio"),
         secure=False,
     )
 
 
 class MinioRawStore:
-    """§2 raw zone을 MinIO에 영속화한 append-only 객체 스토어.
+    """Append-only raw rows buffered into immutable, source-local Parquet shards."""
 
-    idempotent put — 동일 bytes는 동일 `doc_id`로 no-op, 변경분은 새 `doc_id`로 보존.
-    """
-
-    def __init__(self, client, bucket: str = "raw") -> None:
+    def __init__(self, client, bucket: str = "raw", *, shard_size: int = _SHARD_SIZE) -> None:
+        if shard_size <= 0:
+            raise ValueError("shard_size must be positive")
         self.client = client
         self.bucket = bucket
-        if not self.client.bucket_exists(bucket):
-            self.client.make_bucket(bucket)
+        self.shard_size = shard_size
+        self._buffer: dict[str, list[tuple]] = {}
+        self._known: set[tuple[str, str]] | None = None
+        if not client.bucket_exists(bucket):
+            client.make_bucket(bucket)
 
-    # ---- keys (§2.1) ----
-    def _content_key(self, source_id: str, doc_id: str) -> str:
-        return f"raw/{source_id}/{doc_id}/content.bin"
-
-    def _meta_key(self, source_id: str, doc_id: str) -> str:
-        return f"raw/{source_id}/{doc_id}/fetch.json"
-
-    # ---- put ----
-    def put(self, source_id: str, url: str, content: bytes, meta: dict | None = None) -> str:
-        """raw 저장 — 내용 기반 doc_id 반환. 동일 bytes는 no-op, 변경분은 새 doc_id.
-
-        returns doc_id. meta는 fetch.json에 병합된다.
-        """
+    def put(self, source_id: str, url: str, content: bytes,
+            meta: dict | None = None) -> str:
+        """Buffer original bytes and metadata, returning their content-derived doc id."""
+        validate_source_id(source_id)
         doc_id = doc_id_for(content)
-        content_key = self._content_key(source_id, doc_id)
-        meta_key = self._meta_key(source_id, doc_id)
-        if self._object_exists(content_key):
-            # 이미 수집 — idempotent no-op (동일 bytes, 중복 객체 없음)
+        self._ensure_index()
+        assert self._known is not None
+        if (source_id, doc_id) in self._known:
             return doc_id
-        # content.bin — 원본 bytes (수정 금지, append-only)
-        self.client.put_object(
-            self.bucket, content_key, io.BytesIO(content), length=len(content)
+
+        extra = dict(meta or {})
+        fetched_at = extra.pop("fetched_at", None) or datetime.now(timezone.utc).isoformat()
+        http_status = extra.pop("http_status", None)
+        robots_allowed = extra.pop("robots_allowed", True)
+        license_name = extra.pop("license", "unknown")
+        extra.pop("doc_id", None)
+        extra.pop("source_id", None)
+        extra.pop("url", None)
+        extra["content_hash"] = "sha256:" + hashlib.sha256(content).hexdigest()
+        row = (
+            doc_id, source_id, url, fetched_at, http_status, robots_allowed, license_name,
+            json.dumps(extra, ensure_ascii=False) if extra else None, content,
         )
-        # fetch.json — §2.2 핵심 필드
-        fetch = dict(meta or {})
-        fetch.setdefault("doc_id", doc_id)
-        fetch.setdefault("source_id", source_id)
-        fetch.setdefault("url", url)
-        fetch.setdefault("content_hash", "sha256:" + hashlib.sha256(content).hexdigest())
-        fetch.setdefault("fetched_at", datetime.now(timezone.utc).isoformat())
-        self.client.put_object(
-            self.bucket, meta_key,
-            io.BytesIO(json.dumps(fetch, ensure_ascii=False).encode()), length=len(json.dumps(fetch, ensure_ascii=False).encode()),
-        )
+        self._buffer.setdefault(source_id, []).append(row)
+        self._known.add((source_id, doc_id))
+        if len(self._buffer[source_id]) >= self.shard_size:
+            self._write_shard(source_id)
         return doc_id
 
-    # ---- get / meta ----
-    def _object_exists(self, key: str) -> bool:
-        try:
-            self.client.stat_object(self.bucket, key)
-            return True
-        except Exception:
-            return False
+    def flush(self) -> None:
+        """Commit every non-empty source buffer as a new immutable shard."""
+        for source_id in list(self._buffer):
+            self._write_shard(source_id)
 
-    def get_raw(self, doc_id: str) -> bytes:
-        """content.bin 바이트 반환. doc_id로 source_id를 몰라도 조회하게끔 전체 버킷 스캔 없이
-        객체 접두로 찾는다 (doc_id가 내용 기반이므로 어느 source든 키가 유일)."""
-        # 정확한 소스 키를 모르므로 전체 버킷에서 doc_id 접미 검색 (소량 raw용 단순 구현).
-        prefix = None
-        for obj in self.client.list_objects(self.bucket, recursive=True):
-            if obj.object_name.endswith(f"/{doc_id}/content.bin"):
-                prefix = obj.object_name
-                break
-        if prefix is None:
-            raise KeyError(doc_id)
-        resp = self.client.get_object(self.bucket, prefix)
-        try:
-            return resp.read()
-        finally:
-            resp.close()
-            resp.release_conn()
-
-    def fetch_meta(self, doc_id: str) -> dict:
-        """fetch.json dict 반환."""
-        for obj in self.client.list_objects(self.bucket, recursive=True):
-            if obj.object_name.endswith(f"/{doc_id}/fetch.json"):
-                resp = self.client.get_object(self.bucket, obj.object_name)
-                try:
-                    return json.loads(resp.read().decode())
-                finally:
-                    resp.close()
-                    resp.release_conn()
-        raise KeyError(doc_id)
-
-    def has(self, doc_id: str) -> bool:
-        """doc_id 존재 여부 (재개 스킵용)."""
-        for obj in self.client.list_objects(self.bucket, recursive=True):
-            if obj.object_name.endswith(f"/{doc_id}/content.bin"):
-                return True
-        return False
+    def has(self, doc_id: str, *, source_id: str | None = None) -> bool:
+        self._ensure_index()
+        assert self._known is not None
+        return ((source_id, doc_id) in self._known if source_id is not None
+                else any(known_doc_id == doc_id for _, known_doc_id in self._known))
 
     def count_docs(self) -> int:
-        """유일 문서(doc_id) 수. 각 doc은 content.bin+fetch.json 2객체라 doc_id 집합으로 센다."""
-        return len({
-            o.object_name.split("/")[2]  # raw/<source_id>/<doc_id>/content.bin
-            for o in self.client.list_objects(self.bucket, recursive=True)
-            if o.object_name.endswith("/content.bin")
-        })
+        self._ensure_index()
+        assert self._known is not None
+        return len(self._known)
+
+    def get_raw(self, doc_id: str, *, source_id: str | None = None) -> bytes:
+        """Return exact original bytes from the buffer or one matching shard row."""
+        row = self._buffer_row(doc_id, source_id)
+        if row is not None:
+            return row[-1]
+        sql = "SELECT content FROM read_parquet(?) WHERE doc_id = ?"
+        params = [doc_id]
+        if source_id is not None:
+            sql += " AND source_id = ?"
+            params.append(source_id)
+        for row in self._iter_persisted(sql, params, source_ids=[source_id] if source_id else None):
+            return bytes(row[0])
+        raise KeyError(doc_id)
+
+    def fetch_meta(self, doc_id: str, *, source_id: str | None = None) -> dict:
+        """Return Parquet core and JSON metadata for one exact source row."""
+        row = self._buffer_row(doc_id, source_id)
+        if row is None:
+            sql = (
+                "SELECT doc_id, source_id, url, fetched_at, http_status, "
+                "robots_allowed, license, meta_json FROM read_parquet(?) WHERE doc_id = ?"
+            )
+            params = [doc_id]
+            if source_id is not None:
+                sql += " AND source_id = ?"
+                params.append(source_id)
+            row = next(self._iter_persisted(
+                sql, params, source_ids=[source_id] if source_id else None), None)
+        if row is None:
+            raise KeyError(doc_id)
+        return self._meta_from_row(row)
+
+    def iter_docs(self, source_ids: list[str] | None = None,
+                  doc_ids: list[str] | None = None) -> Iterator[dict]:
+        """Stream shard rows one object at a time, then expose still-buffered rows."""
+        wanted = set(doc_ids) if doc_ids is not None else None
+        sql = "SELECT doc_id, source_id, url, content FROM read_parquet(?)"
+        params: list = []
+        if wanted is not None:
+            sql += " WHERE doc_id IN (SELECT unnest(?))"
+            params.append(list(wanted))
+        for doc_id, source_id, url, content in self._iter_persisted(
+            sql, params, source_ids=source_ids
+        ):
+            yield {"doc_id": doc_id, "source_id": source_id,
+                   "url": url, "content": bytes(content)}
+        for source_id, rows in self._buffer.items():
+            if source_ids is not None and source_id not in source_ids:
+                continue
+            for row in rows:
+                if wanted is None or row[0] in wanted:
+                    yield {"doc_id": row[0], "source_id": row[1],
+                           "url": row[2], "content": row[-1]}
+
+    def iter_records(self, source_ids: list[str] | None = None) -> Iterator[dict]:
+        """Stream metadata rows without materializing content or the corpus."""
+        sql = (
+            "SELECT doc_id, source_id, url, fetched_at, http_status, "
+            "robots_allowed, license, meta_json FROM read_parquet(?)"
+        )
+        for row in self._iter_persisted(sql, [], source_ids=source_ids):
+            yield self._meta_from_row(row)
+        for source_id, rows in self._buffer.items():
+            if source_ids is None or source_id in source_ids:
+                for row in rows:
+                    yield self._meta_from_row(row[:-1])
+
+    def _write_shard(self, source_id: str) -> None:
+        rows = self._buffer.get(source_id, [])
+        if not rows:
+            return
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
+        object_id = new_ulid("r").split("-", 1)[1]
+        key = f"raw/{source_id}/shard-{stamp}-{object_id}.parquet"
+        with tempfile.TemporaryDirectory() as directory:
+            path = pathlib.Path(directory) / "shard.parquet"
+            con = duckdb.connect()
+            try:
+                con.execute(f"CREATE TABLE shard({_COLUMNS})")
+                con.executemany("INSERT INTO shard VALUES (?,?,?,?,?,?,?,?,?)", rows)
+                con.execute("COPY shard TO ? (FORMAT PARQUET, COMPRESSION zstd)", [str(path)])
+            finally:
+                con.close()
+            with path.open("rb") as stream:
+                self.client.put_object(self.bucket, key, stream, length=path.stat().st_size)
+        del self._buffer[source_id]
+
+    def _ensure_index(self) -> None:
+        if self._known is not None:
+            return
+        self._known = {
+            (source_id, doc_id)
+            for source_id, doc_id in self._iter_persisted(
+                "SELECT source_id, doc_id FROM read_parquet(?)", [])
+        }
+        for rows in self._buffer.values():
+            self._known.update((row[1], row[0]) for row in rows)
+
+    def _shard_keys(self, source_ids: list[str] | None = None) -> Iterator[str]:
+        allowed = (
+            {validate_source_id(source_id) for source_id in source_ids}
+            if source_ids is not None else None
+        )
+        for obj in self.client.list_objects(self.bucket, prefix="raw/", recursive=True):
+            parts = obj.object_name.split("/")
+            if (len(parts) == 3 and parts[0] == "raw"
+                    and parts[2].startswith("shard-") and parts[2].endswith(".parquet")
+                    and (allowed is None or parts[1] in allowed)):
+                yield obj.object_name
+
+    def _iter_persisted(self, sql: str, params: list,
+                        source_ids: list[str] | None = None) -> Iterator[tuple]:
+        for key in self._shard_keys(source_ids):
+            with tempfile.TemporaryDirectory() as directory:
+                path = pathlib.Path(directory) / "shard.parquet"
+                response = self.client.get_object(self.bucket, key)
+                try:
+                    with path.open("wb") as output:
+                        while chunk := response.read(1024 * 1024):
+                            output.write(chunk)
+                finally:
+                    response.close()
+                    response.release_conn()
+                con = duckdb.connect()
+                try:
+                    cursor = con.execute(sql, [str(path), *params])
+                    while rows := cursor.fetchmany(1_000):
+                        yield from rows
+                finally:
+                    con.close()
+
+    def _buffer_row(self, doc_id: str, source_id: str | None = None) -> tuple | None:
+        for rows in self._buffer.values():
+            for row in rows:
+                if row[0] == doc_id and (source_id is None or row[1] == source_id):
+                    return row
+        return None
+
+    @staticmethod
+    def _meta_from_row(row: tuple) -> dict:
+        (doc_id, source_id, url, fetched_at, http_status,
+         robots_allowed, license_name, meta_json) = row[:8]
+        meta = json.loads(meta_json) if meta_json else {}
+        return {
+            "doc_id": doc_id,
+            "source_id": source_id,
+            "url": url,
+            "fetched_at": fetched_at,
+            "http_status": http_status,
+            "robots_allowed": robots_allowed,
+            "license": license_name,
+            **meta,
+        }

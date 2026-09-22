@@ -63,6 +63,11 @@ compose_up() {
       docker run --rm -v orc-citadel-proddata:/app/data orc-citadel-prototype:latest \
         python -c \"from orc_citadel.curated_zone import CuratedZone; zone = CuratedZone('/app/data/curated.duckdb'); zone.initialize(); zone.close()\"
     fi
+    # Lakekeeper metadata is persisted in the existing PostgreSQL. Migration and
+    # bootstrap are deploy-time one-shots; only the catalog server stays running.
+    docker compose -p $COMPOSE_PROJECT $COMPOSE_FILES --env-file .env run --rm lakekeeper migrate
+    docker compose -p $COMPOSE_PROJECT $COMPOSE_FILES --env-file .env up -d --wait lakekeeper
+    docker compose -p $COMPOSE_PROJECT $COMPOSE_FILES --env-file .env run --rm prototype python deploy/lakekeeper/smoke.py
     docker compose -p $COMPOSE_PROJECT $COMPOSE_FILES --env-file .env up -d
     echo '== 상태 =='
     docker compose -p $COMPOSE_PROJECT $COMPOSE_FILES --env-file .env ps

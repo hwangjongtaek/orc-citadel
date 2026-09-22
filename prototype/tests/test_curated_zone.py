@@ -1,7 +1,7 @@
-"""S5 curated zone DuckDB 영속 (설계 03 §4.1 mentions, §4.3 dup_clusters) — TDD.
+"""Curated Iceberg persistence contract (design 03 §4).
 
-L1 추출 mention과 S4 dedup cluster를 curated zone에 영속·조회·Parquet export한다.
-LLM 의존 해소/claim은 이 zone의 후속 소비 영역 (여기선 저장·조회 대상만).
+Mentions, dedup lineage, claims, and graph-serving records retain their public
+row shapes while the physical tables live in namespace ``curated``.
 """
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from orc_citadel.identity import doc_id_for
 
 @pytest.fixture
 def zone(tmp_path):
-    z = CuratedZone(str(tmp_path / "curated.duckdb"))
+    z = CuratedZone(tmp_path / "iceberg")
     z.initialize()
     yield z
     z.close()
@@ -26,11 +26,56 @@ def _mentions(text: str) -> list[Mention]:
     return extract_mentions(doc_id, doc, parse_document(doc_id, doc))
 
 
+def test_persist_signature_repairs_partial_band_rows_on_retry(zone):
+    from orc_citadel.dedup import DEDUP_VERSION, band_keys
+
+    signature = list(range(64))
+    keys = band_keys(signature)
+    zone._put("dup_signatures", {
+        "doc_id": "doc-partial", "dedup_version": DEDUP_VERSION,
+        "signature": signature, "text_hash": "hash-partial",
+    })
+    band_idx, rows = keys[0]
+    zone._put("dup_bands", {
+        "doc_id": "doc-partial", "dedup_version": DEDUP_VERSION,
+        "band_idx": band_idx, "band_key": repr(rows),
+    })
+
+    zone.persist_signature("doc-partial", signature, text_hash="hash-partial")
+    zone.persist_signature("doc-partial", signature, text_hash="hash-partial")
+
+    assert zone.counts()["dup_signatures"] == 1
+    assert zone.counts()["dup_bands"] == len(keys)
+    assert zone.band_candidates([keys[-1]]) == {"doc-partial": signature}
+
+
 def test_tables_created(zone):
-    assert "mentions" in zone.tables()
-    assert "entities" in zone.tables()
-    assert "claim_candidates" in zone.tables()
-    assert "dup_clusters" in zone.tables()
+    assert set(zone.tables()) == {
+        "mentions", "dup_signatures", "dup_bands", "dup_clusters", "entities",
+        "claim_candidates", "canonical_claims", "member_of", "conflict_candidates",
+        "assertions", "authoritative_edges", "canonical_llm_records",
+        "conflict_verdicts", "golden_pairs", "golden_entity_pairs",
+        "golden_lineage_pairs", "promotion_baselines", "extraction_records",
+    }
+
+
+def test_physical_partitions_are_hidden_from_public_shapes(zone):
+    assert [field.name for field in zone._table("mentions").spec().fields] == [
+        "dedup_version"]
+    assert [field.name for field in zone._table("claim_candidates").spec().fields] == [
+        "status"]
+    assert [field.name for field in zone._table("assertions").spec().fields] == [
+        "tx_month"]
+    assert "_dedup_version" not in zone.columns("mentions")
+    for table_name, expected in {
+        "mentions": ["doc_id"],
+        "claim_candidates": ["doc_id"],
+        "assertions": ["subject_id", "predicate"],
+    }.items():
+        table = zone._table(table_name)
+        actual = [table.schema().find_column_name(field.source_id)
+                  for field in table.sort_order().fields]
+        assert actual == expected
 
 
 def test_persist_mentions_query(zone):

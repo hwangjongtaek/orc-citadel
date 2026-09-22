@@ -1,107 +1,131 @@
-"""P1 저장 계층 키스톤 ② — MinIO raw 객체 스토어 (design 03 §2, ADR-301).
-
-raw zone(§2.1)이 로컬 fs+in-memory `RawStore`뿐이던 것을 **MinIO 객체 스토어**에
-영속화한다. §2 객체 레이아웃(`raw/<source_id>/<doc_id>/content.bin + fetch.json`),
-content-hash idempotency(불변식 §3-6), ADR-301(URL 변경분은 새 doc_id로 보존).
-
-테스트는 전용 버킷을 실행마다 삭제·재생성으로 격리한다. MinIO 드라이버/연결 불가
-(오프라인) 시 전체 skip — 기존 스위트 430 보존.
-"""
+"""MinIO raw storage uses immutable source-sharded Parquet objects."""
 from __future__ import annotations
 
 import hashlib
-import io
-import json
+import re
 
+import duckdb
 import pytest
 
-from orc_citadel.minio_raw_store import MinioRawStore, build_minio_client
-
-minio_mod = pytest.importorskip("minio")
-
-# 전용 격리 버킷 (실제 운영 버킷과 분리 — CI/로컬 안전). 적절한 접두사.
-TEST_BUCKET = "raw-test-orc"
+from fake_minio import FakeMinio
+from orc_citadel.minio_raw_store import MinioRawStore
 
 
 @pytest.fixture()
-def store():
-    """실 MinIO에 연결해 전용 버킷을 삭제·재생성으로 격리 (테스트마다 초기화)."""
-    try:
-        client = build_minio_client()
-        # 첫 실제 연결은 여기서 일어난다 (client 생성은 lazy — 연결 안 함).
-        # 가드 밖에 두면 오프라인에서 skip 아닌 ERROR 가 된다.
-        bucket_exists = client.bucket_exists(TEST_BUCKET)
-    except Exception as exc:  # 오프라인/드라이버 부재 — 전체 skip
-        pytest.skip(f"MinIO 연결 불가: {exc}")
-    if bucket_exists:
-        for obj in client.list_objects(TEST_BUCKET, recursive=True):
-            client.remove_object(TEST_BUCKET, obj.object_name)
-        client.remove_bucket(TEST_BUCKET)
-    client.make_bucket(TEST_BUCKET)
-    log = MinioRawStore(client, bucket=TEST_BUCKET)
-    yield log
-    # teardown — 전용 버킷 정리
-    try:
-        for obj in client.list_objects(TEST_BUCKET, recursive=True):
-            client.remove_object(TEST_BUCKET, obj.object_name)
-        client.remove_bucket(TEST_BUCKET)
-    except Exception:
-        pass
+def client():
+    return FakeMinio()
 
 
-def _large_bytes(n: int = 64) -> bytes:
-    return b"x" * n
+@pytest.fixture()
+def store(client):
+    return MinioRawStore(client, bucket="raw-test", shard_size=10)
 
 
-def test_put_get_content_roundtrip(store):
-    """put → get 으로 원문 bytes가 왕복 보존된다 (§2.1 content.bin)."""
-    doc_id = store.put("src-test", "https://example.com/a", _large_bytes())
-    assert doc_id.startswith("doc-")
-    assert store.get_raw(doc_id) == _large_bytes()
+def test_buffered_put_is_visible_before_flush(store):
+    content = b"original bytes\x00\xff"
+    doc_id = store.put(
+        "src-test", "https://example.com/a", content,
+        {"http_status": 200, "license": "public", "custom": "value"},
+    )
 
-
-def test_content_hash_idempotency_same_bytes_no_dup(store):
-    """동일 bytes 재put 은 동일 doc_id — 중복 객체 없음 (불변식 §3-6)."""
-    b = _large_bytes()
-    d1 = store.put("src-test", "https://example.com/a", b)
-    d2 = store.put("src-other", "https://example.com/other", b)  # 다른 소스·url — 내용 동일
-    assert d1 == d2  # 내용 기반 doc_id — 동일
-    assert store.count_docs() == 1  # 중복 객체 없음
-
-
-def test_url_change_new_doc_id_preserved(store):
-    """ADR-301 — 동일 url의 변경 버전은 새 doc_id로 보존 (덮어쓰기 금지)."""
-    doc1 = store.put("src-test", "https://example.com/a", b"version-1-content")
-    doc2 = store.put("src-test", "https://example.com/a", b"version-2-different")
-    assert doc1 != doc2  # 새 doc_id
-    assert store.get_raw(doc1) == b"version-1-content"
-    assert store.get_raw(doc2) == b"version-2-different"
-    assert store.count_docs() == 2  # 둘 다 보존
-
-
-def test_fetch_json_metadata_roundtrip(store):
-    """fetch.json catch: doc_id/source_id/url/content_hash/fetched_at 왕복 (§2.2)."""
-    b = _large_bytes()
-    doc_id = store.put("src-test", "https://example.com/a", b, meta={"http_status": 200})
-    meta = store.fetch_meta(doc_id)
-    assert meta["doc_id"] == doc_id
-    assert meta["source_id"] == "src-test"
-    assert meta["url"] == "https://example.com/a"
-    assert meta["content_hash"] == "sha256:" + hashlib.sha256(b).hexdigest()
-    assert "fetched_at" in meta
-
-
-def test_object_layout_uses_source_and_doc(store):
-    """§2.1 — 객체 키가 raw/<source_id>/<doc_id>/...(content.bin+fetch.json) 구조."""
-    doc_id = store.put("src-alpha", "https://e/a", b"payload")
-    prefix = f"raw/src-alpha/{doc_id}/"
-    names = sorted(o.object_name for o in store.client.list_objects(store.bucket, prefix=prefix, recursive=True))
-    assert f"raw/src-alpha/{doc_id}/content.bin" in names
-    assert f"raw/src-alpha/{doc_id}/fetch.json" in names
-
-
-def test_has_reports_existence(store):
-    """has(doc_id) — 존재 여부 (재개 스킵용)."""
-    doc_id = store.put("src-test", "https://e/a", b"data")
     assert store.has(doc_id)
-    assert not store.has("doc-nonexistent")
+    assert store.get_raw(doc_id) == content
+    assert store.count_docs() == 1
+    assert store.fetch_meta(doc_id) == {
+        "doc_id": doc_id,
+        "source_id": "src-test",
+        "url": "https://example.com/a",
+        "fetched_at": store.fetch_meta(doc_id)["fetched_at"],
+        "http_status": 200,
+        "robots_allowed": True,
+        "license": "public",
+        "content_hash": "sha256:" + hashlib.sha256(content).hexdigest(),
+        "custom": "value",
+    }
+
+
+def test_filesystem_and_minio_preserve_identical_fetch_metadata(client, tmp_path):
+    from orc_citadel.raw_shard import RawShardStore
+
+    content = b"response body"
+    meta = {
+        "response_headers": {"Content-Type": "text/html", "ETag": '"abc"'},
+        "fetch_correlation_id": "corr-deterministic",
+    }
+    filesystem = RawShardStore(tmp_path / "raw")
+    doc_id, _ = filesystem.append("src-test", "https://example.com/a", content, meta)
+    filesystem.flush()
+    minio = MinioRawStore(client, bucket="raw-test")
+    minio.put("src-test", "https://example.com/a", content, meta)
+    minio.flush()
+
+    local_meta = filesystem.fetch_records()[0]
+    remote_meta = minio.fetch_meta(doc_id)
+    for field in ("content_hash", "response_headers", "fetch_correlation_id"):
+        assert local_meta[field] == remote_meta[field]
+
+
+def test_twenty_five_docs_make_three_zstd_parquet_shards_without_legacy_objects(
+    store, client, tmp_path,
+):
+    expected = {}
+    for i in range(25):
+        content = f"bytes-{i}".encode()
+        doc_id = store.put("src-a", f"https://example.com/{i}", content,
+                           {"http_status": 200, "ordinal": i})
+        expected[doc_id] = (content, i)
+    duplicate = store.put("src-a", "https://duplicate", b"bytes-7", {"ordinal": 999})
+
+    assert store.count_docs() == 25
+    assert store.get_raw(duplicate) == b"bytes-7"
+    store.flush()
+
+    names = sorted(o.object_name for o in client.list_objects("raw-test", recursive=True))
+    assert len(names) == 3
+    assert all(re.fullmatch(r"raw/src-a/shard-\d{8}T\d{12}-[A-Za-z0-9]+\.parquet", n)
+               for n in names)
+    assert not any(n.endswith(("content.bin", "fetch.json")) for n in names)
+
+    for doc_id, (content, ordinal) in expected.items():
+        assert store.get_raw(doc_id) == content
+        assert store.fetch_meta(doc_id)["ordinal"] == ordinal
+
+    path = tmp_path / "shard.parquet"
+    path.write_bytes(client.buckets["raw-test"][names[0]])
+    compression = duckdb.connect().execute(
+        "SELECT DISTINCT compression FROM parquet_metadata(?)", [str(path)]
+    ).fetchall()
+    assert compression == [("ZSTD",)]
+
+
+def test_same_bytes_are_preserved_once_per_source(client):
+    first = MinioRawStore(client, bucket="raw-test", shard_size=10)
+    doc_id = first.put("src-a", "https://example.com/a", b"same")
+    first.flush()
+
+    reopened = MinioRawStore(client, bucket="raw-test", shard_size=10)
+    assert reopened.put("src-b", "https://example.com/b", b"same") == doc_id
+    reopened.flush()
+
+    assert reopened.count_docs() == 2
+    assert len(list(client.list_objects("raw-test", recursive=True))) == 2
+    assert reopened.fetch_meta(doc_id, source_id="src-a")["url"] == "https://example.com/a"
+    assert reopened.fetch_meta(doc_id, source_id="src-b")["url"] == "https://example.com/b"
+
+
+def test_same_url_changed_bytes_preserves_both_versions(store):
+    first = store.put("src-a", "https://example.com/a", b"version one")
+    second = store.put("src-a", "https://example.com/a", b"version two")
+
+    assert first != second
+    assert store.get_raw(first) == b"version one"
+    assert store.get_raw(second) == b"version two"
+    assert store.count_docs() == 2
+
+
+def test_missing_document_raises_key_error(store):
+    with pytest.raises(KeyError):
+        store.get_raw("doc-missing")
+    with pytest.raises(KeyError):
+        store.fetch_meta("doc-missing")
+    assert not store.has("doc-missing")

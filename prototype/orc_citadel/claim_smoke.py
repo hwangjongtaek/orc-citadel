@@ -4,7 +4,7 @@ NVIDIA 공시 doc에서 `announces`(earnings conference call) claim을 결정적
 추출하고, source_span(clean text 축)으로 segment 텍스트를 slice하면 surface_fragment가
 재현되는지(provenance 왕복) 검증한다. claim_candidates는 03 §4.2 status=candidate로
 curated zone에 영속. SemiEngineering(본문 컨테이너 크롬만)은 규칙 매칭 0건 — precision.
-파생 DB는 prototype/data/ 아래(gitignore).
+파생 Iceberg warehouse는 prototype/data/ 아래(gitignore).
 """
 from __future__ import annotations
 
@@ -18,15 +18,14 @@ from orc_citadel.load_raw_zone import load_raw_zone
 from orc_citadel.parse import extract_html, parse_document
 from orc_citadel.resolve import EntityResolver
 
-DB_PATH = pathlib.Path(__file__).resolve().parent.parent / "data" / "curated.duckdb"
+WAREHOUSE_ROOT = pathlib.Path(__file__).resolve().parent.parent / "data" / "iceberg"
 
 
 def main() -> None:
     store, metas = load_raw_zone()
     print(f"== S7 claim 추출(규칙 기반) 스모크: {len(metas)} real docs ==")
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-
-    zone = CuratedZone(str(DB_PATH))
+    WAREHOUSE_ROOT.mkdir(parents=True, exist_ok=True)
+    zone = CuratedZone(WAREHOUSE_ROOT)
     zone.initialize()
     resolver = EntityResolver()
 

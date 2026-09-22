@@ -212,11 +212,7 @@ def _lineage_zone():
     z.initialize()
     z.persist_golden_lineage_pair("doc-a", "doc-b", "dup", "dev", "g1",
                                   "human:x", "t", "r")
-    z._conn.execute(
-        "INSERT INTO dup_clusters (cluster_id, root_doc_id, member_doc_ids, "
-        "independent_addition_doc_ids, dedup_method) VALUES (?, ?, ?, ?, ?)",
-        ["cl-1", "doc-a", ["doc-a", "doc-b"], [], "content_hash"],
-    )
+    z.persist_cluster("cl-1", "doc-a", ["doc-a", "doc-b"], [], "content_hash")
     return z
 
 
@@ -239,11 +235,7 @@ def test_lineage_wrong_cluster_is_fp():
     z.persist_golden_lineage_pair("doc-c", "doc-d", "independent", "dev", "g1",
                                   "human:x", "t", "r")
     # 시스템이 두 독립 문서를 한 클러스터로 오축소.
-    z._conn.execute(
-        "INSERT INTO dup_clusters (cluster_id, root_doc_id, member_doc_ids, "
-        "independent_addition_doc_ids, dedup_method) VALUES (?, ?, ?, ?, ?)",
-        ["cl-1", "doc-c", ["doc-c", "doc-d"], [], "minhash"],
-    )
+    z.persist_cluster("cl-1", "doc-c", ["doc-c", "doc-d"], [], "minhash")
     rep = generate_metrics_report(z)
     s = rep.slices["lineage"]
     assert s.measured is True

@@ -1,6 +1,6 @@
 # 03 · 저장 계층·데이터 모델 (Grand Archive · Chronicle · Hall of Witnesses)
 
-> **상태:** ✅ Stable · **Spec:** 1.2.0 · **Blueprint 매핑:** §6.4, §6.5, §7.1, §17
+> **상태:** ✅ Stable · **Spec:** 1.7.0 · **Blueprint 매핑:** §6.4, §6.5, §7.1, §17
 > 상위 규약: [`README.md`](./README.md) · 관련: [`02-ontology`](./02-ontology.md), [`06-graph`](./06-graph-service.md)
 
 Lakehouse 저장 계층(raw/normalized/curated), 테이블 스키마, ID 체계 적용, **append-only mutation log**, **bitemporal 모델**, **provenance chain**을 확정한다. 본 계층이 시스템의 **Source of Truth**이며 그래프·검색 인덱스는 여기서 재구축된다 (불변식 §3-1).
@@ -19,67 +19,98 @@ curated zone    entity mention · claim/evidence · canonical mapping · dedup c
 [serving]       War Table (graph) · Search/Vector index  ← 재구축 가능한 파생물
 ```
 
-| Zone | 포맷 | 저장소(초기) | 변경성 | 소유 stage |
+| Zone | 포맷 | 현행 저장소 | 변경성 | 소유 stage |
 | --- | --- | --- | --- | --- |
-| raw | 원본 bytes + JSON metadata | MinIO(object) | **immutable, append-only** | S2 |
-| normalized | Parquet | MinIO + 카탈로그 | 재생성 가능(parser_version) | S3 |
-| curated | Parquet(→Iceberg) | MinIO + 카탈로그 | 재생성 가능 | S5–S6 |
-| mutation log | Postgres(→Iceberg) | PostgreSQL | **append-only** | S7 |
+| raw | source-sharded zstd Parquet | **prod shared filesystem**; MinIO는 동일 레이아웃의 대체 backend | **immutable, append-only** | S2 |
+| normalized | Apache Iceberg | Lakekeeper REST catalog + warehouse | 재생성 가능(`parser_version`) | S3 |
+| curated | Apache Iceberg | Lakekeeper REST catalog + shared warehouse | 재생성 가능 | S5–S6 |
+| mutation log | PostgreSQL | PostgreSQL | **append-only** | S7 |
 
-- **초기 로컬 분석**은 MinIO 위 Parquet를 **DuckDB**로 직접 질의한다(별도 엔진 불필요, blueprint §7.1). Scale 단계에서 Iceberg 카탈로그로 승격한다(§9).
+DuckDB zone file은 2026-09-22 migration의 **legacy 입력/비교 기준선**일 뿐 현행
+normalized/curated 저장소가 아니다. DuckDB는 local ad-hoc 분석 도구로만 남는다.
+PostgreSQL mutation log와 §4.4 investigation 운영 메타데이터/queue는 이번 cutover
+범위 밖이며 변경하지 않았다.
 
 ### 1.1 파티셔닝·클러스터링 스킴
 
-Parquet(→Iceberg) 파티션 키는 재처리·시간 질의·삭제 전파를 고려해 다음으로 확정한다.
+Iceberg 파티션 키는 재처리·시간 질의·삭제 전파를 고려해 다음으로 확정한다.
 
 | 테이블 | 파티션 키 | 클러스터링/정렬 |
 | --- | --- | --- |
 | `documents` / `segments` | `source_id`, `publication_time`(월 버킷) | `doc_id` |
-| `mentions` / `claim_candidates` / `evidence_candidates` | `dedup_version`, `status` | `doc_id` |
+| `mentions` | `dedup_version` | `doc_id` |
+| `claim_candidates` | `status` | `doc_id` |
+| `dup_signatures` / `dup_bands` | `dedup_version` | `doc_id`, `dedup_version`[, `band_idx`] |
 | `assertions` | `tx_from`(월 버킷) | `subject_id`, `predicate` |
-| `graph_mutations` | `tx_time`(일 버킷) | `mutation_id` |
 
-- 파티션 키는 재생성 버전 축(`parser_version`/`dedup_version`)과 정렬해 **전체 재처리 시 파티션 단위 교체**가 가능하도록 한다.
-- 삭제 전파(§8.4)는 `source_id`/`doc_id` 프루닝으로 대상 파티션을 좁힌다.
+- normalized는 source/month로 prune하고 `(doc_id, parser_version)`·`(segment_id, parser_version)` identifier로 version을 보존한다. curated는 table별 재생성/status/시간 축에 맞춰 partition한다.
+- 삭제 전파(§8.4)는 `source_id`/`doc_id` pruning으로 대상 file을 좁힌다.
+
+### 1.2 Iceberg cutover 실측 (G2/G3, 2026-09-22)
+
+**G2 normalized.** legacy normalized DuckDB는 **255,500 KiB**, migration 뒤 Iceberg는
+**145,228 KiB**로 **43.2% 작았다**. 정확히 **105,252 documents**와
+**823,629 segments**를 이관했고 두 table 모두 **233 partitions**, snapshot 수는
+`documents/segments` 순서로 **11/83**이었다. migration 벽시계는 **11.47s**였다.
+D1 재판정 시 디스크 여유는 **509 GiB**였으며, 이 결과로 D1은 **증설 없이 계속하되
+범위를 확대하지 않음**으로 확정했다.
+
+`parser_version` p1→p2 schema/version evolution smoke는 documents 2행·segments 2행을
+그대로 보존했고, 각 table snapshot은 **1→2**, warehouse 증가는 **29,815 bytes**였다.
+incremental 임시 smoke에서 warm 신규 1건은 **0.1082s**로 legacy 기준선
+**0.147–0.158s**보다 개선됐다. 반면 no-change는 **0.0348s**로 기준선 **0.01s** 대비
+**3.48× 회귀**했지만 절대 증가는 **+24.8ms**다. cold-create **0.3075s**는 legacy
+기준선과 직접 비교할 수 없는 별도 측정이다.
+
+**G3 curated.** legacy curated DuckDB는 **6,156 KiB**였다. 같은 shared Iceberg
+warehouse는 G2의 **145,228 KiB → 145,908 KiB**, 즉 **+680 KiB** 증가했고, 현행
+**18개 curated table** 모두 source row count와 visible row count가 같았다. legacy
+corpus에는 lazy `dup_signatures`/`dup_bands` table이 없었으므로 두 source count를
+정확히 0으로 취급했다.
+
+synthetic selective lookup은 **10,000 signatures / 80,000 band rows**에서 matching
+candidate 1건을 반환했고 **p50 22.804ms, max 79.258ms**였다. 이는 과거
+**12.4ms/doc full dedup 계수와 직접 비교할 수 없다**. 실제 corpus의 persisted
+signature population이 0이어서 real-corpus end-to-end dedup 비교는 **미측정**이며,
+correctness/LSH tests가 green이라는 사실만 별도로 유지한다.
 
 ## 2. Raw Zone
 
 ### 2.1 객체 레이아웃
 
-raw zone 은 두 백엔드를 갖는다. **불변식(내용 기반 doc_id·immutable append-only·
-무손실 bytes 보존)은 동일**하고, 물리 배치만 다르다.
-
-**① 파일 백엔드 (기본 · `raw_shard.RawShardStore`)** — source 별 parquet 샤드.
+raw zone은 Iceberg table로 승격하지 않는다. 원문은 **immutable source-sharded zstd
+Parquet**가 정본이다. 현행 prod는 scheduler와 promotion-consumer가 공유하는
+`proddata:/app/data/raw` filesystem volume에 배치한다. MinIO raw 구현은 아래와 같은
+상대 레이아웃·metadata schema를 보존하는 대체 backend이며, 배치된 prod raw 경로로
+오표기하지 않는다(ADR-309).
 
 ```text
 raw/
   <source_id>/
-    shard-<ts>-<rand>.parquet   # zstd. 한 샤드에 shard_size(기본 1만)건
+    shard-<ts>-<rand>.parquet   # zstd, 기본 shard_size=10,000
 ```
 
-샤드 스키마: `doc_id, source_id, url, fetched_at, http_status, robots_allowed,
-license, meta_json, content(BLOB)`. `content` 는 원본 bytes 그대로이며
-`doc_id = sha256(content)[:24]` 는 압축과 무관하게 무압축 bytes 기준이다.
-**기록된 샤드는 수정하지 않는다** — 추가분은 항상 새 샤드다(append-only).
+샤드 스키마는 `doc_id, source_id, url, fetched_at, http_status, robots_allowed,
+license, meta_json, content(BLOB)`다. `content`는 원본 bytes 그대로이고
+`doc_id = "doc-" + sha256(content)[:24]`는 압축 전 bytes 기준이다. 기록된 shard는
+수정하지 않으며 추가분은 항상 새 shard다. filesystem backend는 위 경로를 파일로,
+MinIO 대체 backend는 같은 상대 경로를 object key로 사용한다. 과거 MinIO의
+`raw/source_id=<...>/doc_id=<...>/{content.bin,fetch.json}` 배치는 폐기되어 backend
+schema divergence가 닫혔다.
 
-**② 객체 백엔드 (`MinioRawStore`)** — ADR-301 의 객체 키를 유지한다.
+raw를 Iceberg로 올리지 않는 이유는 원문이 update/schema-evolution 대상이 아니고,
+content-hash idempotency와 append-only shard가 필요한 불변식을 더 직접적으로
+보장하기 때문이다. Lakekeeper/Iceberg는 normalized/curated의 row-level
+evolution·snapshot·multi-writer commit에만 사용한다.
 
-```text
-raw/
-  source_id=<src-…>/
-    doc_id=<doc-…>/           # doc_id = sha256(raw_bytes)[:24]
-      content.bin             # 원본 bytes (수정 금지)
-      fetch.json              # 수집 메타데이터 (§2.2)
-```
+**근거 (ADR-308, 2026-09-20 동일 corpus 104,471건 실측).** doc당 디렉터리+2파일은
+1,000만 건에서 inode 30M(원격 여유 25.34M)을 요구해 성립하지 않는다. 같은
+corpus에서 shard는 디스크 888MB→67.3MB(content 실제 298MB — 나머지는 block
+padding 낭비), skip index 18.9s→0.02s, 재처리 입력은 전량 RAM 상주(RSS ≈ raw
+bytes)에서 streaming peak 0.54GB로 바뀌었다. 압축비는 source별 zstd
+4.44×(arXiv metadata)~43.05×(HTML boilerplate)였다.
 
-**① 을 기본으로 삼는 근거 (ADR-308, 2026-09-20 동일 코퍼스 104,471건 실측).**
-doc 당 디렉터리+2파일은 1,000만 건에서 **inode 30M**(원격 여유 25.34M)을 요구해
-성립하지 않는다. 같은 코퍼스에서 샤드는 디스크 888MB→67.3MB(content 실제 298MB —
-나머지는 블록 패딩 낭비), skip 인덱스 18.9s→0.02s, 재처리 입력은 전량 RAM 상주
-(RSS ≈ raw bytes)에서 스트리밍 peak 0.54GB 로 바뀐다. 압축비는 소스별 zstd
-4.44×(arXiv 메타)~43.05×(HTML 보일러플레이트).
-
-### 2.2 `fetch.json` 스키마
+### 2.2 수집 metadata 논리 스키마
 
 ```json
 {
@@ -96,8 +127,8 @@ doc 당 디렉터리+2파일은 1,000만 건에서 **inode 30M**(원격 여유 2
 }
 ```
 
-- **불변식:** 동일 `url`의 변경된 버전은 **새 `doc_id`로 모두 보존**한다 (덮어쓰기 금지, blueprint §7.1, §8.1).
-- 파일 백엔드(§2.1 ①)에서는 위 필드가 `fetch.json` 파일이 아니라 **샤드 컬럼**으로 저장된다 — 스키마 외 필드는 `meta_json` 에 보존한다.
+- **불변식:** 동일 `url`의 변경된 버전은 **새 `doc_id`로 모두 보존**한다(덮어쓰기 금지, blueprint §7.1, §8.1).
+- §2.1의 논리 metadata 필드는 별도 `fetch.json` object가 아니라 **shard column**으로 저장되고, 스키마 외 필드는 `meta_json`에 보존한다.
 - `doc_id`가 내용 기반이므로 동일 bytes 재수집은 동일 객체 → idempotent (S2, 불변식 §3-6).
 - 라이선스·robots는 [`11`](./11-observability-and-governance.md) governance가 강제한다.
 
@@ -107,15 +138,14 @@ doc 당 디렉터리+2파일은 1,000만 건에서 **inode 30M**(원격 여유 2
 
 | 컬럼 | 타입 | 설명 |
 | --- | --- | --- |
-| `doc_id` | string(PK) | 내용 기반 ID |
+| `doc_id` | string(identifier) | 내용 기반 ID; `parser_version`과 composite identifier |
 | `source_id` | string | → Source |
 | `url` | string | |
 | `title` | string | |
-| `authors` | string[] | |
 | `language` | string | 감지 언어 |
 | `publication_time` | timestamp | 공개 시각 |
 | `revision_time` | timestamp | 수정 시각 |
-| `parser_version` | string | 재현성 |
+| `parser_version` | string(identifier) | 동일 `doc_id`의 parser version별 row 보존 |
 | `char_len` | int | |
 
 ### 3.2 `segments` 테이블 (문단·문장)
@@ -124,22 +154,34 @@ doc 당 디렉터리+2파일은 1,000만 건에서 **inode 30M**(원격 여유 2
 
 | 컬럼 | 타입 | 설명 |
 | --- | --- | --- |
-| `segment_id` | string(PK) | `<doc_id>#p<par>.s<sent>` — **결정적** |
-| `doc_id` | string | |
+| `segment_id` | string(identifier) | `<doc_id>#p<par>.s<sent>` — `parser_version`과 composite identifier |
+| `doc_id` | string | → `documents.doc_id` |
 | `kind` | enum | `paragraph`/`sentence`/`table_cell`/`footnote`/`list_item` |
 | `text` | string | 정규화 텍스트 |
 | `char_start` | int | **원문(raw)** 기준 offset |
 | `char_end` | int | |
 | `norm_char_start` | int | 정규화 텍스트 기준 시작 offset |
 | `norm_char_end` | int | 정규화 텍스트 기준 끝 offset (원문↔정규화 양방향 매핑용, ADR-302) |
-| `order` | int | 문서 내 순서 |
+| `ord` | int | 문서 내 순서 |
+| `parser_version` | string(identifier) | 재파싱 version별 segment row 보존 |
+| `source_id` / `publication_time` | string / timestamp | physical partition source; public segment API에서는 숨김 |
 
 - `segment_id`는 결정적이라 재파싱 시 안정적으로 유지된다 (offset mapping unit test 대상, → [`10`](./10-evaluation-and-testing.md)).
 - **원문 offset ↔ 정규화 offset 매핑**을 함께 저장해 provenance 왕복을 보장한다 (blueprint §8.2).
 
 ## 4. Curated Zone
 
-추출·해소 산출물. 각 row는 version tuple을 부착한다.
+추출·해소 산출물. 각 row는 version tuple을 부착한다. 현행 구현의 table은 정확히
+18개다: `mentions`, `dup_signatures`, `dup_bands`, `dup_clusters`, `entities`,
+`claim_candidates`, `canonical_claims`, `member_of`, `conflict_candidates`,
+`assertions`, `authoritative_edges`, `canonical_llm_records`, `conflict_verdicts`,
+`golden_pairs`, `golden_entity_pairs`, `golden_lineage_pairs`,
+`promotion_baselines`, `extraction_records`.
+
+**`evidence_candidates` runtime table은 없다.** Evidence ontology object를 이유로
+구현되지 않은 table을 있다고 기록하지 않는다. 현행 evidence/provenance material은
+promoted claim, assertion, authoritative edge, extraction record와 source span
+경로로 조회한다.
 
 ### 4.1 `mentions`
 
@@ -153,12 +195,13 @@ doc 당 디렉터리+2파일은 1,000만 건에서 **inode 30M**(원격 여유 2
 | `resolved_entity_id` | 해소 결과(nullable, → [`05`](./05-resolution-and-extraction.md)) |
 | `extraction_version` | 버전 tuple |
 
-### 4.2 `claim_candidates` / `evidence_candidates`
+### 4.2 `claim_candidates`
 
-[`02`](./02-ontology.md) §2.4의 Claim/Evidence 속성을 그대로 저장하되 `status`(`candidate`/`promoted`/`quarantined`)를 추가한다. graph 반영 전 curated에 머문다.
+[`02`](./02-ontology.md) §2.4의 Claim 속성을 저장하고
+`status`(`candidate`/`promoted`/`quarantined`)를 붙여 graph 반영 전 상태를 구분한다.
 
-- **Claim-of-record.** 별도 `claims` 테이블을 두지 않고 `claim_candidates`에서 `status=promoted`인 row가 **claim-of-record**(정본 Claim)이다. §6.2 `assertions.claim_id` FK는 이 promoted row(`claim_id = claim_candidate_id`)를 참조한다 (ADR-306). `candidate`/`quarantined` row는 authoritative graph의 참조 대상이 될 수 없다.
-- **Claim→Assertion emission 계약.** Claim이 `promoted`로 전이될 때 정규 삼항(subject/predicate/object)과 valid time을 갖는 `Assertion`을 1건 이상 materialize한다. emission은 §7 `graph_mutations` 이벤트(`op=create_node`/`supersede`)를 통해서만 발생하며, 동일 `idempotency_key` 재실행 시 중복 발행하지 않는다 ([`02`](./02-ontology.md) §2.4 Claim→Assertion materialization 규칙과 정합).
+- **Claim-of-record.** 별도 `claims` table을 두지 않고 `claim_candidates`에서 `status=promoted`인 row가 **claim-of-record**다. §6.2 `assertions.claim_id` FK는 이 promoted row(`claim_id = claim_candidate_id`)를 참조한다(ADR-306). `candidate`/`quarantined` row는 authoritative graph의 참조 대상이 될 수 없다.
+- **Claim→Assertion emission 계약.** Claim이 `promoted`로 전이될 때 정규 삼항(subject/predicate/object)과 valid time을 갖는 `Assertion`을 1건 이상 materialize한다. emission은 §7 `graph_mutations` event(`op=create_node`/`supersede`)를 통해서만 발생하며, 동일 `idempotency_key` 재실행 시 중복 발행하지 않는다([`02`](./02-ontology.md) §2.4 Claim→Assertion materialization 규칙과 정합).
 
 ### 4.3 `dup_clusters` (출처 계보)
 
@@ -271,8 +314,8 @@ Graph element (Claim/Evidence/Assertion)
   → extraction_record (ext-…)          # 추출 1회의 기록
   → normalized document version (doc_id, parser_version)
   → source span (segment_id, char_start/end)
-  → immutable raw document (raw/…/content.bin, content_hash)
-  → source URL + retrieval metadata (fetch.json)
+  → immutable raw shard row (raw/<source_id>/shard-*.parquet, content_hash)
+  → source URL + retrieval metadata (shard columns/meta_json)
 ```
 
 ### 8.2 `extraction_records` 테이블
@@ -306,22 +349,23 @@ blueprint §7.3.
 
 | 단계 | 문서 수 | 저장 목표 |
 | --- | --- | --- |
-| Prototype | 1만 | 단일 MinIO, 온톨로지·provenance 검증 |
+| Prototype | 1만 | proddata raw filesystem + MinIO Iceberg warehouse, 온톨로지·provenance 검증 |
 | MVP | 10만 | 3-zone + graph, 전체 재처리 |
-| Scale | 100만 | Iceberg 승격 검토, 증분 처리 |
+| Scale | 100만 | **Iceberg 운영 중**, 증분 처리·snapshot/compaction tuning |
 | Challenge | 1,000만 | 텍스트 ~50GB, 총 수백 GB (HTML+버전+임베딩+인덱스+그래프) |
 
 ## 10. 의사결정 로그
 
 | ID | 결정 | 근거 | 상태 |
 | --- | --- | --- | --- |
-| ADR-301 | raw zone 완전 immutable, URL 변경분은 새 doc_id로 보존 | 재현성·버전 추적(blueprint §7.1) | Accepted · **구현(P1 ②)**: `MinioRawStore`로 MinIO raw 객체 스토어 영속 — content-hash doc_id·ADR-301 보존(`prototype/orc_citadel/minio_raw_store.py`, 2026-08-11) |
+| ADR-301 | raw zone 완전 immutable, URL 변경분은 새 doc_id로 보존 | 재현성·버전 추적(blueprint §7.1) | Accepted · prod filesystem과 MinIO 대체 backend 모두 source-sharded zstd Parquet layout으로 구현 |
 | ADR-302 | `segments`에 원문·정규화 offset **양방향** 저장 | provenance 왕복 보장(§8.2) | Accepted |
 | ADR-303 | bitemporal 2축을 assertions에 필수 저장 | 변화 이력 재현(blueprint §6.4) | Accepted |
 | ADR-304 | 그래프 변경은 `graph_mutations` 이벤트로만, replay로 재구축 | SoT는 log, graph는 파생(§17) | Accepted · **구현(P1 ①)**: `PostgresMutationLog` SoT 영속 + 순서 보존 replay 검증(`postgres_mutation_log.py`) · **구현(P1 ⑤)**: `graph_replay.replay_graph`가 postgres 로그→`GraphService` 재생으로 materialized graph 재구축 (`graph_replay.py`, 2026-08-11) |
 | ADR-305 | provenance_ref 없는 element는 quarantine | 무출처 사실 차단(blueprint §13) | Accepted · **구현(P1 ③)**: curated zone에 `extraction_records` 테이블 신설 + gate가 `provenance_ref` 없으면 quarantine(`missing_provenance_record`) — 파이프라인이 추출 시 record 영속·ref 부여 (`prototype/orc_citadel/curated_zone.py`·`gate.py`·`pipeline_runner.py`, 2026-08-11) |
 | ADR-306 | 별도 `claims` 테이블 없이 `claim_candidates(status=promoted)`를 claim-of-record로 선언, promote 시 §7 이벤트로 Assertion emission | 후보/정본 이중 테이블 제거, `assertions.claim_id` FK 대상 확정(§4.2) | Accepted |
 | ADR-307 | `assertions`는 append-only SoT가 아니라 `graph_mutations`의 system-versioned projection — 허용 in-place write는 supersession 시 `tx_to` close뿐 | append-only 오표기 정정, SoT 단일화(§6.2, §7) | Accepted |
-| ADR-308 | raw 파일 백엔드를 doc당 디렉터리+2파일에서 **source 별 parquet 샤드(zstd)** 로 전환 (§2.1 ①). 불변식·doc_id 규칙은 불변 | 1,000만 건에서 inode 30M 요구(원격 여유 25.34M)·skip 전수 스캔 18.9s/103k·재처리 전량 RAM 상주가 동시에 무너짐 — 같은 코퍼스 실측으로 디스크 13.2×·skip 945×·스트리밍 전환 (2026-09-20) | Accepted · **구현**: `raw_shard.RawShardStore` + 소비자 4곳(`collect_large._save_zone`/`_stored_urls`, `load_raw_zone.iter_raw_zone`, `viewer._count_raw`/`_fetch_records`) 전환 · 1회 변환기 `scripts/migrate_raw_to_shards.py`(로컬 105,269건 105s 실측). **객체 백엔드(②)는 미전환 — 두 백엔드가 다른 물리 배치를 갖는다(정직 표기)** |
+| ADR-308 | raw를 doc당 디렉터리+2파일에서 **source별 Parquet shard(zstd)**로 전환. 불변식·doc_id 규칙은 불변 | 1,000만 건 inode 30M 요구·skip 전수 scan 18.9s/103k·재처리 전량 RAM 상주가 동시에 무너짐 — 같은 corpus 실측으로 디스크 13.2×·skip 945×·streaming 전환(2026-09-20) | Accepted · **구현**: prod filesystem과 MinIO 대체 backend가 동일 `raw/<source>/shard-*.parquet` layout·metadata schema를 사용. 현행 prod raw는 shared `proddata` filesystem이며 MinIO는 Iceberg warehouse를 담당(2026-09-22) |
 | ADR-404 | S4 near-dup 후보를 LSH 밴딩으로 좁히고 MinHash 서명을 `dup_signatures`/`dup_bands` 에 영속 | 전수 비교가 실측 O(N²)(1,000만 투영 4.1년)이고, 서명 재계산만도 12.4ms/doc × 1,000만 = 36h — nightly 주기에 들어가지 않음 (2026-09-20) | Accepted · **구현**: `dedup.band_keys` + `CuratedZone.persist_signature`/`band_candidates` · 증분 승격이 후보만 SQL 로 조회 (전체 서명 적재 ≈5GB 회피). 판정 임계(0.90·ADR-403) 불변, 재현율 실측 1.0000(703건·790쌍) |
 | ADR-405 | 커넥터 kind 3종 신설(`paged_api`·`bulk_archive`·`index_stream`)과 단일 디스패치(`COLLECTORS`) | 2026-09-20 도메인 조사에서 AI·경제·과학 3분야가 독립적으로 같은 3종을 지목 — 확보 가능 11.66M 중 대부분이 이 경로 | Accepted · **구현**: `collect_large.collect_paged_api`/`collect_bulk_archive`/`collect_index_stream` + 러너·nightly·viewer 러너 디스패치 통합. 아카이브 엔트리 식별자는 `{archive_url}#{entry_path}`, 결과 상한은 `ResultCapReached` 로 전파(조용한 누락 금지). 소스 등록은 미포함 |
+| ADR-309 | normalized·curated는 **Lakekeeper REST catalog + Apache Iceberg**로 전환하고, raw는 Iceberg로 올리지 않은 채 immutable source-sharded zstd Parquet로 유지한다 | G2: 255,500→145,228 KiB(-43.2%), 105,252 docs/823,629 segments, migration 11.47s, parser-version snapshot evolution 확인. G3: 18 table count equality, shared warehouse +680 KiB. raw는 update/evolution 대상이 아니며 shard 불변식이 더 직접적 | Accepted · Implemented 2026-09-22 (D1 계속/무확장, D2 Lakekeeper) |

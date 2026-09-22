@@ -18,6 +18,7 @@ import argparse
 import json
 import pathlib
 import time
+import tempfile
 import urllib.error
 import urllib.request
 
@@ -29,6 +30,11 @@ from orc_citadel.connectors.arxiv import ArxivConnector
 from orc_citadel.connectors.rss import RssConnector
 from orc_citadel.fetch import FetchFramework
 from orc_citadel.raw_shard import RawShardStore
+from orc_citadel.event_stream import EventEnvelope
+from orc_citadel.collection_outbox import (
+    CollectionEventOutbox,
+    fetch_correlation_id,
+)
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent  # prototype/
 RAW = ROOT / "data" / "raw"
@@ -96,6 +102,19 @@ def arxiv_windows(total: int, windows: int = 10, page: int = ARXIV_PAGE) -> list
 
 
 RETRYABLE_HTTP = {429, 500, 502, 503, 504}
+MAX_ARCHIVE_BYTES = 2 * 1024 * 1024 * 1024
+MAX_ARCHIVE_ENTRY_BYTES = 512 * 1024 * 1024
+MAX_ARCHIVE_EXPANDED_BYTES = 8 * 1024 * 1024 * 1024
+MAX_ARCHIVE_ENTRIES = 100_000
+MAX_ARCHIVE_EXPANSION_RATIO = 200
+MAX_ZIP_CENTRAL_DIRECTORY_BYTES = 128 * 1024 * 1024
+_ARCHIVE_CHUNK_SIZE = 1024 * 1024
+
+
+class ArchiveLimitExceeded(ValueError):
+    """An archive exceeds the bounded collection resource contract."""
+
+
 
 
 class _EmptyPage(Exception):
@@ -130,6 +149,27 @@ def _get(url: str) -> tuple[bytes, dict]:
         return resp.read(), dict(resp.headers)
 
 
+def _download_to_file(url: str, output, *, chunk_size: int = 1024 * 1024) -> dict:
+    """Retry a bounded streaming download directly into a seekable spool."""
+    def download() -> dict:
+        output.seek(0)
+        output.truncate(0)
+        req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+        with urllib.request.urlopen(req, timeout=25) as resp:
+            headers = dict(resp.headers)
+            total = 0
+            while chunk := resp.read(chunk_size):
+                total += len(chunk)
+                if total > MAX_ARCHIVE_BYTES:
+                    raise ArchiveLimitExceeded(
+                        f"compressed archive exceeds {MAX_ARCHIVE_BYTES} bytes")
+                output.write(chunk)
+        output.seek(0)
+        return headers
+
+    return _with_retry(download)
+
+
 _SHARD_STORES: dict[pathlib.Path, RawShardStore] = {}
 
 
@@ -141,9 +181,76 @@ def _shard_store(raw_dir: pathlib.Path | None = None) -> RawShardStore:
     return _SHARD_STORES[base]
 
 
-def flush_raw(raw_dir: pathlib.Path | None = None) -> None:
-    """버퍼 잔량을 샤드로 확정한다 — 각 수집 함수가 반환 직전에 호출한다."""
-    _shard_store(raw_dir).flush()
+def _fetch_meta(source_id: str, url: str, meta: dict, *,
+                response_headers: dict | None = None,
+                fetch_window: str = "full") -> dict:
+    stored = {key: value for key, value in meta.items() if value is not None}
+    stored["fetch_window"] = fetch_window
+    stored["fetch_correlation_id"] = fetch_correlation_id(
+        source_id, url, fetch_window)
+    if response_headers:
+        stored["response_headers"] = dict(response_headers)
+    return stored
+
+
+def _reconcile_and_publish(source_id: str, event_producer, *,
+                           raw_dir: pathlib.Path | None = None,
+                           minio_store=None, flush: bool = False) -> None:
+    if flush:
+        flush_raw(raw_dir, minio_store)
+    if event_producer is None:
+        return
+    store = minio_store if minio_store is not None else _shard_store(raw_dir)
+    outbox = CollectionEventOutbox(pathlib.Path(raw_dir or RAW).parent)
+    outbox.reconcile(store.iter_records([source_id]))
+    while outbox.drain(event_producer):
+        pass
+
+
+def flush_raw(raw_dir: pathlib.Path | None = None, minio_store=None) -> None:
+    """Commit pending rows in the selected backend at a collector boundary."""
+    (minio_store if minio_store is not None else _shard_store(raw_dir)).flush()
+
+
+def _event_id(event_type: str, idempotency_key: str) -> str:
+    import hashlib
+
+    digest = hashlib.sha256(f"{event_type}:{idempotency_key}".encode()).hexdigest()[:24]
+    return f"evt-{digest}"
+
+
+
+
+def _publish_result_cap(config: dict, source_id: str, offset: int,
+                        event_producer) -> None:
+    if event_producer is None:
+        return
+    import hashlib
+    from datetime import datetime, timezone
+
+    context = {
+        "source_id": source_id,
+        "window": config.get("fetch_window", config["url"]),
+        "limit": int(config["max_offset"]),
+        "offset": offset,
+    }
+    key = "cap:" + hashlib.sha256(
+        json.dumps(context, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    event_producer.publish(EventEnvelope(
+        event_version=1,
+        event_id=_event_id("result_cap_reached", key),
+        stage="S1",
+        event_type="result_cap_reached",
+        status="terminal",
+        input_ref=config["url"],
+        output_ref=None,
+        idempotency_key=key,
+        correlation_id="corr-" + key.removeprefix("cap:")[:24],
+        attempt_count=0,
+        occurred_at=datetime.now(timezone.utc),
+        payload=context,
+    ))
 
 
 def _save_zone(source_id: str, url: str, content: bytes, meta: dict,
@@ -154,9 +261,9 @@ def _save_zone(source_id: str, url: str, content: bytes, meta: dict,
     returns (doc_id, created): created=True 새 저장, False 이미 존재(재개 무중복).
 
     저장 백엔드:
-    - `minio_store` 제공 시 → MinIO 객체 스토어(② `MinioRawStore`)에 §2.1 객체 키로 영속.
-    - 미제공 시 로컬 fs `data/raw/<source>/shard-*.parquet` (기존 default).
-    샤드 쓰기는 버퍼링되므로 수집 함수는 반환 직전 `flush_raw()` 로 확정한다.
+    - `minio_store` provided: MinIO source-sharded Parquet objects.
+    - otherwise: local `data/raw/<source>/shard-*.parquet` objects.
+    Both backends buffer rows, so collectors flush their selected store before returning.
     `meta` 의 governance(11) 필드 license/robots_allowed 는 기본값이 채워진다
     (04 §1.4 재배포 제한 정합).
     """
@@ -165,7 +272,7 @@ def _save_zone(source_id: str, url: str, content: bytes, meta: dict,
     if minio_store is not None:
         # MinIO 백엔드 — content-hash doc_id 로 재개 스킵 판별 후 put(② 저장소).
         doc_id = "doc-" + hashlib.sha256(content).hexdigest()[:24]
-        existing = minio_store.has(doc_id)
+        existing = minio_store.has(doc_id, source_id=source_id)
         meta = dict(meta)
         meta.setdefault("license", "unknown")
         meta.setdefault("robots_allowed", True)
@@ -175,7 +282,8 @@ def _save_zone(source_id: str, url: str, content: bytes, meta: dict,
     return _shard_store(raw_dir).append(source_id, url, content, meta)
 
 
-def collect_arxiv(total: int, windows: int = 0, slo_log=None) -> dict:
+def collect_arxiv(total: int, windows: int = 0, slo_log=None, minio_store=None,
+                  event_producer=None) -> dict:
     """arXiv 페이징 metadata 수집. return {saved, skipped, errors}.
 
     04 §1.4 metadata(CC0) 경로: API Atom 응답의 <entry> 원문 XML을 그대로 raw
@@ -192,6 +300,9 @@ def collect_arxiv(total: int, windows: int = 0, slo_log=None) -> dict:
     conn = ArxivConnector()
     counts = {"saved": 0, "skipped": 0, "errors": 0}
     fetched = 0
+    source_id = "research-arxiv-cs-cr"
+    _reconcile_and_publish(
+        source_id, event_producer, minio_store=minio_store)
 
     if windows > 0:
         # 날짜 윈도우 별 독립 쿼리 — 각 윈도우는 최신 ~10k 로 배분 (start<10k 유지).
@@ -231,16 +342,24 @@ def collect_arxiv(total: int, windows: int = 0, slo_log=None) -> dict:
             for url, raw in entries:
                 if fetched >= total:
                     break
+                fetch_window = f"{dw[0]}/{dw[1]}" if dw is not None else "full"
                 _doc_id, created = _save_zone(
-                    "research-arxiv-cs-cr", url, raw,
-                    {"http_status": 200, "content_type": "application/atom+xml;type=entry"},
+                    source_id, url, raw,
+                    _fetch_meta(
+                        source_id, url,
+                        {"http_status": 200,
+                         "content_type": "application/atom+xml;type=entry"},
+                        fetch_window=fetch_window,
+                    ),
+                    minio_store=minio_store,
                 )
                 fetched += 1
                 counts["saved" if created else "skipped"] += 1
                 if slo_log is not None:
                     # SLO-05 — fetch 성공한 문서는 저장 성공으로 기록 (시도 1건).
                     slo_log.record_collect("research-arxiv-cs-cr", url, ok=True)
-    flush_raw()
+    _reconcile_and_publish(
+        source_id, event_producer, minio_store=minio_store, flush=True)
     return counts
 
 
@@ -280,7 +399,8 @@ def _sleep_for_arxiv() -> None:
     time.sleep(ARXIV_INTERVAL)
 
 
-def collect_rss(feed_url: str, source_id: str, slo_log=None, known_urls=None) -> dict:
+def collect_rss(feed_url: str, source_id: str, slo_log=None, known_urls=None,
+                minio_store=None, event_producer=None) -> dict:
     """RSS 수집 — 피드 항목을 순회 (피드 길이 유한).
 
     SLO-05(11 §2.3) 측정용 `slo_log` 주입 시 fetch 성공/실패를 `record_collect`
@@ -295,6 +415,8 @@ def collect_rss(feed_url: str, source_id: str, slo_log=None, known_urls=None) ->
     counts = {"saved": 0, "skipped": 0, "errors": 0}
     seen: set[str] = set()
     known = known_urls or set()
+    _reconcile_and_publish(
+        source_id, event_producer, minio_store=minio_store)
     for ref in conn.discover(feed_url, cursor=None):
         url = ref.url
         if not url.startswith("http") or url in seen:
@@ -310,17 +432,27 @@ def collect_rss(feed_url: str, source_id: str, slo_log=None, known_urls=None) ->
             if slo_log is not None:
                 slo_log.record_collect(source_id, url, ok=False)
             continue
-        _save_zone(source_id, url, content,
-                   {"http_status": 200, "content_type": hdrs.get("Content-Type"),
-                    "hint_modified": ref.hint_modified.isoformat() if ref.hint_modified else None})
+        _save_zone(
+            source_id, url, content,
+            _fetch_meta(
+                source_id, url,
+                {"http_status": 200,
+                 "hint_modified": ref.hint_modified.isoformat()
+                 if ref.hint_modified else None},
+                response_headers=hdrs,
+            ),
+            minio_store=minio_store,
+        )
         counts["saved"] += 1
         if slo_log is not None:
             slo_log.record_collect(source_id, url, ok=True)
-    flush_raw()
+    _reconcile_and_publish(
+        source_id, event_producer, minio_store=minio_store, flush=True)
     return counts
 
 
-def collect_sitemap(sitemap_url: str, source_id: str, slo_log=None, known_urls=None) -> dict:
+def collect_sitemap(sitemap_url: str, source_id: str, slo_log=None, known_urls=None,
+                    minio_store=None, event_producer=None) -> dict:
     """sitemap 기반 정책 소스 수집 (BIS 등 RSS 없는 gov, 04 §1.4 신규).
 
     `SitemapConnector.discover` 로 sitemap `<loc>` 을 열거 → 각 URL `_get`·`_save_zone`.
@@ -334,6 +466,8 @@ def collect_sitemap(sitemap_url: str, source_id: str, slo_log=None, known_urls=N
     counts = {"saved": 0, "skipped": 0, "errors": 0}
     seen: set[str] = set()
     known = known_urls or set()
+    _reconcile_and_publish(
+        source_id, event_producer, minio_store=minio_store)
     for ref in conn.discover(sitemap_url, cursor=None):
         url = ref.url
         if not url.startswith("http") or url in seen:
@@ -349,31 +483,49 @@ def collect_sitemap(sitemap_url: str, source_id: str, slo_log=None, known_urls=N
             if slo_log is not None:
                 slo_log.record_collect(source_id, url, ok=False)
             continue
-        _save_zone(source_id, url, content,
-                   {"http_status": 200, "content_type": hdrs.get("Content-Type"),
-                    "hint_modified": ref.hint_modified.isoformat() if ref.hint_modified else None})
+        _save_zone(
+            source_id, url, content,
+            _fetch_meta(
+                source_id, url,
+                {"http_status": 200,
+                 "hint_modified": ref.hint_modified.isoformat()
+                 if ref.hint_modified else None},
+                response_headers=hdrs,
+            ),
+            minio_store=minio_store,
+        )
         counts["saved"] += 1
         if slo_log is not None:
             slo_log.record_collect(source_id, url, ok=True)
-    flush_raw()
+    _reconcile_and_publish(
+        source_id, event_producer, minio_store=minio_store, flush=True)
     return counts
 
 
-def collect_urls(urls: list[str], source_id: str, slo_log=None, known_urls=None) -> dict:
+def collect_urls(urls: list[str], source_id: str, slo_log=None, known_urls=None,
+                 minio_store=None, event_producer=None) -> dict:
     """허가된 고정 공식 URL만 수집한다 (URL allowlist + S1 idempotency)."""
     counts = {"saved": 0, "skipped": 0, "errors": 0}
     known = known_urls or set()
+    _reconcile_and_publish(
+        source_id, event_producer, minio_store=minio_store)
     for url in urls:
         if url in known:
             counts["skipped"] += 1
             continue
         try:
             content, headers = _get(url)
-            _doc_id, created = _save_zone(
-                source_id, url, content,
-                {"http_status": 200, "content_type": headers.get("Content-Type"),
+            meta = _fetch_meta(
+                source_id, url,
+                {"http_status": 200,
                  "collection_policy": "reviewed_fixed_url"},
+                response_headers=headers,
             )
+            if minio_store is None:
+                _doc_id, created = _save_zone(source_id, url, content, meta)
+            else:
+                _doc_id, created = _save_zone(
+                    source_id, url, content, meta, minio_store=minio_store)
         except Exception:
             counts["errors"] += 1
             if slo_log is not None:
@@ -382,7 +534,8 @@ def collect_urls(urls: list[str], source_id: str, slo_log=None, known_urls=None)
         counts["saved" if created else "skipped"] += 1
         if slo_log is not None:
             slo_log.record_collect(source_id, url, ok=True)
-    flush_raw()
+    _reconcile_and_publish(
+        source_id, event_producer, minio_store=minio_store, flush=True)
     return counts
 
 
@@ -413,30 +566,26 @@ def _index_urls(config: dict, payload: bytes):
 
 
 def collect_index_stream(config: dict, source_id: str, slo_log=None,
-                         known_urls=None) -> dict:
-    """URL 을 열거하는 인덱스를 받아 대상 문서를 수집한다 (04 §1.3).
-
-    config: `url`(인덱스) · `format`("delimited"|"json") ·
-      delimited: `delimiter`·`field`·`base_url`·`skip_prefixes`
-      json: `records`(목록 경로)·`url_field`
-
-    인덱스에 같은 문서가 여러 번 실려도 한 번만 받는다 — EDGAR `master.idx` 는
-    공동제출을 CIK 별로 중복 수록한다(2025Q4 중복률 29.7% 실측, 2026-09-20 조사).
-    """
+                         known_urls=None, minio_store=None, event_producer=None) -> dict:
+    """Collect documents enumerated by a bounded URL index."""
     counts = {"saved": 0, "skipped": 0, "errors": 0}
     known = set(known_urls or ())
+    _reconcile_and_publish(
+        source_id, event_producer, minio_store=minio_store)
     try:
         payload, _headers = _with_retry(lambda: _get(config["url"]))
     except Exception:
         counts["errors"] += 1
         if slo_log is not None:
             slo_log.record_collect(source_id, config["url"], ok=False)
+        _reconcile_and_publish(
+            source_id, event_producer, minio_store=minio_store, flush=True)
         return counts
 
     seen: set[str] = set()
     for url in _index_urls(config, payload):
         if url in seen:
-            continue           # 인덱스 중복 수록 — 재fetch 금지.
+            continue
         seen.add(url)
         if url in known:
             counts["skipped"] += 1
@@ -445,8 +594,14 @@ def collect_index_stream(config: dict, source_id: str, slo_log=None,
             content, headers = _with_retry(lambda: _get(url))
             _doc_id, created = _save_zone(
                 source_id, url, content,
-                {"http_status": 200, "content_type": headers.get("Content-Type"),
-                 "collection_policy": "index_stream"})
+                _fetch_meta(
+                    source_id, url,
+                    {"http_status": 200, "collection_policy": "index_stream"},
+                    response_headers=headers,
+                    fetch_window=str(config.get("fetch_window") or "full"),
+                ),
+                minio_store=minio_store,
+            )
         except Exception:
             counts["errors"] += 1
             if slo_log is not None:
@@ -457,84 +612,181 @@ def collect_index_stream(config: dict, source_id: str, slo_log=None,
         if slo_log is not None:
             slo_log.record_collect(source_id, url, ok=True)
 
-    flush_raw()
+    _reconcile_and_publish(
+        source_id, event_producer, minio_store=minio_store, flush=True)
     return counts
 
 
-def _archive_entries(payload: bytes):
-    """zip / tar(.gz) 의 (엔트리 경로, bytes) 를 순서대로 낸다. 해석 불가면 예외."""
-    import io
+def _read_archive_entry(handle, limit: int) -> bytes:
+    chunks: list[bytes] = []
+    total = 0
+    while chunk := handle.read(min(_ARCHIVE_CHUNK_SIZE, limit - total + 1)):
+        total += len(chunk)
+        if total > limit:
+            raise ArchiveLimitExceeded(
+                f"decompressed archive entry exceeds {limit} bytes")
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+
+def _check_zip_directory(archive_file) -> None:
+    """Reject oversized ZIP central directories before ZipFile materializes them."""
+    import struct
+
+    archive_file.seek(0, 2)
+    end = archive_file.tell()
+    tail_size = min(end, 65_557)
+    archive_file.seek(end - tail_size)
+    tail = archive_file.read(tail_size)
+    marker = tail.rfind(b"PK\x05\x06")
+    if marker < 0 or len(tail) - marker < 22:
+        raise ArchiveLimitExceeded("zip end-of-directory record is missing")
+    eocd_offset = end - tail_size + marker
+    (_signature, disk_number, directory_disk, entries_on_disk, entries,
+     directory_size, directory_offset, _comment_size) = struct.unpack(
+        "<4s4H2LH", tail[marker:marker + 22])
+
+    if (entries == 0xFFFF or entries_on_disk == 0xFFFF
+            or directory_size == 0xFFFFFFFF
+            or directory_offset == 0xFFFFFFFF):
+        locator_offset = eocd_offset - 20
+        if locator_offset < 0:
+            raise ArchiveLimitExceeded("zip64 directory locator is missing")
+        archive_file.seek(locator_offset)
+        locator = archive_file.read(20)
+        if len(locator) != 20:
+            raise ArchiveLimitExceeded("zip64 directory locator is truncated")
+        signature, locator_disk, zip64_offset, disk_count = struct.unpack(
+            "<4sLQL", locator)
+        if signature != b"PK\x06\x07":
+            raise ArchiveLimitExceeded("zip64 directory locator is invalid")
+        archive_file.seek(zip64_offset)
+        record = archive_file.read(56)
+        if len(record) != 56:
+            raise ArchiveLimitExceeded("zip64 directory record is truncated")
+        (signature, _record_size, _made_by, _needed, disk_number,
+         directory_disk, entries_on_disk, entries, directory_size,
+         directory_offset) = struct.unpack("<4sQ2H2L4Q", record)
+        if signature != b"PK\x06\x06" or locator_disk != 0 or disk_count != 1:
+            raise ArchiveLimitExceeded("multi-disk zip archives are unsupported")
+
+    if disk_number != 0 or directory_disk != 0 or entries_on_disk != entries:
+        raise ArchiveLimitExceeded("multi-disk zip archives are unsupported")
+    if entries > MAX_ARCHIVE_ENTRIES:
+        raise ArchiveLimitExceeded(
+            f"archive exceeds {MAX_ARCHIVE_ENTRIES} entries")
+    if directory_size > MAX_ZIP_CENTRAL_DIRECTORY_BYTES:
+        raise ArchiveLimitExceeded(
+            "zip central directory exceeds "
+            f"{MAX_ZIP_CENTRAL_DIRECTORY_BYTES} bytes")
+    if directory_offset + directory_size > eocd_offset:
+        raise ArchiveLimitExceeded("zip central directory bounds are invalid")
+    archive_file.seek(0)
+
+def _archive_entries(archive_file):
+    """Yield bounded decompressed zip/tar entries from a seekable spool."""
     import tarfile
     import zipfile
 
-    if zipfile.is_zipfile(io.BytesIO(payload)):
-        with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+    archive_file.seek(0, 2)
+    compressed_size = archive_file.tell()
+    expanded_limit = min(
+        MAX_ARCHIVE_EXPANDED_BYTES,
+        max(_ARCHIVE_CHUNK_SIZE,
+            compressed_size * MAX_ARCHIVE_EXPANSION_RATIO),
+    )
+    entry_count = 0
+    expanded_total = 0
+
+    def entry_limit(declared_size: int) -> int:
+        nonlocal entry_count
+        entry_count += 1
+        if entry_count > MAX_ARCHIVE_ENTRIES:
+            raise ArchiveLimitExceeded(
+                f"archive exceeds {MAX_ARCHIVE_ENTRIES} entries")
+        if declared_size > MAX_ARCHIVE_ENTRY_BYTES:
+            raise ArchiveLimitExceeded(
+                f"decompressed archive entry exceeds "
+                f"{MAX_ARCHIVE_ENTRY_BYTES} bytes")
+        remaining = expanded_limit - expanded_total
+        if declared_size > remaining:
+            raise ArchiveLimitExceeded(
+                f"decompressed archive exceeds {expanded_limit} bytes")
+        return min(MAX_ARCHIVE_ENTRY_BYTES, remaining)
+
+    archive_file.seek(0)
+    if zipfile.is_zipfile(archive_file):
+        _check_zip_directory(archive_file)
+        archive_file.seek(0)
+        with zipfile.ZipFile(archive_file) as archive:
             for info in archive.infolist():
                 if info.is_dir():
                     continue
-                data = archive.read(info)
+                limit = entry_limit(info.file_size)
+                with archive.open(info) as handle:
+                    data = _read_archive_entry(handle, limit)
+                expanded_total += len(data)
                 if data:
                     yield info.filename, data
         return
-    with tarfile.open(fileobj=io.BytesIO(payload)) as archive:  # tar/tar.gz/tar.bz2
-        for member in archive.getmembers():
+    archive_file.seek(0)
+    with tarfile.open(fileobj=archive_file, mode="r|*") as archive:
+        for member in archive:
             if not member.isfile():
                 continue
+            limit = entry_limit(member.size)
             handle = archive.extractfile(member)
             if handle is None:
                 continue
-            data = handle.read()
+            with handle:
+                data = _read_archive_entry(handle, limit)
+            expanded_total += len(data)
             if data:
                 yield member.name, data
 
 
 def collect_bulk_archive(archive_url: str, source_id: str, slo_log=None,
-                         known_urls=None) -> dict:
-    """아카이브 1개를 받아 **내부 엔트리를 개별 문서로** 저장한다 (04 §1.3 download).
-
-    엔트리 식별자는 `{archive_url}#{entry_path}` — 아카이브 URL 하나로는 내부를
-    구분할 수 없어 URL-skip(04 §2.1)이 성립하지 않기 때문이다. `doc_id` 는 종전처럼
-    엔트리 bytes 의 content-hash 다 (03 §2.1 불변).
-    """
+                         known_urls=None, minio_store=None, event_producer=None) -> dict:
+    """Store each non-empty archive entry as one raw document."""
     counts = {"saved": 0, "skipped": 0, "errors": 0}
     known = set(known_urls or ())
+    _reconcile_and_publish(
+        source_id, event_producer, minio_store=minio_store)
     try:
-        payload, _headers = _with_retry(lambda: _get(archive_url))
+        with tempfile.TemporaryFile() as archive_file:
+            headers = _download_to_file(archive_url, archive_file)
+            for entry_path, data in _archive_entries(archive_file):
+                doc_url = f"{archive_url}#{entry_path}"
+                if doc_url in known:
+                    counts["skipped"] += 1
+                    continue
+                try:
+                    _doc_id, created = _save_zone(
+                        source_id, doc_url, data,
+                        _fetch_meta(
+                            source_id, doc_url,
+                            {"http_status": 200,
+                             "collection_policy": "bulk_archive_entry"},
+                            response_headers=headers,
+                        ),
+                        minio_store=minio_store,
+                    )
+                except Exception:
+                    counts["errors"] += 1
+                    if slo_log is not None:
+                        slo_log.record_collect(source_id, doc_url, ok=False)
+                    continue
+                known.add(doc_url)
+                counts["saved" if created else "skipped"] += 1
+                if slo_log is not None:
+                    slo_log.record_collect(source_id, doc_url, ok=True)
     except Exception:
         counts["errors"] += 1
         if slo_log is not None:
             slo_log.record_collect(source_id, archive_url, ok=False)
-        return counts
-
-    try:
-        entries = list(_archive_entries(payload))
-    except Exception:
-        # 아카이브로 해석되지 않는 바이트 — 0건 성공으로 위장하지 않는다.
-        counts["errors"] += 1
-        if slo_log is not None:
-            slo_log.record_collect(source_id, archive_url, ok=False)
-        return counts
-
-    for entry_path, data in entries:
-        doc_url = f"{archive_url}#{entry_path}"
-        if doc_url in known:
-            counts["skipped"] += 1
-            continue
-        try:
-            _doc_id, created = _save_zone(
-                source_id, doc_url, data,
-                {"http_status": 200, "collection_policy": "bulk_archive_entry"})
-        except Exception:
-            counts["errors"] += 1
-            if slo_log is not None:
-                slo_log.record_collect(source_id, doc_url, ok=False)
-            continue
-        known.add(doc_url)
-        counts["saved" if created else "skipped"] += 1
-        if slo_log is not None:
-            slo_log.record_collect(source_id, doc_url, ok=True)
-
-    flush_raw()
+    _reconcile_and_publish(
+        source_id, event_producer, minio_store=minio_store, flush=True)
     return counts
 
 
@@ -564,16 +816,13 @@ def _page_url(base: str, params: dict) -> str:
     return base + joiner + "&".join(f"{k}={v}" for k, v in params.items())
 
 
-def collect_paged_api(config: dict, source_id: str, slo_log=None, known_urls=None) -> dict:
-    """커서/오프셋 JSON API 페이징 수집 — 레코드 1건 = 문서 1건 (04 §1.2).
-
-    config: `url`(base) · `records`(레코드 목록 경로, `a.b` 표기) · 다음 중 하나
-      - 커서형: `cursor_param`, `next_field`
-      - 오프셋형: `offset_param`, `limit_param`, `page_size`, 선택 `max_offset`
-    레코드 URL 은 `url_field` 우선, 없으면 `{base}#{id_field 값}` 합성.
-    """
+def collect_paged_api(config: dict, source_id: str, slo_log=None, known_urls=None,
+                      minio_store=None, event_producer=None) -> dict:
+    """Collect one raw document per cursor/offset API record."""
     counts = {"saved": 0, "skipped": 0, "errors": 0}
     known = set(known_urls or ())
+    _reconcile_and_publish(
+        source_id, event_producer, minio_store=minio_store)
     base = config["url"]
     records_path = config.get("records", "results")
     cursor_param, next_field = config.get("cursor_param"), config.get("next_field")
@@ -581,6 +830,7 @@ def collect_paged_api(config: dict, source_id: str, slo_log=None, known_urls=Non
     page_size = int(config.get("page_size", 100))
     max_offset = config.get("max_offset")
     cursor, offset = None, 0
+    fetch_window = str(config.get("fetch_window") or "full")
 
     while True:
         params: dict = {}
@@ -591,7 +841,7 @@ def collect_paged_api(config: dict, source_id: str, slo_log=None, known_urls=Non
             params[cursor_param] = cursor
         url = _page_url(base, params)
         try:
-            raw, _headers = _with_retry(lambda: _get(url))
+            raw, headers = _with_retry(lambda: _get(url))
             payload = json.loads(raw)
         except Exception:
             counts["errors"] += 1
@@ -610,9 +860,16 @@ def collect_paged_api(config: dict, source_id: str, slo_log=None, known_urls=Non
                 continue
             try:
                 _doc_id, created = _save_zone(
-                    source_id, doc_url, json.dumps(record, ensure_ascii=False,
-                                                   sort_keys=True).encode(),
-                    {"http_status": 200, "content_type": "application/json"})
+                    source_id, doc_url,
+                    json.dumps(record, ensure_ascii=False, sort_keys=True).encode(),
+                    _fetch_meta(
+                        source_id, doc_url,
+                        {"http_status": 200, "content_type": "application/json"},
+                        response_headers=headers,
+                        fetch_window=fetch_window,
+                    ),
+                    minio_store=minio_store,
+                )
             except Exception:
                 counts["errors"] += 1
                 if slo_log is not None:
@@ -625,7 +882,10 @@ def collect_paged_api(config: dict, source_id: str, slo_log=None, known_urls=Non
         if offset_param:
             offset += page_size
             if max_offset is not None and offset >= int(max_offset):
-                flush_raw()
+                _reconcile_and_publish(
+                    source_id, event_producer,
+                    minio_store=minio_store, flush=True)
+                _publish_result_cap(config, source_id, offset, event_producer)
                 raise ResultCapReached(
                     f"{source_id}: offset {offset} 가 max_offset {max_offset} 에 도달 — "
                     "수집 구간을 더 잘게 나눠야 한다 (조용한 누락 방지)")
@@ -634,11 +894,13 @@ def collect_paged_api(config: dict, source_id: str, slo_log=None, known_urls=Non
         if not cursor:
             break
 
-    flush_raw()
+    _reconcile_and_publish(
+        source_id, event_producer, minio_store=minio_store, flush=True)
     return counts
 
 
-def collect_sec(limit: int = 5, ciks: list[str] | None = None, slo_log=None) -> dict:
+def collect_sec(limit: int = 5, ciks: list[str] | None = None, slo_log=None,
+                minio_store=None, event_producer=None) -> dict:
     """SEC EDGAR 수집 (S14 커넥터). gov filing index → raw 저장.
 
     browse-edgar fallback 포함(제한 환경). filing 손으로 원문(HTML/XBRL) 저장 —
@@ -651,6 +913,9 @@ def collect_sec(limit: int = 5, ciks: list[str] | None = None, slo_log=None) -> 
 
     conn = SecEdgarConnector()
     counts = {"saved": 0, "skipped": 0, "errors": 0}
+    source_id = "gov-sec-edgar"
+    _reconcile_and_publish(
+        source_id, event_producer, minio_store=minio_store)
     for cik in ciks or ["1045810"]:
         n = 0
         for ref in conn.discover({"cik": [cik]}, cursor=None):
@@ -664,15 +929,20 @@ def collect_sec(limit: int = 5, ciks: list[str] | None = None, slo_log=None) -> 
                     slo_log.record_collect("gov-sec-edgar", ref.url, ok=False)
                 continue
             _doc_id, created = _save_zone(
-                "gov-sec-edgar", ref.url, fr.content,
-                {"http_status": fr.http_status,
-                 "content_type": fr.response_headers.get("content-type")},
+                source_id, ref.url, fr.content,
+                _fetch_meta(
+                    source_id, ref.url,
+                    {"http_status": fr.http_status},
+                    response_headers=fr.response_headers,
+                ),
+                minio_store=minio_store,
             )
             n += 1
             counts["saved" if created else "skipped"] += 1
             if slo_log is not None:
                 slo_log.record_collect("gov-sec-edgar", ref.url, ok=True)
-    flush_raw()
+    _reconcile_and_publish(
+        source_id, event_producer, minio_store=minio_store, flush=True)
     return counts
 
 
@@ -707,6 +977,8 @@ def main() -> None:
                    help="arXiv 날짜 윈도우 수 (S50 10k 한계 우회 — 과거 연대 채움. "
                         "0=단일 쿼리)")
     args = p.parse_args()
+    from orc_citadel.event_stream import KafkaEventProducer
+    event_producer = KafkaEventProducer.from_env()
 
     print(f"== 대형 수집 러너 (limit={args.limit}, windows={args.windows}) ==")
     RAW.mkdir(parents=True, exist_ok=True)
@@ -714,18 +986,20 @@ def main() -> None:
     if not args.skip_rss:
         for source_id, (kind, spec) in SOURCES.items():
             known = _stored_urls(source_id)
+            kwargs = {"known_urls": known, "event_producer": event_producer}
             print(f"[{source_id}] {kind} 수집 (known_urls={len(known)}건 skip 후보)")
-            c = COLLECTORS[kind](spec, source_id, known_urls=known)
+            c = COLLECTORS[kind](spec, source_id, **kwargs)
             print(f"  -> {c}")
 
     print(f"[research-arxiv-cs-cr] arXiv metadata 페이징 수집 (total={args.limit}, "
           f"windows={args.windows}, 페이지당 1 req/3s)")
-    c = collect_arxiv(args.limit, windows=args.windows)
+    c = collect_arxiv(
+        args.limit, windows=args.windows, event_producer=event_producer)
     print(f"  -> {c}")
 
     if args.sec:
         print(f"[gov-sec-edgar] SEC filing 수집 (CIK당 {args.sec})")
-        c = collect_sec(args.sec)
+        c = collect_sec(args.sec, event_producer=event_producer)
         print(f"  -> {c}")
 
     total = sum(1 for _ in RAW.rglob("content.bin"))

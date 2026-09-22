@@ -32,12 +32,12 @@ class _Z:
 
 @pytest.fixture
 def archive_dirs(tmp_path):
-    from orc_citadel.duckdb_zone import NormalizedZone
+    from orc_citadel.iceberg_zone import NormalizedZone
     from orc_citadel.parse import extract_html
 
-    # normalized db — 문서 2건 persist (segment 포함).
-    norm_db = str(tmp_path / "oc.duckdb")
-    z = NormalizedZone(norm_db)
+    # normalized Iceberg — 문서 2건 persist (segment 포함).
+    norm_root = tmp_path / "iceberg"
+    z = NormalizedZone(norm_root)
     z.initialize()
     html2 = HTML.replace(b"NVIDIA", b"AMD")
     doc1 = extract_html(HTML, "https://e/1")
@@ -53,7 +53,7 @@ def archive_dirs(tmp_path):
                                     "url": "https://e"} for i in range(n)])
 
     raw_str = str(raw)
-    norm_str = str(norm_db)
+    norm_str = str(norm_root)
 
     class _D:
         norm = norm_str
@@ -72,7 +72,7 @@ def _archive(self):
 
 
 def test_archive_lists_normalized_documents(archive_dirs):
-    self = types.SimpleNamespace(normalized_db=archive_dirs.norm,
+    self = types.SimpleNamespace(normalized_root=archive_dirs.norm,
                                  raw_dir=archive_dirs.raw,
                                  curated_clusters=0,
                                  facade=types.SimpleNamespace(zone=_Z()))
@@ -86,7 +86,7 @@ def test_archive_lists_normalized_documents(archive_dirs):
 
 
 def test_archive_lists_raw_sources_and_clusters(archive_dirs):
-    self = types.SimpleNamespace(normalized_db=archive_dirs.norm,
+    self = types.SimpleNamespace(normalized_root=archive_dirs.norm,
                                  raw_dir=archive_dirs.raw,
                                  curated_clusters=0,
                                  facade=types.SimpleNamespace(zone=_Z()))
@@ -104,11 +104,11 @@ def test_archive_lists_raw_sources_and_clusters(archive_dirs):
 @pytest.fixture
 def many_docs(tmp_path):
     """normalized 존에 문서 12건 persist — 페이지 경계를 실측으로 넘긴다."""
-    from orc_citadel.duckdb_zone import NormalizedZone
+    from orc_citadel.iceberg_zone import NormalizedZone
     from orc_citadel.parse import extract_html
 
-    norm_db = str(tmp_path / "oc.duckdb")
-    z = NormalizedZone(norm_db)
+    norm_root = tmp_path / "iceberg"
+    z = NormalizedZone(norm_root)
     z.initialize()
     for i in range(12):
         src = "official-nvidia" if i % 2 == 0 else "press-semi"
@@ -117,11 +117,11 @@ def many_docs(tmp_path):
                     .replace(b"2026-08-01T14:00:00", b"2026-08-%02dT14:00:00" % (i + 1)))
         z.persist(src, f"https://e/{i}", html, extract_html(html, f"https://e/{i}"))
     z.close()
-    return norm_db
+    return str(norm_root)
 
 
 def _api(norm_db, qs, raw="none"):
-    self = types.SimpleNamespace(normalized_db=norm_db, raw_dir=raw,
+    self = types.SimpleNamespace(normalized_root=norm_db, raw_dir=raw,
                                  curated_clusters=0,
                                  facade=types.SimpleNamespace(zone=_Z()))
     return json.loads(Handler._api_archive(self, qs))
@@ -190,10 +190,11 @@ def test_archive_sort_by_publication(many_docs):
 
 def test_archive_role_filter_uses_cluster_map(tmp_path, many_docs):
     """role 은 curated dup_clusters 축 — doc_id 교집합으로 좁히고 전역 카운트를 낸다."""
-    import duckdb
+    from orc_citadel.iceberg_zone import NormalizedZone
 
-    root = duckdb.connect(many_docs, read_only=True).execute(
-        "SELECT doc_id FROM documents ORDER BY doc_id LIMIT 1").fetchone()[0]
+    zone = NormalizedZone(many_docs)
+    root = zone.documents()[0]["doc_id"]
+    zone.close()
 
     class _ZR:
         def clusters(self):
@@ -201,7 +202,7 @@ def test_archive_role_filter_uses_cluster_map(tmp_path, many_docs):
                      "member_doc_ids": [root], "independent_addition_doc_ids": [],
                      "dedup_method": "minhash"}]
 
-    self = types.SimpleNamespace(normalized_db=many_docs, raw_dir="none",
+    self = types.SimpleNamespace(normalized_root=many_docs, raw_dir="none",
                                  facade=types.SimpleNamespace(zone=_ZR()))
     r = json.loads(Handler._api_archive(self, {"limit": "50", "role": "root"}))
     assert [d["doc_id"] for d in r["normalized_documents"]] == [root]

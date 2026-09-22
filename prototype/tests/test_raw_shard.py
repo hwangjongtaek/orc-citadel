@@ -58,6 +58,16 @@ def test_stored_urls_on_empty_source_is_empty_set(tmp_path):
     assert RawShardStore(tmp_path).stored_urls("never-collected") == set()
 
 
+@pytest.mark.parametrize("source_id", ["../outside", "/tmp/outside", "bad/source", ""])
+def test_source_id_rejects_path_traversal(tmp_path, source_id):
+    store = RawShardStore(tmp_path)
+
+    with pytest.raises(ValueError, match="source_id"):
+        store.append(source_id, "http://a/1", b"x", {})
+    with pytest.raises(ValueError, match="source_id"):
+        list(store.iter_docs([source_id]))
+
+
 def test_iter_docs_streams_instead_of_materializing(tmp_path):
     """재처리 입력은 제너레이터 — 코퍼스 전량을 리스트로 만들지 않는다."""
     store = RawShardStore(tmp_path, shard_size=2)

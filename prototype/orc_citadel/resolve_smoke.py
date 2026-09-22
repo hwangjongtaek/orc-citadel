@@ -3,7 +3,7 @@
 NVIDIA(gazetteer, ticker NVDA) + NVDA(ticker) 가 shared identifier로 한 entity(SAME_AS),
 TSMC(ticker TSM) 3건 → 한 entity, GeForce NOW/RTX 각 1 entity로 해소되는지 실데이터로
 검증. entities·mention.resolved_entity_id를 curated zone에 영속·조회한다 (설계 03 §4).
-파생 DB는 prototype/data/ 아래(gitignore).
+파생 Iceberg warehouse는 prototype/data/ 아래(gitignore).
 """
 from __future__ import annotations
 
@@ -16,15 +16,14 @@ from orc_citadel.load_raw_zone import load_raw_zone
 from orc_citadel.parse import extract_html, parse_document
 from orc_citadel.resolve import EntityResolver
 
-DB_PATH = pathlib.Path(__file__).resolve().parent.parent / "data" / "curated.duckdb"
+WAREHOUSE_ROOT = pathlib.Path(__file__).resolve().parent.parent / "data" / "iceberg"
 
 
 def main() -> None:
     store, metas = load_raw_zone()
     print(f"== S6 해소(결정적 stage-1) 스모크: {len(metas)} real docs ==")
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-
-    zone = CuratedZone(str(DB_PATH))
+    WAREHOUSE_ROOT.mkdir(parents=True, exist_ok=True)
+    zone = CuratedZone(WAREHOUSE_ROOT)
     zone.initialize()
 
     resolver = EntityResolver()

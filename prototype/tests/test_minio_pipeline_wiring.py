@@ -1,99 +1,110 @@
-"""P1 후속 ① — MinIO ↔ 파이프라인 실배선 (design 03 §2, ADR-301).
-
-수집(`collect_large._save_zone`)이 raw 를 MinIO 에 쓰고, 파이프라인 입력
-(`load_raw_zone_minio`)이 MinIO 로부터 읽는 end-to-end 를 검증한다. 기존 로컬 fs
-경로는 default 로 유지(파괴 없음), MinIO 는 선택 백엔드.
-
-전용 버킷 격리(② `raw-test-*` 패턴), 연결 불가 skip — 기존 스위트 446 유지.
-"""
+"""Collector and raw-loader wiring for the MinIO shard backend."""
 from __future__ import annotations
 
 import pytest
 
-from orc_citadel.collect_large import _save_zone
+from fake_minio import FakeMinio
+from orc_citadel.collect_large import (
+    ResultCapReached,
+    _save_zone,
+    collect_bulk_archive,
+    collect_index_stream,
+    collect_paged_api,
+    collect_urls,
+    flush_raw,
+)
 from orc_citadel.load_raw_zone import load_raw_zone_minio
-from orc_citadel.minio_raw_store import build_minio_client
-
-minio_mod = pytest.importorskip("minio")
-
-
-def build_minio_store(bucket="raw-wiring-test"):
-    try:
-        client = build_minio_client()
-        # 첫 실제 연결은 여기서 일어난다 (client 생성은 lazy — 연결 안 함).
-        # 가드 밖에 두면 오프라인에서 skip 아닌 ERROR 가 된다.
-        bucket_exists = client.bucket_exists(bucket)
-    except Exception as exc:
-        pytest.skip(f"MinIO 연결 불가: {exc}")
-    if bucket_exists:
-        for o in client.list_objects(bucket, recursive=True):
-            client.remove_object(bucket, o.object_name)
-        client.remove_bucket(bucket)
-    client.make_bucket(bucket)
-    from orc_citadel.minio_raw_store import MinioRawStore
-
-    store = MinioRawStore(client, bucket=bucket)
-    return client, store, bucket
+from orc_citadel.minio_raw_store import MinioRawStore
 
 
 @pytest.fixture()
-def minio_env():
-    client, store, bucket = build_minio_store()
-    yield client, store, bucket
-    try:
-        for o in client.list_objects(bucket, recursive=True):
-            client.remove_object(bucket, o.object_name)
-        client.remove_bucket(bucket)
-    except Exception:
-        pass
+def env():
+    client = FakeMinio()
+    return client, MinioRawStore(client, bucket="raw-wiring-test", shard_size=10)
 
 
-def test_save_zone_writes_to_minio(minio_env):
-    """_save_zone(+minio_store) → MinIO 객체 키 §2.1 로 raw 영속."""
-    client, store, bucket = minio_env
+def _names(client):
+    return [o.object_name for o in client.list_objects("raw-wiring-test", recursive=True)]
+
+
+def test_save_and_loader_see_buffered_minio_row(env):
+    _client, store = env
     doc_id, created = _save_zone(
-        "src-x", "https://e/a", b"<html>payload</html>",
+        "src-y", "https://e/y", b"<html>doc y</html>",
         {"http_status": 200}, minio_store=store,
     )
+
+    loaded, meta = load_raw_zone_minio(store)
+
     assert created
-    assert store.has(doc_id)
-    # 객체 키 존재 (content.bin + fetch.json)
-    names = [o.object_name for o in client.list_objects(bucket, recursive=True)]
-    assert f"raw/src-x/{doc_id}/content.bin" in names
-    assert f"raw/src-x/{doc_id}/fetch.json" in names
+    assert loaded.raw_bytes(doc_id) == b"<html>doc y</html>"
+    assert meta == [{
+        "source_id": "src-y",
+        "url": "https://e/y",
+        "doc_id": doc_id,
+        "content": b"<html>doc y</html>",
+    }]
 
 
-def test_save_zone_minio_idempotent(minio_env):
-    """동일 bytes 재수집 → 동일 doc_id, created=False, 중복 객체 없음."""
-    client, store, bucket = minio_env
-    d1, c1 = _save_zone("src-x", "https://e/a", b"same", {}, minio_store=store)
-    d2, c2 = _save_zone("src-x", "https://e/b", b"same", {}, minio_store=store)
-    assert d1 == d2
-    assert c1 and not c2
-    assert store.count_docs() == 1
+def test_flush_raw_commits_injected_minio_store(env):
+    client, store = env
+    _save_zone("src-x", "https://e/a", b"payload", {}, minio_store=store)
+    assert _names(client) == []
+
+    flush_raw(minio_store=store)
+
+    assert len(_names(client)) == 1
+    assert _names(client)[0].endswith(".parquet")
 
 
-def test_load_raw_zone_minio_reconstructs_meta(minio_env):
-    """MinIO 로부터 파이프라인 meta list 재구성 — doc_id·content 왕복."""
-    client, store, bucket = minio_env
-    _save_zone("src-y", "https://e/y", b"<html>doc y</html>",
-               {"http_status": 200}, minio_store=store)
-    _store, meta = load_raw_zone_minio(store)
-    assert len(meta) == 1
-    assert meta[0]["source_id"] == "src-y"
-    assert meta[0]["url"] == "https://e/y"
-    assert meta[0]["content"] == b"<html>doc y</html>"
-    assert meta[0]["doc_id"].startswith("doc-")
+def test_collect_urls_flushes_injected_minio_store_at_return(monkeypatch, env):
+    client, store = env
+    monkeypatch.setattr("orc_citadel.collect_large._get", lambda _url: (b"body", {}))
+
+    result = collect_urls(["https://e/a"], "src-x", minio_store=store)
+
+    assert result == {"saved": 1, "skipped": 0, "errors": 0}
+    assert len(_names(client)) == 1
 
 
-def test_fetch_json_has_governance_fields(minio_env):
-    """fetch.json 에 license/robots_allowed (governance 11) 완비."""
-    client, store, bucket = minio_env
-    _save_zone("src-z", "https://e/z", b"content", {}, minio_store=store)
-    doc_id = [o.object_name.split("/")[2] for o in client.list_objects(bucket, recursive=True)
-              if o.object_name.endswith("/content.bin")][0]
-    meta = store.fetch_meta(doc_id)
-    assert "license" in meta
-    assert "robots_allowed" in meta
-    assert "content_hash" in meta
-    assert "fetched_at" in meta
+@pytest.mark.parametrize("collector,args", [
+    (collect_index_stream, ({"url": "https://e/index", "format": "json"}, "src-x")),
+    (collect_bulk_archive, ("https://e/archive.zip", "src-x")),
+])
+def test_early_error_return_flushes_injected_minio_store(monkeypatch, env, collector, args):
+    client, store = env
+    store.put("seed", "https://seed", b"pending")
+    monkeypatch.setattr("orc_citadel.collect_large._get",
+                        lambda _url: (_ for _ in ()).throw(OSError("offline")))
+    monkeypatch.setattr(
+        "orc_citadel.collect_large._download_to_file",
+        lambda _url, _output: (_ for _ in ()).throw(OSError("offline")),
+    )
+
+    result = collector(*args, minio_store=store)
+
+    assert result["errors"] == 1
+    assert len(_names(client)) == 1
+
+
+def test_result_cap_exception_flushes_injected_minio_store(monkeypatch, env):
+    import json
+
+    client, store = env
+    pages = iter([
+        {"results": [{"id": 1}]},
+        {"results": [{"id": 2}]},
+    ])
+    monkeypatch.setattr(
+        "orc_citadel.collect_large._get",
+        lambda _url: (json.dumps(next(pages)).encode(), {}),
+    )
+
+    with pytest.raises(ResultCapReached):
+        collect_paged_api(
+            {"url": "https://e/api", "records": "results", "offset_param": "offset",
+             "limit_param": "limit", "page_size": 1, "id_field": "id", "max_offset": 2},
+            "src-x", minio_store=store,
+        )
+
+    assert len(_names(client)) == 1

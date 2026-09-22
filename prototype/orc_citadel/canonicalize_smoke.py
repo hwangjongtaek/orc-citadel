@@ -2,7 +2,7 @@
 
 동일 (subject, predicate) blocking 그룹에서 겹치는 span claim들이 1 CanonicalClaim으로
 묶이는지 실데이터로 검증하고, canonical_claims + MEMBER_OF 엣지 + claim.canonical_claim_id를
-curated zone에 영속한다 (설계 05 §4, 02 §2.4·§3.1). 파생 DB는 prototype/data/ 아래(gitignore).
+curated zone에 영속한다 (설계 05 §4, 02 §2.4·§3.1). 파생 Iceberg warehouse는 data/ 아래다.
 """
 from __future__ import annotations
 
@@ -17,18 +17,16 @@ from orc_citadel.load_raw_zone import load_raw_zone
 from orc_citadel.parse import extract_html, parse_document
 from orc_citadel.resolve import EntityResolver
 
-DB_PATH = pathlib.Path(__file__).resolve().parent.parent / "data" / "curated.duckdb"
+WAREHOUSE_ROOT = pathlib.Path(__file__).resolve().parent.parent / "data" / "iceberg"
 
 
 def main() -> None:
     store, metas = load_raw_zone()
     print(f"== S9 canonicalization 스모크: {len(metas)} real docs ==")
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    if DB_PATH.exists():  # 신선한 schema (derived, gitignored).
-        DB_PATH.unlink()
-
-    zone = CuratedZone(str(DB_PATH))
+    WAREHOUSE_ROOT.mkdir(parents=True, exist_ok=True)
+    zone = CuratedZone(WAREHOUSE_ROOT)
     zone.initialize()
+    zone.reset()
     resolver = EntityResolver()
     gate = Gate()
 

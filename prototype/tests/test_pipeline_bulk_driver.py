@@ -67,7 +67,7 @@ def test_bulk_pipeline_replay_from_postgres_log(pg):
     from orc_citadel.graph_service import GraphService
 
     with TemporaryDirectory() as td:
-        zone = CuratedZone(f"{td}/curated.duckdb")
+        zone = CuratedZone(f"{td}/iceberg")
         zone.initialize()
         result, g = bulk_pipeline(_sample_metas(), zone, mutation_log=_log(pg))
         assert result.docs == 1
@@ -85,7 +85,7 @@ def test_bulk_pipeline_without_log_is_empty_replay(pg):
     from orc_citadel.curated_zone import CuratedZone
 
     with TemporaryDirectory() as td:
-        zone = CuratedZone(f"{td}/curated.duckdb")
+        zone = CuratedZone(f"{td}/iceberg")
         zone.initialize()
         result, g = bulk_pipeline(_sample_metas(), zone, mutation_log=None)
         assert result.docs == 1
@@ -102,7 +102,7 @@ def test_bulk_pipeline_returns_pipeline_result(pg):
     from orc_citadel.pipeline_runner import PipelineResult
 
     with TemporaryDirectory() as td:
-        zone = CuratedZone(f"{td}/curated.duckdb")
+        zone = CuratedZone(f"{td}/iceberg")
         zone.initialize()
         result, g = bulk_pipeline(_sample_metas(), zone, mutation_log=_log(pg))
         assert isinstance(result, PipelineResult)

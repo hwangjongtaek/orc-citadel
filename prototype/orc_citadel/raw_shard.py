@@ -14,8 +14,10 @@ doc당 디렉터리+2파일 레이아웃이 1,000만 건에서 무너지는 세 
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import pathlib
+import re
 from datetime import datetime, timezone
 from typing import Iterator
 
@@ -28,6 +30,15 @@ _COLUMNS = ("doc_id VARCHAR, source_id VARCHAR, url VARCHAR, fetched_at VARCHAR,
             "http_status INTEGER, robots_allowed BOOLEAN, license VARCHAR, "
             "meta_json VARCHAR, content BLOB")
 _SHARD_SIZE = 10_000
+SOURCE_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{0,127}$")
+
+
+def validate_source_id(source_id: str) -> str:
+    if not isinstance(source_id, str) or SOURCE_ID_PATTERN.fullmatch(source_id) is None:
+        raise ValueError("source_id must be a lowercase path-safe slug")
+    return source_id
+
+
 
 
 class RawShardStore:
@@ -42,10 +53,15 @@ class RawShardStore:
     # ---- 쓰기 ----
     def append(self, source_id: str, url: str, content: bytes, meta: dict) -> tuple[str, bool]:
         """샤드 버퍼에 추가. returns (doc_id, created) — created=False 는 기수집분."""
+        validate_source_id(source_id)
         doc_id = doc_id_for(content)
         if doc_id in self._known_ids(source_id):
             return doc_id, False
         meta = dict(meta)
+        meta.pop("doc_id", None)
+        meta.pop("source_id", None)
+        meta.pop("url", None)
+        meta["content_hash"] = "sha256:" + hashlib.sha256(content).hexdigest()
         row = (
             doc_id, source_id, url,
             # 이관되는 문서는 수집 시각을 이미 들고 있다 — 덮어쓰면 provenance 가 오늘로 바뀐다.
@@ -117,17 +133,28 @@ class RawShardStore:
             finally:
                 con.close()
 
+    def iter_records(self, source_ids: list[str] | None = None) -> Iterator[dict]:
+        """Stream raw metadata without loading content or the corpus into memory."""
+        columns = ("doc_id", "source_id", "url", "fetched_at", "http_status",
+                   "robots_allowed", "license", "meta_json")
+        for shard in self._shards(source_ids):
+            con = duckdb.connect()
+            try:
+                cur = con.execute(
+                    f"SELECT {','.join(columns)} FROM read_parquet(?)", [str(shard)])
+                while rows := cur.fetchmany(1_000):
+                    for row in rows:
+                        yield self._record_from_row(row)
+            finally:
+                con.close()
+        for source_id, rows in self._buffer.items():
+            if source_ids is None or source_id in source_ids:
+                for row in rows:
+                    yield self._record_from_row(row[:-1])
+
     def fetch_records(self, source_ids: list[str] | None = None) -> list[dict]:
-        """viewer intake·governance 패널 입력 — content 를 읽지 않는 메타 전용 조회."""
-        shards = self._shards(source_ids)
-        if not shards:
-            return []
-        rows = self._query(
-            shards,
-            "SELECT source_id, doc_id, url, fetched_at, http_status, robots_allowed, license")
-        keys = ("source_id", "doc_id", "url", "fetched_at",
-                "http_status", "robots_allowed", "license")
-        return [dict(zip(keys, row)) for row in rows]
+        """Viewer and reconciliation metadata, excluding raw content."""
+        return list(self.iter_records(source_ids))
 
     def count_by_source(self, source_ids: list[str] | None = None) -> dict[str, int]:
         """source 별 문서 수 — 집계 쿼리(content 미판독). 재처리 로그·viewer 입력."""
@@ -157,8 +184,13 @@ class RawShardStore:
     def _shards(self, source_ids: list[str] | None) -> list[pathlib.Path]:
         if not self.raw_dir.is_dir():
             return []
-        sources = ([self.raw_dir / s for s in source_ids] if source_ids
-                   else sorted(p for p in self.raw_dir.iterdir() if p.is_dir()))
+        if source_ids is not None:
+            sources = [
+                self.raw_dir / validate_source_id(source_id)
+                for source_id in source_ids
+            ]
+        else:
+            sources = sorted(p for p in self.raw_dir.iterdir() if p.is_dir())
         return [shard for source in sources if source.is_dir()
                 for shard in sorted(source.glob("shard-*.parquet"))]
 
@@ -172,6 +204,22 @@ class RawShardStore:
             return con.execute(sql, [[str(s) for s in shards]] + (params or [])).fetchall()
         finally:
             con.close()
+
+    @staticmethod
+    def _record_from_row(row: tuple) -> dict:
+        (doc_id, source_id, url, fetched_at, http_status,
+         robots_allowed, license_name, meta_json) = row
+        meta = json.loads(meta_json) if meta_json else {}
+        return {
+            "source_id": source_id,
+            "doc_id": doc_id,
+            "url": url,
+            "fetched_at": fetched_at,
+            "http_status": http_status,
+            "robots_allowed": robots_allowed,
+            "license": license_name,
+            **meta,
+        }
 
     def _known_ids(self, source_id: str) -> set[str]:
         """이미 저장된 doc_id 집합 — source 당 1회 조회 후 캐시."""

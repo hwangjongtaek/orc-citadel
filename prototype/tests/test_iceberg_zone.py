@@ -1,14 +1,15 @@
-"""TDD Red — DuckDB normalized zone (design 03 §3.1·§3.2).
+"""Normalized Iceberg zone contract (design 03 §3.1·§3.2).
 
-NormalizedZone(DuckDB로 영속) 계약:
-- documents/segments 스키마 생성 (ephemeral DB로 테스트, 영속 파일 없이)
-- persist(doc) 후 documents()/segments(doc_id) 조회 가능
-- idempotency: 동일 (doc_id, parser_version) 재persist → 중복 row 없음 (04 §3.3)
-- UTF-8 다중 바이트 포함 문서에서도 char offset 정확 (ADR-302)
+NormalizedZone persists documents/segments with content-derived identity:
+- persist(doc) then documents()/segments(doc_id) round-trips
+- same (doc_id, parser_version) is idempotent
+- a parser-version bump retains both versioned outputs
+- UTF-8 offsets remain character-based
 """
+from dataclasses import replace
 import pytest
 
-from orc_citadel.duckdb_zone import NormalizedZone
+from orc_citadel.iceberg_zone import NormalizedZone
 from orc_citadel.parse import extract_html, parse_document
 from orc_citadel.identity import doc_id_for
 
@@ -84,14 +85,38 @@ def test_persist_is_idempotent(zone):
     assert len(zone.documents()) == 1
 
 
-def test_parser_version_bump_reparses_not_duplicates(zone):
-    """parser_version이 다른 새 실행은 새 row를 만들지만 동일 버전은 upsert (04 §3.3)."""
+def test_same_version_repersist_replaces_old_segments(zone):
+    """같은 version 재파싱에서 사라진 segment가 Iceberg에 잔존하면 안 된다."""
     doc = extract_html(HTML, "https://nvidianews.nvidia.com/news/x")
+    shorter = replace(doc, text="Only one sentence remains.")
     url = "https://nvidianews.nvidia.com/news/x"
-    zone.persist("src-official-nvidia-news", url, HTML, doc)  # p1
-    # 같은 doc, 동일 버전 → 1 row 유지
     zone.persist("src-official-nvidia-news", url, HTML, doc)
-    assert len(zone.documents()) == 1
+    assert len(zone.segments(doc_id_for(HTML))) > 1
+
+    zone.persist("src-official-nvidia-news", url, HTML, shorter)
+
+    segments = zone.segments(doc_id_for(HTML))
+    assert [segment["text"] for segment in segments] == ["Only one sentence remains."]
+
+
+def test_parser_version_bump_retains_each_version(zone):
+    """같은 raw의 parser-version별 산출물은 공존하고 동일 버전만 upsert한다."""
+    doc_v1 = extract_html(HTML, "https://nvidianews.nvidia.com/news/x")
+    doc_v2 = replace(doc_v1, parser_version="p2")
+    url = "https://nvidianews.nvidia.com/news/x"
+    zone.persist("src-official-nvidia-news", url, HTML, doc_v1)
+    zone.persist("src-official-nvidia-news", url, HTML, doc_v2)
+    zone.persist("src-official-nvidia-news", url, HTML, doc_v2)
+
+    rows = zone.documents()
+    assert {(row["doc_id"], row["parser_version"]) for row in rows} == {
+        (doc_id_for(HTML), doc_v1.parser_version),
+        (doc_id_for(HTML), "p2"),
+    }
+    assert {row["parser_version"] for row in zone.segments(doc_id_for(HTML))} == {
+        doc_v1.parser_version,
+        "p2",
+    }
 
 
 def test_doc_id_is_content_deterministic_across_persist(zone):

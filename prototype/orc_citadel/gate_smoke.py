@@ -2,7 +2,7 @@
 
 실수집 6건의 claim 후보를 설계 05 §6 게이트로 평가해 promoted/quarantined 상태를
 claim_candidates에 영속하고, append-only 승격 이벤트(create_node) 로그를 확인한다.
-임계값은 placeholder (05 §6→10 위임). 파생 DB는 prototype/data/ 아래(gitignore).
+임계값은 placeholder (05 §6→10 위임). 파생 Iceberg warehouse는 data/ 아래다.
 """
 from __future__ import annotations
 
@@ -17,18 +17,16 @@ from orc_citadel.load_raw_zone import load_raw_zone
 from orc_citadel.parse import extract_html, parse_document
 from orc_citadel.resolve import EntityResolver
 
-DB_PATH = pathlib.Path(__file__).resolve().parent.parent / "data" / "curated.duckdb"
+WAREHOUSE_ROOT = pathlib.Path(__file__).resolve().parent.parent / "data" / "iceberg"
 
 
 def main() -> None:
     store, metas = load_raw_zone()
     print(f"== S8 그래프 반영 게이트 스모크: {len(metas)} real docs ==")
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    if DB_PATH.exists():  # 신선한 게이트 평가 (derived, gitignored).
-        DB_PATH.unlink()
-
-    zone = CuratedZone(str(DB_PATH))
+    WAREHOUSE_ROOT.mkdir(parents=True, exist_ok=True)
+    zone = CuratedZone(WAREHOUSE_ROOT)
     zone.initialize()
+    zone.reset()
     resolver = EntityResolver()
     gate = Gate()
 
