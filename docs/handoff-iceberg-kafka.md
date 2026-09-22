@@ -1,216 +1,196 @@
-# Apache Iceberg (Q6) · Kafka (Q7) 도입 — handoff
+# Apache Iceberg · Redpanda cutover — 완료 기록
 
-> 작성 2026-09-22. 근거: 코드·데이터·원격 호스트 **실측**(본문 §1에 측정 명령 포함).
-> 위임 대상: **단일 세션**. 완료 시 ROADMAP §5 changelog + design/README Spec 반영.
->
-> **상태: 미착수.** 선결 결정 3건(§2)은 사용자 판단 사항이며, 결정 전에는 G1 이후로 진행하지 않는다.
+> **완료:** 2026-09-22 · Design Spec `1.7.0`
+> 본 문서는 착수 계획이 아니라 Q6(Iceberg)·Q7(event stream)의 결정·완료 범위·검증 근거와 남은 운영 위험을 보존하는 handoff record다.
 
-## 0. 배경 — 여기까지 끝났고, 여기서 멈췄다
+## 1. 최종 결정
 
-2026-09-20~21 세션에서 "1,000만 문서에서 현재 스택이 durable 한가"를 판정하고 블로커 4건을 해소했다.
-
-| 해소 | 수단 | 실측 |
+| 결정 | 확정 내용 | 근거·경계 |
 | --- | --- | --- |
-| RAM 전량 상주 | raw parquet 샤드 스트리밍 (ADR-308) | 15k→20k 문서 구간 RSS 1,728MB 평탄 |
-| inode 30M 요구 | source 별 샤드 | 313,413 → 1 (같은 코퍼스) |
-| nightly 전량 재빌드 | 증분 승격 (`incremental_promote`) | 신규 1건 0.147–0.158s · 무변경 0.01s |
-| 커넥터 부재 | kind 3종 + `COLLECTORS` (ADR-405) | — |
-| (부수) dedup O(N²) | LSH 밴딩 + 서명 영속 (ADR-404) | 배증비 2.41→2.00 · 12.4ms/doc · **재현율 1.0000**(703건·790쌍) |
+| **D1 — disk** | 증설 없이 계속하되 G2 이후 범위를 확대하지 않음 | **근거 정정 (2026-09-22 검증):** 최초 기록의 free 509 GiB 는 개발 Mac 실측이었다. D1 은 1,000만 corpus 가 쌓이는 **원격 호스트**(`10.0.0.11`) 결정이며, 그 실측은 **502G 중 183G 여유(62% used)** 로 cutover 전후 변동 없다. 03 §9 목표 "총 수백 GB" 와 같은 자릿수라는 위험은 **해소되지 않았다**. 결정(증설 없이 계속·범위 확대 없음)은 유지하되 근거는 이 수치다. |
+| **D2 — catalog** | **Lakekeeper REST catalog** | 단일 호스트 운영 단순성과 PyIceberg REST 연동을 기준으로 채택했다. normalized·curated의 catalog이며 raw를 소유하지 않는다. |
+| **D3 — broker** | **Redpanda Community Edition** | 단일 호스트에서 Kafka API를 유지하면서 JVM/ZooKeeper 운영 부담을 피한다. S1–S7 event stream의 현행 broker다. |
 
-2026-09-21 결정: **추가 측정과 소스 등록을 중단하고 Iceberg·Kafka 도입 후 재개한다.**
-남은 확장이 "더 모으기"가 아니라 **저장·스트리밍 기반 자체를 바꾸는 문제**로 넘어갔기 때문이다.
-ROADMAP Q6 유보→도입 결정, Q7 신규 등록 (ROADMAP §5 2026-09-21, ADR 표 Q6/Q7).
+도입 순서는 Iceberg 선행, Redpanda 후행이었다. 다중 writer가 consume하기 전에
+normalized/curated가 Iceberg의 atomic snapshot commit을 사용해야 했기 때문이다.
 
-### 0.1 단일 세션 범위 — 정직하게
+## 2. Phase 완료 범위
 
-전 범위(I+K)를 한 세션에 욱여넣으면 **검증이 얕아진다**. 그래서 **게이트 3개**로 끊었고,
-각 게이트는 커밋 경계이자 중단 가능 지점이다. 게이트에서 멈춰도 저장소는 Green 이다.
+| Gate | 완료 결과 |
+| --- | --- |
+| **G1 — catalog/runtime** | Lakekeeper와 PyIceberg write path를 기동하고 local persistent catalog/file warehouse와 prod REST catalog 경계를 확정했다. |
+| **G2 — normalized** | `documents`·`segments`를 legacy DuckDB에서 Iceberg로 migration했다. `(doc_id, parser_version)` idempotency, source/month partition, snapshot 기반 version evolution을 보존했다. |
+| **G3 — curated** | 구현된 curated **18개 table**을 shared Iceberg warehouse로 전환하고 source/visible count equality를 확인했다. |
+| **Raw backend closure** | raw는 Iceberg로 올리지 않고 immutable source-sharded zstd Parquet로 유지했다. 현행 prod는 shared `proddata` filesystem을 사용한다. MinIO 대체 backend도 같은 `raw/<source>/shard-*.parquet` layout·metadata schema를 구현했으며, 배치된 MinIO는 Iceberg warehouse를 담당한다. |
+| **K1–K3 — broker/topics/producer** | Redpanda CE, S1–S7 각 primary/retry/DLQ/quarantine topic, acked reference-only envelope, durable raw 뒤 S1/S2 producer를 구현했다. `ResultCapReached`는 terminal S1 event다. |
+| **K4 — promotion consumer** | stable group `orc-citadel-s2-promotion-v1`이 S2 primary+retry를 bounded batch(max 1,000)로 소비해 reference가 가리키는 doc만 Iceberg로 승격한다. |
+| **K5 — scheduler boundary** | scheduler는 collection dispatch+metrics만 담당한다. direct promotion, zone rebuild, snapshot 호출은 제거했고 always-on `promotion-consumer`가 승격을 소유한다. |
 
-- **G1** — 의존성·카탈로그 기동 (인프라만, 데이터 경로 무변)
-- **G2** — normalized zone Iceberg 전환 + 스키마 진화 실측  ← **한 세션 권장 종착점**
-- **G3** — curated zone 전환
-- **K** — Kafka. **별도 세션 권장** (§6). 이 문서에 계약까지 적어두되 착수는 G3 이후.
+현행 prod overlay는 13개 Compose service를 선언한다. `redpanda-init`은 28개 topic을
+멱등 생성하고 종료하는 one-shot이며, `promotion-consumer`는 MinIO·Lakekeeper health와
+topic bootstrap을 기다린 뒤 상시 실행한다. 착수 계획에 적었던 service-count
+추정치는 폐기하고 이 선언 목록을 정본으로 삼는다.
 
-## 1. 실측 근거 — 트리거가 실제로 걸린 곳
+## 3. 최종 저장 계약
 
-Iceberg 승격 트리거는 01 §122 의 "테이블 >수천만 row, 스키마 진화 필요"다.
-**curated 가 아니라 normalized 의 `segments` 에서 먼저 걸린다.**
+```text
+raw/<source_id>/shard-*.parquet      immutable, zstd, prod shared filesystem
+              │
+              ├─ normalized.documents   Apache Iceberg
+              ├─ normalized.segments    Apache Iceberg
+              └─ curated.* (18 tables)  Apache Iceberg
+                         catalog: Lakekeeper REST
 
-| 축 | 현재 실측 | 1,000만 투영 | 판정 |
-| --- | --- | --- | --- |
-| `segments` 행 수 | 105,252 docs → **823,629행** (7.83행/doc) | **≈7,830만 행** | 트리거 초과 |
-| normalized 파일 | `prototype/data/oc.duckdb` **261.6MB 단일 파일** | **≈24.9GB 단일 파일** | 단일 writer 한계 |
-| curated 행 수 | claims 722 · mentions 2,957 · conflicts 2,917 | **투영 불가** — 신호 슬라이스만 처리된 상태 | 미측정 (§5 T7) |
-| 원격 디스크 | 502G 중 **183G 여유** | 03 §9 목표 "총 수백 GB" | **같은 자릿수 — 위험** |
-| 원격 자원 | 125GB RAM · 64 core | — | 브로커·카탈로그 수용 가능 |
-
-재현 명령:
-
-```bash
-# 행 수·파일 크기
-cd prototype && .venv/bin/python -c "
-import duckdb,pathlib
-c=duckdb.connect('data/oc.duckdb',read_only=True)
-print(c.execute('SELECT count(*) FROM documents').fetchone(),
-      c.execute('SELECT count(*) FROM segments').fetchone(),
-      round(pathlib.Path('data/oc.duckdb').stat().st_size/1e6,1),'MB')"
-# 원격 자원
-ssh hwangjongtaek@10.0.0.11 'free -g | head -2; df -h / | tail -1; nproc'
+PostgreSQL: graph mutation log + investigation metadata/job queue (변경 없음)
 ```
 
-## 2. 선결 결정 3건 — 사용자 판단 (착수 전 질의할 것)
+현행 curated table은 `mentions`, `dup_signatures`, `dup_bands`, `dup_clusters`,
+`entities`, `claim_candidates`, `canonical_claims`, `member_of`,
+`conflict_candidates`, `assertions`, `authoritative_edges`, `canonical_llm_records`,
+`conflict_verdicts`, `golden_pairs`, `golden_entity_pairs`, `golden_lineage_pairs`,
+`promotion_baselines`, `extraction_records`다.
 
-| # | 결정 | 배경 | 기본안 |
-| --- | --- | --- | --- |
-| **D1** | 원격 디스크 증설 여부 | 183G 여유 vs 목표 "수백 GB". **Iceberg 는 스냅샷·메타데이터 보존으로 저장량을 늘린다**(미측정 — 증가율은 G2 에서 실측해 보고할 것) | 증설 없이 G2 까지 진행, G2 실측치로 재판단 |
-| **D2** | Iceberg REST catalog 구현체 | 새 컨테이너 1개. Lakekeeper / Apache Polaris / Nessie | 단일 호스트·운영 단순성 기준으로 후보 비교표를 만들어 제시 후 결정 |
-| **D3** | Kafka vs Redpanda | 단일 호스트 compose. Redpanda 는 JVM·ZooKeeper 부담 없음, Kafka(KRaft)는 생태계 표준. RAM 125GB 라 양쪽 가능 | Redpanda (단일 호스트 전제) |
+**`evidence_candidates` runtime table은 구현되어 있지 않다.** ontology의 Evidence
+개념만으로 table 존재를 주장하지 않는다. mutation log의 Iceberg 전환도 수행하지
+않았으며 PostgreSQL append-only SoT를 유지한다.
 
-**D2·D3 은 후보를 임의 선택하지 말 것.** 비교 근거를 만들어 사용자에게 올리고 답을 받는다.
+## 4. 최종 event-stream 계약
 
-## 3. 착수 전 정정해야 할 설계 오표기 1건
+- topic 이름은 `orc.events.s{1..7}.<stage-slug>.v1`이며 각 S1–S7 stage에
+  primary, `.retry`, `.dlq`, `.quarantine` route가 있다(총 28개).
+- envelope는 versioned JSON reference만 운반한다. raw bytes나 Iceberg row를 broker에
+  복제하지 않는다. producer는 `acks=all`과 idempotence를 사용하고 broker callback이
+  성공해야 반환한다.
+- 모든 collection path는 raw shard가 durable해진 뒤 local SQLite outbox가 raw row를
+  reconcile하고 `S1/document_fetched`와 `S2/raw_stored`를 발행한다. 각 stage는 broker
+  acknowledgement 뒤에만 ack 처리되며 raw commit 뒤 publish 실패는 다음 dispatch가
+  URL skip보다 먼저 복구한다. `ResultCapReached`는 `S1/result_cap_reached`,
+  `status=terminal`로 발행해 조용한 누락을 금지한다.
+- promotion consumer는 `enable.auto.commit=false`, `enable.auto.offset.store=false`다.
+  path-safe slug와 `raw://<source_id>/doc-<24hex>`가 가리키는 정확한 raw row를 검증한다.
+  동일 content의 여러 source reference가 있으면 normalized의 단일 `source_id/url`은
+  `(source_id, url)` 사전순 최소 provenance로 고정해 delivery order에 따른 flip을
+  차단한다. duplicate reference는 결정적 ID로 idempotent replay하여
+  normalized→curated 사이 부분 실패를 복구한다. 이미 완료된 논리 결과는 zero
+  summary를 반환하며 row 수를 늘리지 않는다. S3 `normalization_completed`는 durable
+  Iceberg write 뒤에 acked publish하고, 모든 필수 outbound acknowledgement 전에는
+  input offset을 commit하지 않는다.
+- invalid envelope/reference와 재시도로 해소할 수 없는 data defect는 S2 quarantine이다.
+  inbound/outbound envelope는 1 MiB·JSON depth 32·scalar 8,192자 상한을 적용하고,
+  invalid Kafka key는 고정 길이 hash로 바꾼다. unexpected/transient failure는
+  `attempt_count`를 먼저 증가시키고 증가값이 `< max_retries`면 retry,
+  `>= max_retries`면 DLQ로 보낸다. quarantine은 DLQ가 아니다.
+- PostgreSQL `FOR UPDATE SKIP LOCKED` queue는 **investigation job 전용**으로 그대로다.
+  수집·승격에는 Redpanda 전 PostgreSQL queue가 없었으므로 이번 변경은 queue 승격이
+  아니라 신규 event-stream 도입이다(ADR-102 정정).
 
-**ADR-102 의 전제가 코드와 다르다.**
+host external advertised listener는 **`127.0.0.1:19092`**다. macOS에서 `localhost`가
+IPv6 `::1`로 resolve되어 IPv4 listener 연결이 실패하는 문제를 이 명시 주소로 닫았다.
 
-- 01 §124 표는 event stream 을 `PostgreSQL queue (SKIP LOCKED)` → `Kafka/Redpanda` **승격**으로 적는다.
-- 그러나 `SKIP LOCKED` 큐는 **조사 job 경로에만** 존재한다 (`prototype/orc_citadel/investigation_store.py:335`).
-- **수집→승격 경로에는 큐가 없다.** APScheduler 상주 프로세스가 함수를 직접 호출한다
-  (`prototype/scripts/scheduler_runner.py` → `_promote_zones` → `_promote_new_docs` → `promote_incremental`).
+## 5. G2 측정 결과 — normalized Iceberg
 
-→ Q7 착수 시 **ADR-102 를 정정**하고 Kafka 를 "승격"이 아니라 **수집·승격 경로의 신규 도입**으로 기록한다.
-조사 job 경로의 Postgres 큐는 **그대로 둔다** (W3 계약·11 §113 감사 경로 — 건드리면 감사 추적이 깨진다).
-
-## 4. Phase I — Apache Iceberg (Q6)
-
-Kafka 보다 **먼저**다. 이유: 다중 writer 안전한 테이블 포맷 없이 Kafka consumer 를 늘리면
-curated/normalized 동시 쓰기가 깨진다. **Iceberg 의 낙관적 커밋이 Kafka 병렬화의 전제조건이다.**
-
-### G1 · 의존성·카탈로그 (데이터 경로 무변)
-
-| 파일 | 작업 | 내용 |
+| 축 | 실측 결과 | 판정 |
 | --- | --- | --- |
-| `prototype/pyproject.toml` | 수정 | `pyarrow`·`pyiceberg` 추가. **둘 다 현재 미설치** — `duckdb 1.5.5` 의 iceberg 확장은 읽기 중심이라 쓰기 경로는 pyiceberg 가 현실적 (설치 후 실제 쓰기 지원 범위를 **확인하고 기록**할 것) |
-| `prototype/Dockerfile` | 수정 | 의존성 반영 |
-| `docker-compose.yml` · `docker-compose.prod.yml` | 수정 | REST catalog 서비스 추가 (D2 결정 후). 현재 prod 9컨테이너 → 10 |
-| `deploy/` | 확인 | 신규 서비스 볼륨·헬스체크 |
-| `prototype/tests/test_prod_compose_credentials.py` 외 compose 테스트 | 수정 | 신규 서비스의 자격증명·포트 계약 |
+| Legacy normalized | **255,500 KiB** DuckDB | migration 기준선 |
+| Iceberg normalized | **145,228 KiB** | legacy 대비 **43.2% 작음** |
+| Row 수 | **105,252 documents**, **823,629 segments** | exact migration count |
+| Partition | documents/segments 각각 **233** | source/month partition 확인 |
+| Snapshot | documents/segments **11/83** | migration snapshot 기록 |
+| Migration wall time | **11.47s** | measured |
+| Disk free — 개발 Mac | **509 GiB** | G2 실행 환경. **D1 근거 아님** |
+| Disk free — 원격 prod `10.0.0.11` | **183 GiB** (502G 중, 62% used) | **D1 의 실제 근거.** cutover 전후 변동 없음 |
 
-**G1 종료 조건:** 카탈로그 컨테이너 기동 + 빈 테이블 생성/조회 왕복 1회. **기존 스위트 Green.**
+### Parser-version evolution
 
-### G2 · normalized zone 전환  ← 권장 종착점
+p1→p2 smoke는 **documents 2행 / segments 2행**을 보존했고 두 table 모두 snapshot
+**1→2**, warehouse **+29,815 bytes**였다. version bump가 기존 version row를 덮어쓰지
+않고 새 snapshot으로 남는 계약을 확인했다.
 
-대상은 `documents`·`segments` 2테이블. 03 §1.1 확정 파티션을 **그대로** 쓴다.
+### Incremental temporary smoke
 
-| 테이블 | 파티션 키 | 정렬 |
+| 경로 | Iceberg | Legacy baseline | 해석 |
+| --- | ---: | ---: | --- |
+| warm 신규 1건 | **0.1082s** | **0.147–0.158s** | 개선 |
+| no-change | **0.0348s** | **0.01s** | **3.48× 회귀**, 절대 **+24.8ms** |
+| cold-create | **0.3075s** | 없음 | baseline과 직접 비교 불가 |
+
+no-change 상대 회귀를 개선으로 포장하지 않는다. 동시에 절대 증가량이 24.8ms임을
+기록해 운영 중요도를 왜곡하지 않는다.
+
+## 6. G3 측정 결과 — curated Iceberg
+
+| 축 | 실측 결과 | 판정 |
 | --- | --- | --- |
-| `documents` / `segments` | `source_id`, `publication_time`(월 버킷) | `doc_id` |
+| Legacy curated | **6,156 KiB** DuckDB | migration 기준선 |
+| Shared Iceberg warehouse | **145,228 → 145,908 KiB** | curated 전환 증가 **+680 KiB** |
+| Count equality | 구현된 **18 tables** 전부 source = visible | migration equality 확인 |
+| Legacy lazy tables | `dup_signatures`/`dup_bands` 부재 | source count를 정확히 **0**으로 취급 |
+| Synthetic selective lookup | **10,000 signatures / 80,000 band rows**, matching candidate 1건 | **p50 22.804ms, max 79.258ms** |
 
-| 파일 | 작업 | 주의 |
-| --- | --- | --- |
-| `prototype/orc_citadel/duckdb_zone.py` | 전환 | `NormalizedZone` 의 백엔드 교체. **upsert key `(doc_id, parser_version)` 계약 불변** — 동일 버전 재persist 는 no-op, version bump 는 새 row (04 §3.3) |
-| `prototype/orc_citadel/viewer.py` | **필수 동반** | `duckdb.connect` **직접 호출 6곳** — `NormalizedZone` 을 우회한다. 여기를 빠뜨리면 뷰어가 조용히 빈 화면을 낸다 (§5 T1) |
-| `prototype/orc_citadel/incremental_promote.py` | 수정 | `NormalizedZone(str(data_dir/"oc.duckdb"))` (72행). 신규 문서 anti-join 이 DuckDB `ATTACH` 기반 (§5 T3) |
-| `prototype/scripts/rebuild_zones.py` | 수정 | 79행 |
-| `prototype/orc_citadel/parquet_snapshot.py` | 검토 | `duckdb.connect` 2곳 — Iceberg 전환 후 존 스냅샷의 의미 재정의 |
-| `prototype/orc_citadel/persist_smoke.py` | 수정 | 스모크 |
-| 테스트 8종 | 수정 | `test_duckdb_zone` · `test_rebuild_zones` · `test_incremental_promote` · `test_zone_concurrency` · `test_viewer_{gate,archive,witnesses,aux}` |
-| `docs/design/03-storage-and-data-model.md` | 수정 | §1 표(초기 저장소)·§2 인접 절 + **ADR 신규 1행** |
+selective lookup latency는 과거 **12.4ms/doc full dedup coefficient와 직접 비교할 수
+없다**. 실제 corpus에는 persisted signature population이 0이었으므로 real-corpus
+end-to-end dedup 비교는 **미측정**이다. correctness/LSH tests가 green인 것과 실제
+corpus 성능이 측정되지 않은 것은 서로 다른 사실이다.
 
-**G2 에서 반드시 실측할 것 (Iceberg 도입의 나머지 절반):**
+## 7. 검증 증거와 완료 판정
 
-1. **스키마 진화** — `parser_version` bump 시 03 §1.1 이 약속한 **파티션 단위 교체**가 성립하는가.
-   지금은 전량 재빌드뿐이다. 성립하면 이것이 Iceberg 도입의 최대 이득이다.
-2. **저장량 증감** — D1 판단 근거. 전환 전 261.6MB 대비 스냅샷 포함 실크기.
-3. **증분 승격 회귀** — 기준선 대비 (아래 §6 표).
+- G2 exact row counts, partition/snapshot counts, migration wall time와 disk size를 기록했다.
+- parser p1→p2가 row 보존·snapshot 증가로 나타나는 것을 별도 smoke로 확인했다.
+- incremental warm/no-change/cold-create를 분리했고 비교 불가능한 cold 수치를
+  baseline 개선으로 사용하지 않았다.
+- G3는 18개 table 모두 source/visible equality로 확인했고 legacy에 없던 lazy table을
+  0으로 처리했다.
+- synthetic band lookup은 candidate 선택 결과와 p50/max를 함께 기록했다.
+- event path는 acked S1/S2 reference, terminal cap event, manual offset-after-durability,
+  retry/DLQ/quarantine 분리, scheduler dispatch-only boundary로 봉인됐다.
+- 실제 Redpanda smoke는 S2 원본 1건과 동일 duplicate 1건을 소비한 뒤
+  **`mentions=1`, `dup_signatures=1`, `counts_stable=true`**를 확인했다.
+- 최종 회귀는 **1,603 passed, 8 skipped**였고 cutover 집중 회귀는
+  **136 passed**였다. `uv lock --check`, prod profile Compose config와 선언 service
+  **13개**도 확인했다.
+- 실제 Redpanda final smoke는 durable outbox row 1건에서 S1/S2를 acked publish하고
+  **`inserted=1`, `delivered=1`, `redrain=0`, `pending=0`,
+  `stages=[S1,S2]`**를 확인했다. 9,000자 URL은 `url-sha256:` bounded reference로
+  운반되어 후속 row를 막지 않았다.
+- 실제 MinIO smoke는 동일 bytes를 서로 다른 source 2곳에 저장해 **rows=2**,
+  `content_hash`·전체 response headers metadata parity와 source별 URL 보존을 확인했다.
+- 최종 독립 code/security/SSOT 재검토에서 blocker/high 문서 불일치는 남지 않았다.
+  Compose 내부 `allowall`/plaintext 신뢰는 아래 운영 위험으로 명시적으로 남긴다.
 
-**G2 종료 조건:** 위 3개 실측 + 스위트 Green + 로컬 뷰어 실기동 확인.
+Q6과 Q7은 이 범위에서 **완료**다. 이 판정은 1,000만 corpus 전체 수집·운영 완료나
+아래 위험의 해소를 의미하지 않는다.
 
-### G3 · curated zone 전환
+## 8. 남은 정직한 운영 위험
 
-**G2 보다 훨씬 위험하다 — `CuratedZone` 소비 파일이 65개다** (normalized 는 12개).
-G2 를 커밋·검증한 뒤에만 착수한다.
+1. **Small files / compaction tuning.** Iceberg snapshot과 data-file 수가 실제 장기
+   증분 workload에서 어떻게 증가하는지 아직 운영 window로 측정하지 않았다.
+   compaction threshold, cadence, snapshot expiry는 관측 후 정해야 한다.
+2. **실제 signature population 부재.** migration corpus의 persisted signatures가 0이라
+   real-corpus end-to-end LSH/dedup latency와 file pruning 효율은 미측정이다. synthetic
+   10k/80k lookup을 그 대체 실측으로 오표기하지 않는다.
+3. **DuckDB UI parquet 스냅샷의 자동 갱신 부재.** K5 가 scheduler 를 collection
+   dispatch+metrics 전용으로 좁히면서 기존 `_snapshot_parquet` 훅이 제거됐다.
+   `parquet_snapshot` 모듈 자체는 Iceberg 읽기로 갱신돼 동작하지만 **프로덕션
+   호출자가 0개**이고(테스트만 참조), `docker-compose.yml` 의 duckdb-ui 는 여전히
+   `./prototype/data/parquet:ro` 를 마운트한다 → **UI 가 마지막 수동 export 시점에
+   고정된다.** 훅을 되살리면 ADR-107 의 scheduler 경계를 다시 여는 셈이므로,
+   갱신 주체를 promotion consumer 로 둘지 별도 one-shot 으로 둘지는 결정 대상이다.
+   그 전까지 신선도는 수동 `python -m orc_citadel.parquet_snapshot` 에만 의존한다.
+4. **단일 호스트 trust boundary.** local Lakekeeper·MinIO·Redpanda host ports는
+   loopback에만 bind하고 prod overlay는 publish하지 않지만, Compose 내부는 현재
+   Lakekeeper `allowall`과 plaintext Kafka를 신뢰한다. untrusted/multi-tenant network로
+   확장하기 전 OIDC+OpenFGA와 SASL/TLS+topic ACL을 별도 보안 ADR로 도입해야 한다.
+5. **단일 broker/catalog host.** Redpanda CE·Lakekeeper는 현재 단일 호스트다. HA나
+   Kubernetes 승격은 availability/throughput SLO가 정당화할 때 별도 ADR 대상이다.
 
-| 테이블 | 파티션 키 | 정렬 |
-| --- | --- | --- |
-| `mentions` / `claim_candidates` / `evidence_candidates` | `dedup_version`, `status` | `doc_id` |
-| `assertions` | `tx_from`(월 버킷) | `subject_id`, `predicate` |
+## 9. 유지된 범위 밖 항목
 
-- **`dup_signatures`/`dup_bands`(ADR-404) 가 최대 리스크.** 증분 승격의 dedup 은 밴드 키
-  SQL 조회로 후보만 가져온다(전체 서명 ≈5GB 적재 회피). Iceberg 로 옮기면 이 조회의
-  물리 특성이 바뀐다 — **전환 후 반드시 재측정**(§6).
-- `assertions` 는 ADR-307 상 `graph_mutations` 의 projection 이다. **SoT 가 아니므로**
-  재생성 가능성만 지키면 된다. 반대로 mutation log(Postgres) 전환은 **범위 밖**(§8).
-
-### G3 이후 · raw / 객체 백엔드 정리 (Iceberg 와 함께 닫을 것)
-
-- raw 는 이미 parquet 샤드다(ADR-308). **Iceberg 테이블로 올릴지, immutable append-only
-  계약 때문에 파일 백엔드로 둘지 명시 결정**하고 03 §2.1 에 기록한다.
-- **MinIO 객체 백엔드(03 §2.1 ②)가 아직 샤드 미전환** — 파일 백엔드와 물리 배치가 갈라져 있고,
-  이는 ADR-308 에 "정직 표기"로 남아 있는 미해결 항목이다. 여기서 닫는다.
-
-## 5. 함정 — 전부 이 저장소에서 실제로 밟은 것
-
-| # | 함정 | 회피 |
-| --- | --- | --- |
-| **T1** | `viewer.py` 가 `duckdb.connect` 로 normalized 를 **직접 6회** 연다 — zone 클래스를 우회 | G2 에서 반드시 동반 수정. 누락 시 실패가 아니라 **빈 화면**으로 나타난다 |
-| **T2** | DuckDB `ATTACH` 는 **prepared parameter 를 받지 않는다** (`ATTACH ? AS zone` → ParserException) | `incremental_promote` 는 f-string + "경로는 caller 소유" 주석으로 처리 중. 같은 패턴 유지 |
-| **T3** | 증분 승격은 **배치 스트리밍**이다 (`BATCH_SIZE=1_000`) | 리팩터링 중 `list(...)` 로 전량 물질화하면 cold-start RAM 블로커가 되살아난다. 회귀 테스트가 이미 있다 |
-| **T4** | 전량 재빌드 경로가 서명을 영속하지 않으면 다음 증분 dedup 이 **조용히** 코퍼스를 못 본다 | `pipeline_runner` 의 `signature_sink` 경로 유지 |
-| **T5** | 아카이브/API 상한을 조용히 끊지 않는다 — `ResultCapReached` (ADR-405) | Kafka 이벤트 모델링에도 그대로 적용 (§6 K2) |
-| **T6** | ROADMAP 의 "16.28ms/doc → 1M 4.5h" 류 투영은 **2,000건 배치 계수라 스케일에서 무효**(dedup 이차항 미포함) | 인용 금지. 유효 계수는 LSH 후 12.4ms/doc 선형 |
-| **T7** | curated 행 수는 신호 슬라이스만 처리된 값(claims 722) — **1,000만 투영 근거로 쓸 수 없다** | honest-gap §6.2. 미측정은 미측정으로 표기 |
-| **T8** | 환경 의존 실패 2건이 상시 존재: `test_claude_cost.py::test_usage_zero_when_stub`, `test_claude_judge.py::test_stub_fallback_not_logged_as_schema` (LLM 프로바이더가 env 에 있으면 stub 경로 미진입) | 신규 실패와 혼동하지 말 것. 파일 격리로 무관함 확인됨 |
-
-## 6. Phase K — Kafka / Redpanda (Q7) · 별도 세션 권장
-
-G3 완료 후 착수. 이 문서는 **계약까지만** 고정한다.
-
-| # | 작업 | 계약 |
-| --- | --- | --- |
-| K1 | 브로커 기동 | D3 결정. compose base/prod + deploy |
-| K2 | 토픽·실패 시맨틱 | 01 §4 stage 경계(S1–S7)를 토픽으로. **01 §4.1 의 lease/retry/DLQ 를 consumer group + DLQ topic 으로 이관** (01 §114 에 이미 예고). **quarantine 은 DLQ 가 아니다** — 재시도로 해소 불가한 데이터 결함은 quarantine, transient 만 retry/DLQ |
-| K3 | 수집측 producer | ADR-405 커넥터 3종이 fetch 결과를 토픽으로. `ResultCapReached` 를 **이벤트로 어떻게 표현할지** 설계 — 조용한 누락 금지 계약(T5)이 큐 경계를 넘어야 한다 |
-| K4 | 승격측 consumer 병렬화 | `promote_incremental` 을 consumer 로. **멱등성이 관건** — at-least-once 배달을 content-hash `doc_id` 가 흡수하는지, 특히 `dup_signatures` 영속이 중복 실행에 안전한지 **테스트로 고정**(01 §4.1 "at-least-once + idempotent = effectively-once") |
-| K5 | 스케줄러 역할 축소 | APScheduler 는 dispatch 만. `_rebuild_zones`(전량) / `_promote_new_docs`(증분) 경계 재정의 |
-| K6 | ADR-102 정정 | §3 |
-
-## 7. 검증
-
-**도입 전 기준선 — 전환 후 이 표를 다시 채워 비교하고, 악화 시 보고한다.**
-
-| 축 | 기준선 | 측정 방법 |
-| --- | --- | --- |
-| 증분 승격 · 신규 1건 | **0.147–0.158s** | `promote_incremental(raw, data)` 1건 투입 |
-| 증분 승격 · 무변경 | **0.01s** | 동일 호출 재실행 |
-| 증분 승격 · 758건 배치 | **70.6s** | — |
-| dedup | **12.4ms/doc** · 배증비 2.00 · 재현율 **1.0000** | `test_dedup_lsh` + 실코퍼스 |
-| raw skip 인덱스 | **0.02s** (전환 전 18.9s/103k) | `RawShardStore.stored_urls` |
-| raw 디스크 | 888MB → **67.3MB** (13.2×) | 같은 코퍼스 |
-| normalized 저장 | **261.6MB / 823,629행** | §1 명령 |
-
-공통:
-
-- 스위트: `cd prototype && .venv/bin/python -m pytest -q` — **현재 1,536건 수집**. T8 2건 제외 Green 유지.
-- TDD 준수 (AGENTS.md): Red→Green→Refactor. 구조 변경과 행위 변경은 **커밋 분리**(Tidy First).
-- 로컬 뷰어 실기동: `.venv/bin/python -m orc_citadel.viewer` → 8공간 라우트 200.
-
-## 8. 배포·규약
-
-- 배포: **저장소 루트에서** `scripts/deploy.sh hwangjongtaek@10.0.0.11` (prototype/ 에서 실행하면 실패한다).
-  원격 접근은 **VPN 필요**.
-- git 상태(2026-09-22): 브랜치 `feat/scale-10m-storage-and-promotion`, **origin 대비 4커밋 미푸시**, 트리 깨끗.
-  기반 커밋 `e0f020a`(raw 샤드·증분 승격·커넥터 3종).
-- 문서 3단계(design/README §104): ① 해당 설계 문서 수정 ② **README Spec version**(현재 `1.6.0`) ③ ROADMAP §5 changelog.
-- ADR 신규 행 필요: Iceberg 전환(03) · Kafka 도입(01) · ADR-102 정정(01).
-- honest-gap §6.2 — **미측정을 측정된 것으로 쓰지 않는다.** 추정치는 추정으로 표기.
-- 커밋 트레일러: `Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>`
-
-## 9. 범위 밖 (이 handoff 에서 하지 않는다)
-
-- **소스 등록** — 라이선스 깨끗한 2건(arXiv non-cs 1.73M · Federal Register 1.01M), 미확인 6건 합산 3.3M.
-  1,000만 수집 재개는 Iceberg·Kafka 도입 **이후**다 (2026-09-21 결정).
-- **`_arxiv_date_windows` 결함 2건** — 10k 초과 월 조용한 누락, 상한 `start="202608112359"` 하드코딩.
-  별도 수정 건으로 남긴다.
-- **mutation log 의 Iceberg 전환**(03 §1 표 `Postgres(→Iceberg)`) — replay 정확성이 걸려 있어 G3 안정화 후 별건.
-- **조사 job 경로의 Postgres 큐**(W3) — §3 참조. 건드리지 않는다.
-- **ClickHouse·K8s 승격** — 각자 별도 트리거(01 §5).
+- 라이선스가 확인된 신규 source 등록과 1,000만 수집 재개. D1은 G2 이후 scope 확대를
+  승인하지 않았다.
+- `_arxiv_date_windows`의 10k 초과 월 누락 및 `start="202608112359"` hard-coded 상한.
+  `ResultCapReached` event 계약은 조용한 누락을 드러내지만 이 별도 결함 자체를
+  수정했다는 뜻은 아니다.
+- PostgreSQL `graph_mutations`를 Iceberg로 전환하는 작업. replay 정확성 때문에 별도다.
+- investigation job의 PostgreSQL SKIP LOCKED queue. 감사·claim/lease 계약을 그대로
+  유지한다.
+- ClickHouse·Kubernetes 승격. 각각 자체 측정 trigger와 ADR이 필요하다.
