@@ -162,12 +162,19 @@ Q6과 Q7은 이 범위에서 **완료**다. 이 판정은 1,000만 corpus 전체
 
 ## 8. 남은 정직한 운영 위험
 
-1. **Small files / compaction tuning.** Iceberg snapshot과 data-file 수가 실제 장기
-   증분 workload에서 어떻게 증가하는지 아직 운영 window로 측정하지 않았다.
-   compaction threshold, cadence, snapshot expiry는 관측 후 정해야 한다.
-2. **실제 signature population 부재.** migration corpus의 persisted signatures가 0이라
-   real-corpus end-to-end LSH/dedup latency와 file pruning 효율은 미측정이다. synthetic
-   10k/80k lookup을 그 대체 실측으로 오표기하지 않는다.
+1. **Small files / compaction — 측정됐고, 나쁘다 (2026-09-23 prod).** 더 이상
+   미측정 항목이 아니다. 문서 238건을 event 경로로 승격한 뒤 전 테이블 스냅샷
+   합계가 **13 → 1,254**로 늘었다. 최악은 `curated.mentions` — **행 589개에
+   스냅샷 476개**, 즉 행 하나 남짓마다 커밋 한 번이다. `claim_candidates` 247,
+   `dup_bands` 241 도 같은 양상이고, 반대로 `normalized.documents` 는 8,
+   `segments` 34 로 배치 쓰기가 제대로 되고 있다. 차이는 승격 파이프라인의
+   curated 쓰기가 행 단위 `persist_*` 호출이라는 점이다. compaction·snapshot
+   expiry 이전에 **쓰기 경로의 커밋 배치화**가 선행 과제다.
+2. **실제 signature population — 이제 존재한다.** 이 항목의 전제였던
+   "persisted signatures 0" 은 해소됐다: prod `dup_signatures` **238**,
+   `dup_bands` **1,144**. 다만 238문서 코퍼스라 file pruning 효율은 여전히
+   의미 있는 규모에서 미측정이고, synthetic 10k/80k lookup 을 실측으로
+   오표기하지 않는다는 원칙은 유지한다.
 3. **DuckDB UI parquet 스냅샷의 자동 갱신 부재.** K5 가 scheduler 를 collection
    dispatch+metrics 전용으로 좁히면서 기존 `_snapshot_parquet` 훅이 제거됐다.
    `parquet_snapshot` 모듈 자체는 Iceberg 읽기로 갱신돼 동작하지만 **프로덕션
@@ -182,6 +189,15 @@ Q6과 Q7은 이 범위에서 **완료**다. 이 판정은 1,000만 corpus 전체
    확장하기 전 OIDC+OpenFGA와 SASL/TLS+topic ACL을 별도 보안 ADR로 도입해야 한다.
 5. **단일 broker/catalog host.** Redpanda CE·Lakekeeper는 현재 단일 호스트다. HA나
    Kubernetes 승격은 availability/throughput SLO가 정당화할 때 별도 ADR 대상이다.
+6. **문서당 승격 비용이 폴 경계와 충돌한다 (2026-09-23 prod 실측).** 미승격 25건
+   승격에 **150.3s = 6.01s/doc** (183문서 코퍼스). 배치 시간은 문서 내용에 따라
+   크게 흔들린다 — 수정 후 10배치 관측에서 **최단 ~60s, 최장 ~800s** (동일한
+   25건 배치). `POLL_BATCH_SIZE=25` / `max.poll.interval.ms=900_000` 은 이
+   실측 위에 잡은 값이고 최장 배치는 이미 선언 간격의 **약 89%** 를 쓴다.
+   코퍼스가 자라면 dedup·블록 재조정이 코퍼스를 되읽으므로 이 여유는 줄어든다
+   — 상수 조정이 아니라 승격 비용 자체를 손봐야 하는 시점이 온다. 1,000만
+   스케일에서 6s/doc 는 성립하지 않는다(단순 투영 약 694일). **Q6/Q7 이후
+   재개하기로 한 1,000만 측정의 첫 실측 벽이다.**
 
 ## 9. 유지된 범위 밖 항목
 
