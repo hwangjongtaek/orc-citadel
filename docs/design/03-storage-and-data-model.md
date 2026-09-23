@@ -178,6 +178,30 @@ bytes)에서 streaming peak 0.54GB로 바뀌었다. 압축비는 source별 zstd
 `golden_pairs`, `golden_entity_pairs`, `golden_lineage_pairs`,
 `promotion_baselines`, `extraction_records`.
 
+> **구현 (curated 쓰기 배치화, 2026-09-23):** curated 영속은 행마다
+> `table.append` 를 호출했다 — Iceberg 스냅샷이 행 수만큼 생긴다. 2026-09-23 prod
+> 실측: 문서 238건 승격에 전 테이블 스냅샷 합계 **13 → 1,254**, 최악은
+> `mentions` 의 **행 589 / 스냅샷 476**. 같은 승격에서 `normalized.documents` 는
+> 238행에 스냅샷 8이었다 — 차이는 batch append 여부뿐이다.
+>
+> `CuratedZone.batched_writes()` 가 행을 식별자로 모았다가 테이블당 최대 2커밋
+> (insert-if-absent / replace)으로 내린다. 배치 안의 읽기는 해당 테이블만 먼저
+> 내려 정합을 지키므로 배치 내 중복 탐지·블록 판정 동작은 그대로다. 예외로
+> 빠져나가면 버퍼를 버린다 — 승격은 멱등이고 offset 도 커밋되지 않아 재배달이
+> 다시 만든다.
+>
+> **동일 입력 실측(로컬 SQLite catalog·file warehouse, 25문서 승격):** curated
+> 스냅샷 총계 **702 → 35**, `mentions` **250 → 1**, `claim_candidates` 250 → 3,
+> `extraction_records`·`assertions`·`member_of` 각 50 → 1. 벽시계는 **76.4s →
+> 1.9s**. 남는 것은 `dup_signatures` **25 → 25** — 문서마다 밴드 후보를 되읽어야
+> 해서 배치가 문서 경계에서 끊긴다(행당이 아니라 문서당 1커밋). prod REST
+> catalog·MinIO 에서의 값은 **배포 전까지 미측정**이다 — 로컬 수치를 prod 수치로
+> 옮겨 적지 않는다.
+>
+> 전량 재빌드(`rebuild_zones.build_curated`)는 **배치화하지 않았다.** 코퍼스 전량을
+> 한 버퍼에 담게 되어 스냅샷 폭증을 메모리 폭증으로 바꾸는 거래이기 때문이다 —
+> 승격 경로(배치 25건 상한)와 달리 경계가 없다.
+
 **`evidence_candidates` runtime table은 없다.** Evidence ontology object를 이유로
 구현되지 않은 table을 있다고 기록하지 않는다. 현행 evidence/provenance material은
 promoted claim, assertion, authoritative edge, extraction record와 source span

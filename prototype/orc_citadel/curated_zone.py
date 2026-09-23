@@ -1,6 +1,7 @@
 """Curated-zone Iceberg tables and public persistence/query behavior."""
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import pathlib
@@ -222,6 +223,8 @@ class CuratedZone:
         self._catalog = self._handle.catalog
         self._read_only = read_only
         self._lock = threading.RLock()
+        # 배치 쓰기 버퍼: {table: {identifier tuple: (row, replace)}}. None = 즉시 커밋.
+        self._pending: dict[str, dict[tuple, tuple[dict, bool]]] | None = None
 
     def initialize(self) -> None:
         self._catalog.create_namespace_if_not_exists(_NAMESPACE)
@@ -266,8 +269,72 @@ class CuratedZone:
     def _table(self, name: str):
         return self._catalog.load_table(f"{_NAMESPACE}.{name}")
 
+    @contextlib.contextmanager
+    def batched_writes(self):
+        """Buffer row writes and commit each touched table once at the end.
+
+        행마다 `table.append` 를 호출하면 Iceberg 스냅샷이 행 수만큼 생긴다 —
+        2026-09-23 prod 에서 `curated.mentions` 는 **행 589개에 스냅샷 476개**였고
+        전 테이블 합계가 238문서 승격에 13 → 1,254 로 늘었다. 배치 안에서는 행을
+        식별자로 모았다가 테이블당 한 번만 커밋한다.
+
+        경계:
+        - 배치 안의 읽기는 정합을 유지한다 — 해당 테이블에 미커밋 행이 있으면
+          읽기 직전에 그 테이블만 먼저 내린다(`_rows`).
+        - 예외로 빠져나가면 **버퍼를 버린다**. 승격은 멱등이고 offset 도 커밋되지
+          않으므로 재배달이 전부 다시 만든다 — 반쪽 커밋을 남길 이유가 없다.
+        - 중첩은 바깥 배치가 소유한다 (안쪽에서 내리지 않는다).
+        """
+        if self._pending is not None:
+            yield self
+            return
+        self._pending = {}
+        try:
+            yield self
+        except BaseException:
+            self._pending = None
+            raise
+        pending, self._pending = self._pending, None
+        for name in list(pending):
+            self._commit_rows(name, pending[name])
+
+    def _commit_rows(self, name: str, rows: dict[tuple, tuple[dict, bool]]) -> None:
+        """한 테이블의 버퍼를 최대 2커밋으로 내린다 (insert-if-absent / replace)."""
+        table = self._table(name)
+        arrow_schema = table.schema().as_arrow()
+        inserts = [row for row, replace in rows.values() if not replace]
+        replaces = [row for row, replace in rows.values() if replace]
+        with self._lock:
+            if inserts:
+                table.upsert(pa.Table.from_pylist(inserts, schema=arrow_schema),
+                             when_matched_update_all=False,
+                             when_not_matched_insert_all=True)
+            if replaces:
+                table.upsert(pa.Table.from_pylist(replaces, schema=arrow_schema),
+                             when_matched_update_all=True,
+                             when_not_matched_insert_all=True)
+
+    def _flush_table(self, name: str) -> None:
+        """읽기 직전 해당 테이블만 내린다 — 배치 안 읽기 정합 (§3-3 비파괴 조회)."""
+        if self._pending:
+            rows = self._pending.pop(name, None)
+            if rows:
+                self._commit_rows(name, rows)
+
+    def _pending_row(self, name: str, key: str, value) -> dict | None:
+        """버퍼에서 미커밋 행을 찾는다 — `_update_one` 이 존을 되읽지 않게 한다."""
+        rows = (self._pending or {}).get(name)
+        if not rows:
+            return None
+        identifiers = _IDENTIFIERS[name]
+        if identifiers[0] == key and len(identifiers) == 1:
+            slot = rows.get((value,))
+            return slot[0] if slot else None
+        return next((row for row, _ in rows.values() if row.get(key) == value), None)
+
     def _rows(self, name: str, *, columns: tuple[str, ...] | None = None,
               row_filter=AlwaysTrue()) -> Iterator[dict]:
+        self._flush_table(name)
         selected = columns or _PUBLIC_COLUMNS[name]
         scan = self._table(name).scan(row_filter=row_filter, selected_fields=selected)
         for batch in scan.to_arrow_batch_reader():
@@ -279,6 +346,8 @@ class CuratedZone:
     def _put(self, name: str, row: dict, *, replace: bool = False) -> bool:
         if self._read_only:
             raise RuntimeError("curated Iceberg zone is read-only")
+        if self._pending is not None:
+            return self._buffer_row(name, row, replace=replace)
         table = self._table(name)
         with self._lock:
             filt = self._key_filter(name, row)
@@ -292,6 +361,20 @@ class CuratedZone:
             else:
                 table.append(arrow)
             return True
+
+    def _buffer_row(self, name: str, row: dict, *, replace: bool) -> bool:
+        """배치 버퍼에 행을 적재한다 — 존 조회 없이 식별자로만 판정.
+
+        존에 이미 있는지는 여기서 묻지 않는다. flush 의 upsert 가 insert-if-absent
+        (`when_matched_update_all=False`)로 같은 판정을 한 번에 내리기 때문이다.
+        """
+        key = tuple(row[column] for column in _IDENTIFIERS[name])
+        rows = self._pending.setdefault(name, {})
+        existing = rows.get(key)
+        if existing is not None and not replace:
+            return False
+        rows[key] = (row, replace or (existing[1] if existing else False))
+        return True
 
     def append_arrow(self, table_name: str, batch: pa.Table | pa.RecordBatch) -> None:
         table = self._table(table_name)
@@ -355,7 +438,11 @@ class CuratedZone:
         })
 
     def _update_one(self, name: str, key: str, value, **changes) -> None:
-        row = next(iter(self._rows(name, row_filter=EqualTo(key, value))), None)
+        # 배치 안에서 방금 쓴 행이면 버퍼에서 고친다 — 되읽으면 그 테이블이
+        # 통째로 내려가 배치화가 무의미해진다.
+        row = self._pending_row(name, key, value)
+        if row is None:
+            row = next(iter(self._rows(name, row_filter=EqualTo(key, value))), None)
         if row is None:
             return
         if name == "mentions":
@@ -412,6 +499,21 @@ class CuratedZone:
     def set_claim_canonical(self, claim_id: str, canonical_claim_id: str | None) -> None:
         self._update_one("claim_candidates", "claim_candidate_id", claim_id,
                          canonical_claim_id=canonical_claim_id)
+
+    def set_claims_canonical(self, assignments: dict[str, str | None]) -> None:
+        """Assign canonical ids for many claims with one corpus scan.
+
+        단건 경로는 claim 하나마다 존을 되읽는다 — 배치 안에서는 그 읽기가 버퍼를
+        강제로 내려 테이블당 커밋이 claim 수만큼 늘어난다. 캐노니컬 판정은 본래
+        블록 단위라 할당도 한 번에 내리는 것이 자연스럽다.
+        """
+        if not assignments:
+            return
+        rows = list(self._rows("claim_candidates",
+                               row_filter=In("claim_candidate_id", list(assignments))))
+        for row in rows:
+            row["canonical_claim_id"] = assignments[row["claim_candidate_id"]]
+            self._put("claim_candidates", row, replace=True)
 
     def persist_conflict(self, cc) -> None:
         self._put("conflict_candidates", {

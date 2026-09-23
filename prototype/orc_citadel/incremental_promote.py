@@ -239,15 +239,21 @@ def _promote_documents(data_dir, requested: list[str],
             metas.append(doc)
 
         normalized.persist_many(pending)
-        result = run_pipeline(metas, curated, dedup=False, reconcile=False)
-        totals = {
-            "new_docs": sum(doc_id not in promoted for doc_id in requested),
-            "mentions": result.mentions,
-            "claims": result.claims,
-            "promoted_claims": result.promoted_claims,
-            "clusters": _dedup_against_corpus(curated, normalized, texts),
-        }
-        _reconcile_against_corpus(curated, [m["doc_id"] for m in metas])
+        # 배치 하나를 커밋 수십~수백 개로 쪼개지 않는다 — curated 쓰기는 행마다
+        # Iceberg 스냅샷을 만들었고(2026-09-23 prod: mentions 행 589/스냅샷 476),
+        # 그 메타데이터 폭증은 compaction 을 나중에 얹어도 따라잡지 못한다.
+        # 배치 안의 읽기(밴드 후보·블록 조회)는 해당 테이블만 먼저 내려 정합을
+        # 유지한다 — 배치 내 중복 탐지 동작은 그대로다.
+        with curated.batched_writes():
+            result = run_pipeline(metas, curated, dedup=False, reconcile=False)
+            totals = {
+                "new_docs": sum(doc_id not in promoted for doc_id in requested),
+                "mentions": result.mentions,
+                "claims": result.claims,
+                "promoted_claims": result.promoted_claims,
+                "clusters": _dedup_against_corpus(curated, normalized, texts),
+            }
+            _reconcile_against_corpus(curated, [m["doc_id"] for m in metas])
         return dict(_EMPTY_SUMMARY) if promoted == set(requested) else totals
     finally:
         curated.close()
@@ -295,10 +301,14 @@ def _reconcile_against_corpus(curated: CuratedZone, doc_ids: list[str]) -> None:
     promoted = [_claim_from_row(r)
                 for r in curated.claims_in_blocks(block_list, status="promoted")]
     if promoted:
+        assignments: dict[str, str | None] = {}
         for cc in canonicalize_claims(promoted):
             curated.persist_canonical(cc)
             for claim_id in cc.member_claim_ids:
-                curated.set_claim_canonical(claim_id, cc.canonical_claim_id)
+                assignments[claim_id] = cc.canonical_claim_id
+        # claim 마다 존을 되읽으면 배치 버퍼가 그때마다 내려간다 — 블록 단위
+        # 판정이니 할당도 한 번에 내린다.
+        curated.set_claims_canonical(assignments)
     everything = [_claim_from_row(r) for r in curated.claims_in_blocks(block_list)]
     for conflict in find_conflict_candidates(everything):
         curated.persist_conflict(conflict)

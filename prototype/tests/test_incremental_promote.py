@@ -304,3 +304,50 @@ def test_canonicalizes_new_claim_with_previously_promoted_equivalent(workspace):
     assert len(promoted) >= 2, f"두 문서 모두 승격돼야 비교가 성립: {promoted}"
     assert any(len(c["member_claim_ids"]) >= 2 for c in canonicals), \
         f"이전 런의 동치 claim 과 묶이지 않았다: {canonicals}"
+
+
+def _snapshot_counts(data: pathlib.Path, names: tuple[str, ...]) -> dict[str, int]:
+    from orc_citadel.curated_zone import CuratedZone
+
+    curated = CuratedZone(data / "iceberg")
+    try:
+        return {name: len(list(curated._table(name).snapshots())) for name in names}
+    finally:
+        curated.close()
+
+
+def test_promotion_commits_per_batch_not_per_row(workspace):
+    """커밋 수는 배치 수에 비례해야지 행 수에 비례하면 안 된다.
+
+    2026-09-23 prod: 문서 238건 승격에 Iceberg 스냅샷 13 → 1,254, 최악은
+    `curated.mentions` 의 **행 589 / 스냅샷 476** — 행 하나 남짓마다 커밋 하나다.
+    메타데이터가 데이터만큼 빨리 자라면 compaction 을 나중에 얹어도 못 따라잡는다.
+
+    4배 큰 배치가 같은 커밋 수를 쓰는지로 판정한다 — 상한만 재면 코퍼스가 자랄 때
+    다시 새는 것을 못 잡는다.
+    """
+    names = ("mentions", "claim_candidates", "extraction_records")
+    raw, data = workspace
+
+    _seed(raw, ["a", "b"])
+    promote_incremental(raw, data)
+    small = _snapshot_counts(data, names)
+
+    _seed(raw, ["c", "d", "e", "f", "g", "h", "i", "j"])
+    promote_incremental(raw, data)
+    large = {name: count - small[name] for name, count in
+             _snapshot_counts(data, names).items()}
+
+    from orc_citadel.curated_zone import CuratedZone
+    curated = CuratedZone(data / "iceberg")
+    try:
+        rows = curated.counts()
+    finally:
+        curated.close()
+
+    assert rows["mentions"] > 10, "행이 없으면 스냅샷 수는 의미가 없다"
+    assert small["mentions"] == 1 and large["mentions"] == 1
+    # claim_candidates 는 배치 안에서 읽기가 끼어(블록 되읽기) 끊긴다 — 그래도
+    # 배치당 상수이고 배치 크기와 무관하다는 것이 계약이다.
+    assert large == small
+    assert all(count <= 3 for count in large.values()), large
