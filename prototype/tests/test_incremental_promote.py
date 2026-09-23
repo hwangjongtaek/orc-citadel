@@ -351,3 +351,74 @@ def test_promotion_commits_per_batch_not_per_row(workspace):
     # 배치당 상수이고 배치 크기와 무관하다는 것이 계약이다.
     assert large == small
     assert all(count <= 3 for count in large.values()), large
+
+
+_BODY = ("NVIDIA and AMD ship accelerators to hyperscale data centers while TSMC "
+         "fabricates the wafers and Samsung supplies the high bandwidth memory. "
+         "Packaging capacity at the advanced node remains the binding constraint "
+         "on quarterly allocation, and the foundry has signalled that substrate "
+         "yield will decide how much of the reserved capacity converts to shipped "
+         "product before the end of the contract period. ") * 3
+
+
+def _long_html(tag: str, body: str = _BODY) -> bytes:
+    return (f"<html><head><title>Supply Report {tag}</title>"
+            '<meta property="article:published_time" content="2026-08-01T14:00:00+00:00"/>'
+            f"</head><body><article><h1>Supply Report {tag}</h1>"
+            f"<p>{body}</p></article></body></html>").encode()
+
+
+def _seed_long(raw: pathlib.Path, docs: list[tuple[str, str]]) -> None:
+    store = RawShardStore(raw)
+    for tag, body in docs:
+        store.append("official-nvidia-news", f"https://e/{tag}", _long_html(tag, body), {})
+    store.flush()
+
+
+def test_dedup_writes_signatures_once_per_batch(workspace):
+    """서명·밴드도 배치당 커밋이어야 한다 — 문서당이 아니라.
+
+    배치화 직후 실측에서 `dup_signatures` 만 문서당 1커밋으로 남았다. 문서마다
+    밴드 후보를 되읽느라 배치가 문서 경계에서 끊겼기 때문이고, 그 되읽기가
+    배치 시간의 대부분을 먹고 있었다(코퍼스 175건에서 배치 43.6s 중 40.5s).
+    """
+    raw, data = workspace
+    _seed_long(raw, [(f"d{i}", _BODY + f" Document {i} closes the quarter.")
+                     for i in range(5)])
+
+    promote_incremental(raw, data)
+
+    snapshots = _snapshot_counts(data, ("dup_signatures", "dup_bands"))
+    curated = CuratedZone(data / "iceberg")
+    try:
+        assert len(curated.signatures()) == 5, "서명이 없으면 커밋 수는 의미가 없다"
+    finally:
+        curated.close()
+    assert snapshots == {"dup_signatures": 1, "dup_bands": 1}
+
+
+def test_near_duplicates_inside_one_batch_are_clustered(workspace):
+    """같은 배치 안의 근접 복제는 여전히 한 클러스터여야 한다.
+
+    쓰기를 배치 끝으로 미루면 뒤 문서가 앞 문서의 밴드를 존에서 못 본다 —
+    배치 내부 가시성은 코드가 따로 지켜야 하는 불변식이다.
+    """
+    raw, data = workspace
+    _seed_long(raw, [
+        ("orig", _BODY),
+        ("near", _BODY + " Ends."),
+        ("other", "Completely unrelated text about municipal bond auctions and "
+                  "the treasury refunding calendar repeated for length. " * 6),
+    ])
+
+    promote_incremental(raw, data)
+
+    curated = CuratedZone(data / "iceberg")
+    try:
+        clusters = curated.clusters()
+    finally:
+        curated.close()
+    # `member_doc_ids` 는 root 를 제외한 나머지다 — 클러스터 크기는 root + members.
+    grouped = [{c["root_doc_id"], *c["member_doc_ids"]} for c in clusters]
+    assert grouped, "배치 안의 근접 복제가 묶이지 않았다"
+    assert [len(members) for members in grouped] == [2], "무관한 문서까지 묶였다"

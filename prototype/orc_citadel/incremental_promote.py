@@ -322,21 +322,42 @@ def _dedup_against_corpus(curated: CuratedZone, normalized: NormalizedZone,
     전량 재빌드 경로와 같은 `_jaccard_est >= JACCARD_THRESHOLD` 다.
     """
     groups: list[list[str]] = []
+    # 배치 안에서 이미 처리한 문서는 **존이 아니라 메모리로** 본다. 존을 되읽으면
+    # 미커밋 서명을 내리느라 배치가 문서마다 끊기고(문서당 1커밋), 그 flush 가
+    # 배치 시간의 대부분을 먹는다 — 코퍼스 175건에서 배치 43.6s 중 40.5s 가
+    # 이 루프였다. 가시성은 그대로다: 문서 i 는 여전히 앞선 문서 0..i-1 을 본다.
+    seen_signatures: dict[str, list[int]] = {}
+    seen_bands: dict[tuple[int, str], list[str]] = {}
+    seen_hashes: dict[str, list[str]] = {}
+    pending_signatures: list[tuple[str, list[int], str]] = []
     for doc_id in sorted(texts):
         text = texts[doc_id]
         text_hash = hashlib.sha256(text.encode()).hexdigest()
         members = set(curated.docs_with_text_hash(text_hash))
+        members.update(seen_hashes.get(text_hash, ()))
         sig = _minhash(shingles(text)) if len(text) >= MIN_TEXT_CHARS else None
         if sig is not None:
+            keys = band_keys(sig)
             # 후보만 SQL 로 가져온다 — 코퍼스 전체 서명을 적재하지 않는다.
-            for other, other_sig in sorted(curated.band_candidates(band_keys(sig)).items()):
+            candidates = dict(curated.band_candidates(keys))
+            for band_idx, rows in keys:
+                for other in seen_bands.get((band_idx, repr(tuple(rows))), ()):
+                    candidates.setdefault(other, seen_signatures[other])
+            for other, other_sig in sorted(candidates.items()):
                 if other != doc_id and _jaccard_est(sig, other_sig) >= JACCARD_THRESHOLD:
                     members.add(other)
-        curated.persist_signature(doc_id, sig or [], text_hash=text_hash,
-                                  dedup_version=DEDUP_VERSION)
+            seen_signatures[doc_id] = sig
+            for band_idx, rows in keys:
+                seen_bands.setdefault((band_idx, repr(tuple(rows))), []).append(doc_id)
+        seen_hashes.setdefault(text_hash, []).append(doc_id)
+        pending_signatures.append((doc_id, sig or [], text_hash))
         members.discard(doc_id)
         if members:
             groups.append(sorted(members | {doc_id}))
+
+    for doc_id, signature, text_hash in pending_signatures:
+        curated.persist_signature(doc_id, signature, text_hash=text_hash,
+                                  dedup_version=DEDUP_VERSION)
 
     if not groups:
         return 0
