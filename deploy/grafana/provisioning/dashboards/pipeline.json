@@ -6,7 +6,7 @@
   "timezone": "browser",
   "editable": false,
   "schemaVersion": 40,
-  "version": 1,
+  "version": 2,
   "refresh": "5m",
   "time": {"from": "now-30d", "to": "now"},
   "panels": [
@@ -146,6 +146,52 @@
           "datasource": {"type": "postgres", "uid": "citadel-pg"},
           "format": "time_series",
           "rawSql": "SELECT recorded_at AS \"time\", sum(value) AS quarantined FROM pipeline_run_metrics WHERE metric = 'quarantined' AND $__timeFilter(recorded_at) GROUP BY 1 ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "stat",
+      "title": "승격 공백 — raw 에 있으나 존에 없는 문서",
+      "description": "nightly 수집 직전에 잴 미승격 문서 수. 0 이 정상이고 1 이상이면 전날 수집분이 하루가 지나도록 존에 올라오지 않았다는 뜻 — 승격 consumer 가 멈췄거나 문서가 격리됐다는 신호다. 2026-09-23 에 공백 55건이 이틀간 무경보로 지속됐다.",
+      "gridPos": {"h": 6, "w": 6, "x": 0, "y": 21},
+      "datasource": {"type": "postgres", "uid": "citadel-pg"},
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "red", "value": 1}
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "postgres", "uid": "citadel-pg"},
+          "format": "table",
+          "rawSql": "SELECT value AS \"미승격 문서\" FROM pipeline_run_metrics WHERE metric = 'promotion_gap' ORDER BY recorded_at DESC LIMIT 1"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "승격 공백 추이 (No data = 관측 실패 — 공백 0 이 아니다)",
+      "description": "관측 실패는 행을 남기지 않는다(§6.2 — 미관측을 0 으로 위장하지 않음). 끊긴 구간은 '공백 없음'이 아니라 '못 쉄음'이다.",
+      "gridPos": {"h": 6, "w": 18, "x": 6, "y": 21},
+      "datasource": {"type": "postgres", "uid": "citadel-pg"},
+      "fieldConfig": {"defaults": {"decimals": 0}, "overrides": []},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "postgres", "uid": "citadel-pg"},
+          "format": "time_series",
+          "rawSql": "SELECT recorded_at AS \"time\", value AS promotion_gap FROM pipeline_run_metrics WHERE metric = 'promotion_gap' AND $__timeFilter(recorded_at) ORDER BY 1"
         }
       ]
     }

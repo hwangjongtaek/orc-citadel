@@ -23,6 +23,25 @@ sys.path.insert(0, str(_REPO))
 import orc_citadel.collect_large as cl
 from orc_citadel.collect_large import SOURCES, _stored_urls
 from orc_citadel.event_stream import KafkaEventProducer
+from orc_citadel.promotion_gap import measure_promotion_gap
+
+
+def _observe_promotion_gap():
+    """수집 직전의 승격 공백 관측 — 비차단.
+
+    **비차단**: 관측 계층(Iceberg catalog) 장애가 수집 런을 실패시키면 안 된다
+    (§6.2). 실패는 정직하게 로그하고 `None` 을 돌려준다 — 미관측을 "공백 0" 으로
+    위장하지 않는다.
+
+    **수집 직전**인 이유: 이 시점의 공백은 전날 수집분이 하루가 지나도록 승격되지
+    않았다는 뜻이다. 수집 후에 재면 이번 런이 방금 발행한 이벤트의 정상적인 비동기
+    승격 지연과 구분되지 않는다.
+    """
+    try:
+        return measure_promotion_gap(cl.RAW, cl.RAW.parent)
+    except Exception as exc:
+        print(f"[gap] 관측 실패(비차단 — 런은 정상): {exc}", flush=True)
+        return None
 
 
 def main(slo_log=None, event_producer=None) -> dict:
@@ -32,6 +51,9 @@ def main(slo_log=None, event_producer=None) -> dict:
     부재 시 무기록(기존 동작 그대로, 선택 주입).
     """
     print("== nightly collect (RSS/sitemap 신규만) ==", flush=True)
+    gap = _observe_promotion_gap()
+    if gap is not None:
+        print(f"[gap] {'WARN ' if gap.behind else ''}{gap.describe()}", flush=True)
     total_new = 0
     sources: dict[str, dict] = {}
     if event_producer is None:
@@ -47,7 +69,10 @@ def main(slo_log=None, event_producer=None) -> dict:
                               "errors": c["errors"]}
         total_new += c["saved"]
     print(f"== nightly collect 완료: 신규 {total_new}건 ==", flush=True)
-    return {"total_new": total_new, "sources": sources}
+    summary = {"total_new": total_new, "sources": sources}
+    if gap is not None:
+        summary["promotion_gap"] = gap.gap
+    return summary
 
 
 if __name__ == "__main__":

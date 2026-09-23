@@ -151,6 +151,21 @@ def test_dashboard_covers_mandated_panels(dashboard: dict) -> None:
         assert marker in text, marker
 
 
+def test_dashboard_surfaces_the_promotion_gap(dashboard: dict) -> None:
+    """승격 공백은 붉게 떠야 한다 (2026-09-23 실측 결함 후속).
+
+    55건이 이틀간 존에 안 올라간 채 무경보였다. 로그 한 줄은 아무도 안 읽으므로
+    공백은 **임계가 걸린 패널**로 보여야 한다 — 0 초과면 즉시 빨강.
+    """
+    panels = [p for p in dashboard["panels"]
+              if any("promotion_gap" in t.get("rawSql", "")
+                     for t in p.get("targets", []))]
+    assert panels, "promotion_gap 을 보여주는 패널이 없다"
+    steps = panels[0]["fieldConfig"]["defaults"]["thresholds"]["steps"]
+    red = [s for s in steps if s["color"] == "red"]
+    assert red and red[0]["value"] == 1, "공백 1건부터 빨강이어야 한다"
+
+
 def test_dashboard_queries_only_no_inline_data(dashboard: dict) -> None:
     """관측 전용 — 스냅샷/하드코딩 데이터 금지, 전 타깃이 rawSql 쿼리."""
     assert not dashboard.get("snapshot")

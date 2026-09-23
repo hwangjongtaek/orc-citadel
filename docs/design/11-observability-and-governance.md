@@ -99,7 +99,7 @@ blueprint §14의 대시보드 목록을 지표 계약으로 확정한다.
 | # | 대시보드 | 핵심 지표 | 소스 | 대응 화면 |
 | --- | --- | --- | --- | --- |
 | D1 | Source 수집 상태 | source별 수집 성공률, freshness(마지막 성공 fetch 이후 경과), robots/license 위반 시도 | fetch 로그 | Watchtower |
-| D2 | Stage throughput·backlog | stage별 처리량(docs/s), 큐 backlog, 재실행율 | stage runner metric | Watchtower |
+| D2 | Stage throughput·backlog | stage별 처리량(docs/s), 큐 backlog, **승격 공백**(raw 내구화됐으나 존에 없는 문서 수), 재실행율 | stage runner metric, nightly run metric | Watchtower |
 | D3 | 모델 호출 | 모델별 호출량·토큰·비용·오류율·p95 지연 | LLM 게이트웨이(→ [07](./07-llm-and-agents.md)) | Watchtower |
 | D4 | Schema validation | validation 실패 유형별 건수(provenance 누락/predicate 미등록/reference 무결성/시간 정합) | S7 검증기(→ [02](./02-ontology.md) §4) | Watchtower |
 | D5 | Quarantine | quarantine 규모, 사유별 분포, 체류 시간(중앙값·p95), 승격·폐기율 | quarantine graph(→ [05](./05-resolution-and-extraction.md), [06](./06-graph-service.md)) | Hall of Witnesses |
@@ -111,6 +111,20 @@ blueprint §14의 대시보드 목록을 지표 계약으로 확정한다.
 - graph·curated zone mutation count는 durable read-only investigation 전후 불변이어야 한다.
 
 > **구현 (W3, 2026-09-10):** D8의 on-request viewer trace를 PostgreSQL-backed durable job으로 교체했다. `investigation_store.py`는 job/status/report와 `PLAN|RUN|SYNTHESIZE|AUDIT` trace를, `investigation_worker.py`는 독립 read-only DuckDB path를 소유한다. queue claim·RUN heartbeat lease·cancel request는 `FOR UPDATE SKIP LOCKED`와 claim token으로 감사 가능하게 제어한다.
+> **구현 (승격 공백 관측, 2026-09-23):** D2 의 backlog 지표에 `promotion_gap` 을
+> 추가했다. 계기는 실측 결함이다 — 배포된 nightly 에 승격 단계가 없어 **55건이
+> 이틀간 존에 오르지 않았는데 어떤 지표도 그것을 비추지 않았다.** 수집은 성공
+> 메트릭을 남기고 끝났고, 승격은 다른 프로세스의 일이었기 때문이다. 승격이
+> always-on consumer 로 옮겨간 뒤에도 그 프로세스가 멈추면 같은 침묵이 재현된다.
+> `promotion_gap.measure_promotion_gap` 이 raw 샤드와 `normalized.documents` 의
+> anti-join(on-disk, 코퍼스 크기 파이썬 집합 없음)으로 공백을 세고, nightly 는
+> **수집 직전**에 이를 재 `pipeline_run_metrics` 에 런 총계로 내린다 — 수집 후에
+> 재면 이번 런이 방금 발행한 이벤트의 정상적인 비동기 승격 지연과 섞인다.
+> 경계 두 가지는 보정하지 않는다 (§6.2): 파싱 불가로 격리된 문서는 영원히
+> 승격되지 않으므로 **상수 공백**으로 남고(같은 doc_id 가 매일 재등장하면 격리
+> 건이다), 관측 자체가 실패하면 행을 남기지 않는다 — 미관측은 "공백 0" 이 아니다.
+> Grafana 는 공백 1건부터 빨강인 stat 과 추이 패널을 노출한다.
+
 - 초기 구성은 PostgreSQL + Grafana, 확장 시 ClickHouse + Grafana (→ [01](./01-architecture.md) §5, 승격 트리거: 분석 쿼리 지연).
 
 > **구현 메모 (Phase 4 — ClickHouse 분석 승격, 2026-08-12):** `analytics_promotion.py` — 01 §5 분석·관측 계층의 **승격 트리거(분석 쿼리 지연)**를 봉인 (ClickHouse 미설치 — executor mock 주입, #14 mock/실측 격리와 동일). `measure_analytics_latency(queries, executor)` — 분석 쿼리 경로별 지연 분포 → `p95`(정렬 인덱스, neo4j_q4_harness 와 동일 결정법)·`avg·max·n_queries`. `evaluate_analytics_promotion(latency_stats)` — **`ANALYTICS_SLO_MS=200ms` p95 초과 시 `escalate_clickhouse=True`** (01 §5 승격 트리거 — Q4/Q6 게이트와 동일 성격, `classified="slo-gate"` CI 비차단 nightly 승격 평가). 미측정(None/p95 부재) → `escalate=False`·`classified="not-measured"` — honest-gap(§6.2: 미측정이 승격 불필요의 근거가 아님). `aggregate_metrics(rows, key_fn)` — **OLAP 집계**(ClickHouse 가 대체 승격하는 분석 부하의 실제 형태), `correlation_id`·`version_tuple` 로 drill-down(§2.2). read-only(불변식 §3-3)·결정적. **스키마·계약 변경 없음 → Spec 그대로(0.1.9).** TDD — `test_analytics_promotion` 신규 19개(p95·측정 결정성/executor·승격 트리거 경계/비차단·honest-gap·OLAP 집계·read-only·결정성) — 스위트 670→**689개 통과**(회귀 0). 다음: 100만 처리 시간·비용 공개 + SLO graph 반영(01·10, DoD ①②).
