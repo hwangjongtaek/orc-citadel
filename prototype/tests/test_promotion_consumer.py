@@ -10,6 +10,8 @@ from orc_citadel.incremental_promote import PromotionDataError
 from orc_citadel.promotion_consumer import (
     BATCH_SIZE,
     GROUP_ID,
+    MAX_POLL_INTERVAL_MS,
+    POLL_BATCH_SIZE,
     PromotionConsumer,
     consumer_config,
 )
@@ -24,6 +26,22 @@ def test_consumer_config_is_stable_manual_and_bounded() -> None:
     assert config["enable.auto.commit"] is False
     assert config["enable.auto.offset.store"] is False
     assert BATCH_SIZE == 1_000
+
+
+def test_poll_batch_fits_the_declared_poll_interval() -> None:
+    """A batch must finish well inside the poll interval or the broker evicts us.
+
+    2026-09-23 prod: one 237-document batch exceeded the librdkafka default
+    300_000ms, the client left the group, the follow-up commit raised
+    UNKNOWN_MEMBER_ID and the process died into a non-progressing restart loop.
+    """
+    config = consumer_config("redpanda:9092")
+
+    assert config["max.poll.interval.ms"] == MAX_POLL_INTERVAL_MS
+    assert POLL_BATCH_SIZE < BATCH_SIZE
+    # Budget per document at a full batch. Prod measured 6.01s/doc on 2026-09-23,
+    # so a 30s budget keeps ~5x margin as the corpus — and the cost — grows.
+    assert MAX_POLL_INTERVAL_MS / POLL_BATCH_SIZE >= 30_000
 
 
 
@@ -127,7 +145,7 @@ def test_successful_batch_promotes_referenced_ids_then_acks_s3_before_commit(tmp
 
     assert client.subscriptions == [[STAGE_TOPICS["S2"].primary,
                                      STAGE_TOPICS["S2"].retry]]
-    assert client.consume_args == (BATCH_SIZE, 0.25)
+    assert client.consume_args == (POLL_BATCH_SIZE, 0.25)
     assert processed == 2
     assert promotions == [(tmp_path / "raw", tmp_path / "data",
                            [("official-news", event.idempotency_key)] * 2)]
@@ -375,3 +393,61 @@ def test_oversized_and_deep_events_are_quarantined_small_then_committed(tmp_path
     assert all(len(event.idempotency_key) < 64
                for event, _ in producer.published)
     assert all(len(event.to_json()) < 1_024 for event, _ in producer.published)
+
+def test_commit_failure_is_survivable_and_the_batch_is_redelivered(tmp_path) -> None:
+    """A rebalance-time commit failure must not kill the worker.
+
+    At-least-once delivery plus idempotent promotion makes redelivery safe, so
+    the worker keeps polling and the uncommitted batch simply arrives again.
+    """
+    event = _raw_event("doc-" + "0" * 24)
+
+    class _EvictingClient(_ConsumerClient):
+        def __init__(self, messages):
+            super().__init__(messages)
+            self.commit_attempts = 0
+
+        def commit(self, *, message, asynchronous):
+            self.commit_attempts += 1
+            raise RuntimeError("Commit failed: Broker: Unknown member")
+
+    client = _EvictingClient([
+        _Message(event.to_json(), offset=7),
+        _Message(event.to_json(), offset=8),
+    ])
+    producer = _Producer()
+
+    def promote(raw_dir, data_dir, refs):
+        return {"new_docs": 1, "mentions": 0, "claims": 0,
+                "promoted_claims": 0, "clusters": 0}
+
+    worker = PromotionConsumer(
+        client, producer, raw_dir=tmp_path / "raw", data_dir=tmp_path / "data",
+        promote=promote,
+    )
+
+    assert worker.run_once() == 2
+    # The first failure ends the batch: every later commit fails the same way.
+    assert client.commit_attempts == 1
+    assert client.commits == []
+
+    client.messages = [_Message(event.to_json(), offset=7)]
+    assert worker.run_once() == 1
+
+
+def test_batch_progress_is_logged_for_diagnosis(tmp_path, capsys) -> None:
+    """The 2026-09-23 incident ran 20 minutes with an empty container log."""
+    event = _raw_event("doc-" + "1" * 24)
+    client = _ConsumerClient([_Message(event.to_json())])
+
+    def promote(raw_dir, data_dir, refs):
+        return {"new_docs": 1, "mentions": 2, "claims": 3,
+                "promoted_claims": 4, "clusters": 5}
+
+    PromotionConsumer(
+        client, _Producer(), raw_dir=tmp_path / "raw", data_dir=tmp_path / "data",
+        promote=promote,
+    ).run_once()
+
+    out = capsys.readouterr().out
+    assert "1" in out and "new_docs" in out

@@ -24,6 +24,20 @@ from .raw_shard import SOURCE_ID_PATTERN
 
 GROUP_ID = "orc-citadel-s2-promotion-v1"
 
+# Offsets commit only after a whole batch is promoted, so the batch is also the
+# unit the broker measures us by. 2026-09-23 prod: 237 documents in one batch
+# blew past the librdkafka default 300_000ms, the client left the group, the
+# follow-up commit raised UNKNOWN_MEMBER_ID and the process exited — restarting
+# straight into the same uncommitted batch, forever.
+#
+# Measured the same day on prod (25 unpromoted documents, 183-document corpus):
+# 150.3s, i.e. 6.01s per document — one 237-document batch needs ~24 minutes.
+# 25 documents leaves roughly 6x headroom inside the declared interval. Per-
+# document cost grows with corpus size (dedup and block reconcile both read the
+# corpus), so this pair is a measured ceiling for today's corpus, not a constant.
+POLL_BATCH_SIZE = 25
+MAX_POLL_INTERVAL_MS = 900_000
+
 _DOC_ID = re.compile(r"^doc-[0-9a-f]{24}$")
 
 
@@ -35,6 +49,7 @@ def consumer_config(brokers: str) -> dict:
         "enable.auto.commit": False,
         "enable.auto.offset.store": False,
         "auto.offset.reset": "earliest",
+        "max.poll.interval.ms": MAX_POLL_INTERVAL_MS,
     }
 
 
@@ -196,7 +211,7 @@ class PromotionConsumer:
         )
 
     def run_once(self, *, timeout: float = 1.0) -> int:
-        messages = self._consumer.consume(num_messages=BATCH_SIZE, timeout=timeout)
+        messages = self._consumer.consume(num_messages=POLL_BATCH_SIZE, timeout=timeout)
         if not messages:
             return 0
         valid = []
@@ -242,9 +257,19 @@ class PromotionConsumer:
                 break
             for _, envelope in pending:
                 self._producer.publish(_completion(envelope, summary))
+            print(f"[promote] batch={len(messages)} promoted={len(pending)} "
+                  f"{summary}", flush=True)
             break
         for message in messages:
-            self._consumer.commit(message=message, asynchronous=False)
+            try:
+                self._consumer.commit(message=message, asynchronous=False)
+            except Exception as exc:
+                # Eviction invalidates every commit in this batch, not just one.
+                # Redelivery is safe: promotion is idempotent, so let the group
+                # rebalance and hand the batch back rather than dying on it.
+                print(f"[promote] commit failed, batch will be redelivered: {exc}",
+                      flush=True)
+                break
         return len(messages)
 
     def run_forever(self, *, timeout: float = 1.0) -> None:
