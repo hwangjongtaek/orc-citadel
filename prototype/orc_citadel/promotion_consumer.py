@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import os
 import re
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
@@ -214,6 +215,7 @@ class PromotionConsumer:
         messages = self._consumer.consume(num_messages=POLL_BATCH_SIZE, timeout=timeout)
         if not messages:
             return 0
+        started = time.monotonic()
         valid = []
         for message in messages:
             if message.error() is not None:
@@ -257,8 +259,13 @@ class PromotionConsumer:
                 break
             for _, envelope in pending:
                 self._producer.publish(_completion(envelope, summary))
+            # 문서당 비용은 이 파이프라인의 스케일 한계를 정하는 수치다
+            # (2026-09-23 prod 실측 6.01s/doc → 1,000만 단순 투영 약 694일).
+            # 배치마다 로그에 남겨 다음 측정이 사람 손을 타지 않게 한다.
+            elapsed = time.monotonic() - started
+            per_doc = elapsed / len(pending) if pending else 0.0
             print(f"[promote] batch={len(messages)} promoted={len(pending)} "
-                  f"{summary}", flush=True)
+                  f"elapsed={elapsed:.1f}s s/doc={per_doc:.2f} {summary}", flush=True)
             break
         for message in messages:
             try:

@@ -451,3 +451,6 @@ def test_batch_progress_is_logged_for_diagnosis(tmp_path, capsys) -> None:
 
     out = capsys.readouterr().out
     assert "1" in out and "new_docs" in out
+    # 배치 소요는 승격 비용(2026-09-23 실측 6.01s/doc)의 유일한 상시 관측점이다 —
+    # 다음 nightly 의 문서당 비용을 사람이 따로 재러 가지 않아도 로그에 남는다.
+    assert "elapsed=" in out and "s/doc=" in out
