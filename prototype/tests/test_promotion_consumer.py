@@ -10,6 +10,7 @@ from orc_citadel.incremental_promote import PromotionDataError
 from orc_citadel.promotion_consumer import (
     BATCH_SIZE,
     GROUP_ID,
+    LINGER_SECONDS,
     MAX_POLL_INTERVAL_MS,
     POLL_BATCH_SIZE,
     PromotionConsumer,
@@ -90,19 +91,28 @@ class _Message:
 
 
 class _ConsumerClient:
-    def __init__(self, messages, order=None):
+    def __init__(self, messages, order=None, per_poll=None):
         self.messages = messages
         self.order = order if order is not None else []
         self.subscriptions = []
         self.commits = []
         self.consume_args = None
+        self.first_consume_args = None
+        self.consume_calls = 0
+        # None = 한 번에 전부 (기존 동작). 정수면 폴 1회당 그만큼만 낸다 —
+        # prod 에서 수집이 문서를 하나씩 발행하는 실제 형태.
+        self.per_poll = per_poll
 
     def subscribe(self, topics):
         self.subscriptions.append(topics)
 
     def consume(self, *, num_messages, timeout):
         self.consume_args = (num_messages, timeout)
-        messages, self.messages = self.messages, []
+        if self.first_consume_args is None:
+            self.first_consume_args = self.consume_args
+        self.consume_calls += 1
+        take = len(self.messages) if self.per_poll is None else self.per_poll
+        messages, self.messages = self.messages[:take], self.messages[take:]
         return messages
 
     def commit(self, *, message, asynchronous):
@@ -145,7 +155,8 @@ def test_successful_batch_promotes_referenced_ids_then_acks_s3_before_commit(tmp
 
     assert client.subscriptions == [[STAGE_TOPICS["S2"].primary,
                                      STAGE_TOPICS["S2"].retry]]
-    assert client.consume_args == (POLL_BATCH_SIZE, 0.25)
+    # 첫 폴은 배치 상한만큼 요청한다 — 이후 폴은 남은 자리만 채운다(linger).
+    assert client.first_consume_args == (POLL_BATCH_SIZE, 0.25)
     assert processed == 2
     assert promotions == [(tmp_path / "raw", tmp_path / "data",
                            [("official-news", event.idempotency_key)] * 2)]
@@ -454,3 +465,74 @@ def test_batch_progress_is_logged_for_diagnosis(tmp_path, capsys) -> None:
     # 배치 소요는 승격 비용(2026-09-23 실측 6.01s/doc)의 유일한 상시 관측점이다 —
     # 다음 nightly 의 문서당 비용을 사람이 따로 재러 가지 않아도 로그에 남는다.
     assert "elapsed=" in out and "s/doc=" in out
+
+
+# ---- 배치 적재(linger) — 커밋 상각의 단위는 배치이고, 배치는 저절로 크지 않는다 ----
+
+def test_batch_accumulates_across_polls_instead_of_promoting_one_document(
+        tmp_path, monkeypatch) -> None:
+    """수집은 문서를 하나씩 발행한다 — 1초 폴에 잡히는 것만 묶으면 배치가 1이다.
+
+    2026-09-25 prod 실측: 신규 49문서에 curated 스냅샷 **+383**(문서당 약 7.8).
+    같은 25문서를 로컬에서 1배치로 승격하면 11스냅샷·1.2s, 25배치로 쪼개면
+    **251스냅샷·13.8s** — 배치화의 이득은 전적으로 배치 크기에 비례하고, prod 의
+    유효 배치 크기는 1이었다. 그래서 폴을 여러 번 걸쳐 모은다.
+    """
+    events = [_Message(_raw_event(f"doc-{i:024d}").to_json(), offset=i)
+              for i in range(5)]
+    client = _ConsumerClient(events, per_poll=1)
+    promotions = []
+
+    def promote(raw_dir, data_dir, refs):
+        promotions.append(len(refs))
+        return {"new_docs": len(refs)}
+
+    consumer = PromotionConsumer(
+        client, _Producer(), raw_dir=tmp_path / "raw", data_dir=tmp_path / "data",
+        promote=promote)
+
+    processed = consumer.run_once()
+
+    # 5번의 폴이 5개의 승격이 아니라 1개의 승격으로 합쳐져야 한다.
+    assert processed == 5
+    assert promotions == [5]
+    assert client.consume_calls >= 5
+
+
+def test_idle_poll_returns_without_lingering(tmp_path) -> None:
+    """메시지가 없으면 기다리지 않는다 — 유휴 루프가 linger 만큼 굳으면 안 된다."""
+    client = _ConsumerClient([], per_poll=1)
+
+    consumer = PromotionConsumer(
+        client, _Producer(), raw_dir=tmp_path / "raw", data_dir=tmp_path / "data",
+        promote=lambda *_a: {})
+
+    assert consumer.run_once() == 0
+    assert client.consume_calls == 1
+
+
+def test_linger_gives_up_at_the_deadline(tmp_path) -> None:
+    """적재는 무한정이 아니다 — 폴 간격 예산 안에서 끝나야 한다."""
+    import itertools
+    ticks = itertools.chain([0.0, 0.0, 1.0], itertools.repeat(LINGER_SECONDS + 1.0))
+    client = _ConsumerClient(
+        [_Message(_raw_event(f"doc-{i:024d}").to_json(), offset=i) for i in range(5)],
+        per_poll=1)
+    promotions = []
+
+    consumer = PromotionConsumer(
+        client, _Producer(), raw_dir=tmp_path / "raw", data_dir=tmp_path / "data",
+        promote=lambda raw, data, refs: promotions.append(len(refs)) or {},
+        clock=lambda: next(ticks))
+
+    processed = consumer.run_once()
+
+    assert processed < 5, "deadline 을 넘겼는데도 배치를 계속 채웠다"
+    assert promotions == [processed]
+    # 남은 메시지는 다음 폴에서 이어받는다 — 버려지지 않는다.
+    assert len(client.messages) == 5 - processed
+
+
+def test_linger_fits_inside_the_declared_poll_interval() -> None:
+    """linger + 처리 시간이 poll 간격을 넘으면 그룹에서 축출된다."""
+    assert LINGER_SECONDS * 1000 < MAX_POLL_INTERVAL_MS / 2

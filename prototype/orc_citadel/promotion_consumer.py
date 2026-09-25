@@ -39,6 +39,24 @@ GROUP_ID = "orc-citadel-s2-promotion-v1"
 POLL_BATCH_SIZE = 25
 MAX_POLL_INTERVAL_MS = 900_000
 
+# 배치를 채우려고 기다리는 시간. 커밋 상각의 단위는 배치인데 **배치는 저절로
+# 커지지 않는다** — 수집은 문서를 하나씩 발행하고(HTTP 레이트리밋으로 분 단위에
+# 흩뿌려진다) 1초 폴에 잡히는 건 보통 1건이라, 유효 배치 크기가 1이 된다.
+#
+# 2026-09-25 prod 실측: 신규 49문서에 curated 스냅샷 **+383**(문서당 약 7.8).
+# 같은 25문서를 로컬에서 1배치로 승격하면 11스냅샷·1.2s, 5배치면 51·2.2s,
+# 25배치면 **251스냅샷·13.8s** — 배치화의 이득은 전적으로 배치 크기에 비례한다.
+#
+# 대가는 승격 지연이다. 승격은 비동기이고 소비자가 없으므로 분 단위 지연은
+# 값을 치를 만하다. 상한은 폴 간격 예산 — linger + 처리가 MAX_POLL_INTERVAL_MS
+# 안에 끝나야 그룹에서 축출되지 않는다(테스트가 절반 이하로 고정한다).
+LINGER_SECONDS = 60.0
+
+# 스트림이 조용해지면 더 기다리지 않는다. 폴 1회는 `timeout` 만큼(기본 1s) 블록
+# 하므로 연속 빈 폴 수는 곧 침묵의 길이다 — 수집이 끝났는데 linger 끝까지 굳어
+# 있으면 승격만 늦어진다. arXiv 는 1 req/3s 라 문서 사이 빈 폴 몇 번은 정상이다.
+QUIET_POLLS = 30
+
 _DOC_ID = re.compile(r"^doc-[0-9a-f]{24}$")
 
 
@@ -186,6 +204,7 @@ class PromotionConsumer:
         data_dir: str | Path,
         promote: Callable = promote_raw_refs,
         max_retries: int = 3,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._consumer = consumer
         self._producer = producer
@@ -193,6 +212,7 @@ class PromotionConsumer:
         self._data_dir = Path(data_dir)
         self._promote = promote
         self._max_retries = max_retries
+        self._clock = clock
         topics = STAGE_TOPICS["S2"]
         consumer.subscribe([topics.primary, topics.retry])
 
@@ -211,11 +231,31 @@ class PromotionConsumer:
             max_retries=int(os.environ.get("PROMOTION_MAX_RETRIES", "3")),
         )
 
-    def run_once(self, *, timeout: float = 1.0) -> int:
+    def _fill_batch(self, timeout: float) -> list:
+        """Poll until the batch is full or the linger deadline passes.
+
+        `consume` 자체가 poll 이므로 여기서 도는 동안에도 그룹 하트비트는 살아
+        있다 — 잠들지 않고 계속 폴한다. 메시지가 하나도 없으면 기다리지 않는다
+        (유휴 루프가 linger 만큼 굳으면 안 된다).
+        """
         messages = self._consumer.consume(num_messages=POLL_BATCH_SIZE, timeout=timeout)
         if not messages:
+            return []
+        deadline = self._clock() + LINGER_SECONDS
+        quiet = 0
+        while (len(messages) < POLL_BATCH_SIZE and quiet < QUIET_POLLS
+               and self._clock() < deadline):
+            more = self._consumer.consume(
+                num_messages=POLL_BATCH_SIZE - len(messages), timeout=timeout)
+            messages.extend(more)
+            quiet = 0 if more else quiet + 1
+        return messages
+
+    def run_once(self, *, timeout: float = 1.0) -> int:
+        messages = self._fill_batch(timeout)
+        if not messages:
             return 0
-        started = time.monotonic()
+        started = self._clock()
         valid = []
         for message in messages:
             if message.error() is not None:
@@ -262,7 +302,7 @@ class PromotionConsumer:
             # 문서당 비용은 이 파이프라인의 스케일 한계를 정하는 수치다
             # (2026-09-23 prod 실측 6.01s/doc → 1,000만 단순 투영 약 694일).
             # 배치마다 로그에 남겨 다음 측정이 사람 손을 타지 않게 한다.
-            elapsed = time.monotonic() - started
+            elapsed = self._clock() - started
             per_doc = elapsed / len(pending) if pending else 0.0
             print(f"[promote] batch={len(messages)} promoted={len(pending)} "
                   f"elapsed={elapsed:.1f}s s/doc={per_doc:.2f} {summary}", flush=True)
