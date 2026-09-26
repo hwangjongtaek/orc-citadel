@@ -55,6 +55,34 @@ services:
         condition: service_healthy
     restart: "no"
 
+  # Iceberg 존 초기화 one-shot. cutover 배포에서 이 단계가 없어 viewer 가
+  # NoSuchTableError 로 죽었다 — 사람이 이관 스크립트를 손으로 돌려 메웠고,
+  # 그대로 두면 다음 호스트에서 재현된다. **이관은 여기 걸지 않는다**: 이관은
+  # 살아 있는 존을 legacy 로 덮어쓴다(2026-09-26 prod 실측 mentions 656 vs 494).
+  # 배포가 보장하는 것은 "테이블이 있다" 까지다.
+  zone-init:
+    profiles: ["prototype"]
+    build: ./prototype
+    command: ["python", "-m", "orc_citadel.zone_bootstrap"]
+    environment:
+      ORC_DATA_DIR: /app/data
+      ICEBERG_CATALOG_URI: ${ICEBERG_CATALOG_URI:?}
+      ICEBERG_WAREHOUSE: ${ICEBERG_WAREHOUSE:?}
+      LAKEKEEPER_WAREHOUSE_BUCKET: ${LAKEKEEPER_WAREHOUSE_BUCKET:?}
+      ICEBERG_S3_ENDPOINT: ${ICEBERG_S3_ENDPOINT:?}
+      ICEBERG_S3_REGION: ${ICEBERG_S3_REGION:?}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?}
+    depends_on:
+      minio:
+        condition: service_healthy
+      lakekeeper:
+        condition: service_healthy
+    volumes:
+      - ./prototype/data:/app/data
+      - ./deploy/lakekeeper:/app/deploy/lakekeeper:ro
+    restart: "no"
+
   minio:
     image: quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z
     command: server /data --console-address ":9001"
@@ -203,6 +231,8 @@ services:
         condition: service_healthy
       redpanda-init:
         condition: service_completed_successfully
+      zone-init:
+        condition: service_completed_successfully
     volumes:
       - ./prototype/data:/app/data
       - ./deploy/lakekeeper:/app/deploy/lakekeeper:ro
@@ -235,6 +265,8 @@ services:
       lakekeeper:
         condition: service_healthy
       redpanda-init:
+        condition: service_completed_successfully
+      zone-init:
         condition: service_completed_successfully
     volumes:
       - ./prototype/data:/app/data

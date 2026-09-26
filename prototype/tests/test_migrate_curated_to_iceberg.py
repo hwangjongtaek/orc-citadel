@@ -79,9 +79,11 @@ def test_migration_streams_all_tables_and_is_idempotent(tmp_path):
     assert reopened.snapshot_token() == token
 
     # Any partial/mismatched target is rebuilt rather than mixed with source rows.
+    # 비어 있지 않은 대상을 지우는 것은 이제 **명시적 선언**이 필요하다 —
+    # 배포·운영 중 실행이 말없이 존을 덮어쓰는 것을 막는다(zone_bootstrap).
     reopened.persist_extraction_record("bogus", "doc-bogus")
     reopened.close()
-    rebuilt = migrate(source, target)
+    rebuilt = migrate(source, target, force=True)
     assert rebuilt["visible"] == first["source"]
     final = CuratedZone(target)
     final.initialize()
@@ -101,7 +103,7 @@ def test_migration_rebuilds_equal_count_target_with_divergent_content(tmp_path):
     zone._put("entities", row, replace=True)
     zone.close()
 
-    migrate(source, target)
+    migrate(source, target, force=True)
 
     rebuilt = CuratedZone(target)
     rebuilt.initialize()

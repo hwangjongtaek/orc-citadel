@@ -20,7 +20,8 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from orc_citadel.iceberg_zone import NormalizedZone  # noqa: E402
+from orc_citadel.iceberg_zone import NormalizedZone
+from orc_citadel.zone_bootstrap import guard_divergent_target  # noqa: E402
 
 BATCH_SIZE = 10_000
 
@@ -163,7 +164,8 @@ def _import_query(conn, zone: NormalizedZone, table_name: str, sql: str) -> int:
     return total
 
 
-def migrate(source: pathlib.Path | str, target: pathlib.Path | str) -> dict[str, int]:
+def migrate(source: pathlib.Path | str, target: pathlib.Path | str, *,
+            force: bool = False) -> dict[str, int]:
     source = pathlib.Path(source)
     if not source.is_file():
         raise FileNotFoundError(source)
@@ -180,6 +182,7 @@ def migrate(source: pathlib.Path | str, target: pathlib.Path | str) -> dict[str,
                     "source_segments": source_counts["segments"],
                     "visible_documents": visible["documents"],
                     "visible_segments": visible["segments"]}
+        guard_divergent_target(visible, force=force, kind="normalized")
         if visible["documents"] or visible["segments"]:
             zone.reset()
         documents = _import_query(conn, zone, "documents", _DOCUMENTS_SQL)
@@ -206,8 +209,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=pathlib.Path, default=ROOT / "data" / "oc.duckdb")
     parser.add_argument("--target", type=pathlib.Path, default=ROOT / "data" / "iceberg")
+    parser.add_argument(
+        "--force", action="store_true",
+        help="대상 존이 비어 있지 않아도 삭제 후 legacy 로 덮어쓴다 "
+             "(운영 중 시스템에서는 cutover 이후 산출이 사라진다)")
     args = parser.parse_args()
-    print(migrate(args.source, args.target))
+    print(migrate(args.source, args.target, force=args.force))
     return 0
 
 

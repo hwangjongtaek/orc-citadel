@@ -269,6 +269,21 @@ Q6과 Q7은 이 범위에서 **완료**다. 이 판정은 1,000만 corpus 전체
    것은 첫 문서가 나머지보다 `QUIET_POLLS`(≈30s) 이상 앞서 도착했다는 뜻이며,
    관측 1회로 상수를 조정하지 않는다.
 
+7. **데이터 이관은 배포 안으로 넣지 않았다 — 넣으면 파괴다 (2026-09-26 해소).**
+   cutover 때 "이관이 배포 밖 수동 단계라 다음 호스트에서 재현된다" 고 남겼던
+   항목이다. 원인을 다시 보니 죽은 이유는 이관 부재가 아니라 **테이블 부재**였다
+   (`NoSuchTableError`). 그래서 배포가 보장하는 것은 초기화까지로 정하고
+   `zone-init` one-shot(`orc_citadel.zone_bootstrap`)을 넣었다 — 멱등이고 legacy
+   와 무관하며 viewer·promotion-consumer 가 완료를 기다린다.
+   **이관을 배포에 걸었다면 다음 배포에서 prod 데이터가 사라졌다**:
+   `migrate()` 는 대상이 원본과 어긋나고 비어 있지 않으면 `zone.reset()` 으로
+   전량 삭제 후 legacy 로 덮어쓰는데, 실측 격차가 curated `mentions` **656 vs
+   legacy 494**, `dup_signatures` **303 vs 183** 이었다(legacy DuckDB 는 롤백
+   경로로 의도적으로 남긴 파일이다). 같은 함정이 **수동 실행에도** 살아 있었으므로
+   이관은 이제 비어 있지 않은 대상을 만나면 거부하고 무엇이 지워질지 알린다 —
+   되돌리는 것이 정말 의도면 `--force` 로 명시한다. 절차는
+   [deployment §3.7](./operating/deployment.md).
+
 ## 9. 유지된 범위 밖 항목
 
 - 라이선스가 확인된 신규 source 등록과 1,000만 수집 재개. D1은 G2 이후 scope 확대를

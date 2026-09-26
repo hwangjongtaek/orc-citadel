@@ -121,7 +121,8 @@ def test_migration_rebuilds_stale_target_without_duplicates(tmp_path):
     ])
     conn.close()
 
-    result = migrate(source, target)
+    # 대상이 비어 있지 않으므로 재빌드는 명시적 선언을 요구한다 (zone_bootstrap).
+    result = migrate(source, target, force=True)
 
     assert result["visible_documents"] == result["visible_segments"] == 2
 
@@ -135,7 +136,7 @@ def test_migration_rebuilds_equal_count_target_with_divergent_content(tmp_path):
     conn.execute("UPDATE segments SET text = 'edit' WHERE segment_id = 'doc-1#p0.s0'")
     conn.close()
 
-    migrate(source, target)
+    migrate(source, target, force=True)
 
     zone = NormalizedZone(target)
     try:

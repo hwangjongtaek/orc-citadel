@@ -24,6 +24,14 @@ services:
     profiles: !reset []
     image: orc-citadel-prototype:latest
 
+  # base 와 같은 one-shot 이지만 data 는 named volume 을 본다 (아래 promotion-consumer 와 동일).
+  zone-init:
+    profiles: !reset []
+    image: orc-citadel-prototype:latest
+    volumes: !override
+      - proddata:/app/data
+      - ./deploy/lakekeeper:/app/deploy/lakekeeper:ro
+
   minio:
     ports: !override []
 

@@ -12,7 +12,8 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from orc_citadel.curated_zone import CuratedZone  # noqa: E402
+from orc_citadel.curated_zone import CuratedZone
+from orc_citadel.zone_bootstrap import guard_divergent_target  # noqa: E402
 from orc_citadel.dedup import DEDUP_VERSION  # noqa: E402
 from scripts.migrate_normalized_to_iceberg import _digest_batches, _query_digest  # noqa: E402
 
@@ -125,7 +126,8 @@ def _import_table(conn, zone: CuratedZone, name: str) -> int:
     return total
 
 
-def migrate(source: pathlib.Path | str, target: pathlib.Path | str) -> dict[str, dict[str, int]]:
+def migrate(source: pathlib.Path | str, target: pathlib.Path | str, *,
+            force: bool = False) -> dict[str, dict[str, int]]:
     """Rebuild a partial/divergent target, or no-op when all table contents match."""
     source = pathlib.Path(source)
     if not source.is_file():
@@ -141,6 +143,7 @@ def migrate(source: pathlib.Path | str, target: pathlib.Path | str) -> dict[str,
         if (visible == source_counts == streamed_visible
                 and visible_digests == source_digests):
             return {"source": source_counts, "visible": visible}
+        guard_divergent_target(visible, force=force, kind="curated")
         if any(visible.values()):
             zone.reset()
         imported = {
@@ -167,8 +170,12 @@ def main() -> int:
     parser.add_argument("--source", type=pathlib.Path,
                         default=ROOT / "data" / "curated.duckdb")
     parser.add_argument("--target", type=pathlib.Path, default=ROOT / "data" / "iceberg")
+    parser.add_argument(
+        "--force", action="store_true",
+        help="대상 존이 비어 있지 않아도 삭제 후 legacy 로 덮어쓴다 "
+             "(운영 중 시스템에서는 cutover 이후 산출이 사라진다)")
     args = parser.parse_args()
-    print(migrate(args.source, args.target))
+    print(migrate(args.source, args.target, force=args.force))
     return 0
 
 

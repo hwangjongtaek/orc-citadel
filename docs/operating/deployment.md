@@ -45,6 +45,8 @@
 | investigation-worker | PostgreSQL 조사 queue 소비·read-only evidence 실행 | 없음 | §3.2.1 |
 | grafana | 파이프라인 모니터링 | `127.0.0.1:3000` | §3.4 |
 | duckdb-ui | 존 브라우징 사이드카 | `127.0.0.1:4213` | [data-browsing.md](data-browsing.md) |
+| redpanda-init | S1–S7 토픽 28개 멱등 생성 후 종료 | 없음 | one-shot |
+| zone-init | Iceberg 존 테이블 멱등 생성 후 종료 | 없음 | one-shot · §3.7 |
 
 ## 2. 최초 1회 프로비저닝 (원격 호스트)
 
@@ -142,6 +144,34 @@ pgrep -f scheduler_runner.py   # 로컬 잔존 프로세스 없어야 함
 코드는 rsync 미러이므로 `git checkout <직전 release 커밋>` 후 `deploy.sh` 재실행.
 이전 이미지 태그는 남아있지 않으므로(`:latest` 단일 태그), 코드만 롤백하면 다음
 `up -d`에서 해당 코드로 재빌드된다. 데이터는 volume 보존이라 코드 롤백과 무관.
+
+### 3.7 존 초기화와 데이터 이관은 다른 일이다
+
+`zone-init` one-shot 이 배포마다 **Iceberg 테이블을 멱등 생성**하고, viewer·
+promotion-consumer 는 그 완료를 기다린 뒤 뜬다. cutover 배포에서 이 단계가 없어
+viewer 가 빈 카탈로그를 읽고 `NoSuchTableError` 로 죽었던 것이 계기다. 신규
+호스트든 운영 중 호스트든 결과가 같고, legacy DuckDB 유무와 무관하다.
+
+**legacy → Iceberg 이관은 배포에 걸려 있지 않다. 일부러 그렇다.**
+`migrate_normalized_to_iceberg`·`migrate_curated_to_iceberg` 는 대상 존이 원본과
+어긋나고 비어 있지 않으면 **전량 삭제 후 legacy 로 덮어쓴다** — 일회성 cutover
+도구로서는 맞는 동작이지만 운영 중 시스템에서는 데이터 파괴다. 실제 격차
+(2026-09-26 prod): curated `mentions` **656 vs legacy 494**, `dup_signatures`
+**303 vs 183** — 배포마다 이관이 돌았다면 cutover 이후 이벤트 경로 산출이 통째로
+사라졌다. legacy `*.duckdb` 는 롤백 경로로 의도적으로 남겨둔 파일이라 "원본이
+있으면 이관" 규칙도 성립하지 않는다.
+
+그래서 이관은 비어 있지 않은 대상을 만나면 **거부하고 무엇이 지워질지 알린다.**
+정말로 legacy 를 정본으로 되돌리는 경우에만 `--force` 를 명시한다:
+
+```bash
+# 신규 호스트 cutover (대상이 비어 있음 — force 불필요)
+docker compose -p orc-citadel -f docker-compose.yml -f docker-compose.prod.yml \
+  --profile prototype --env-file .env run --rm prototype \
+  python scripts/migrate_normalized_to_iceberg.py
+# 운영 중 존을 legacy 로 되돌린다 (cutover 이후 산출이 사라진다 — 거의 항상 오답)
+#   ... migrate_curated_to_iceberg.py --force
+```
 
 ## 4. nightly 운영 확인
 
