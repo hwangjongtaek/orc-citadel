@@ -6,7 +6,7 @@
   "timezone": "browser",
   "editable": false,
   "schemaVersion": 40,
-  "version": 2,
+  "version": 3,
   "refresh": "5m",
   "time": {"from": "now-30d", "to": "now"},
   "panels": [
@@ -192,6 +192,40 @@
           "datasource": {"type": "postgres", "uid": "citadel-pg"},
           "format": "time_series",
           "rawSql": "SELECT recorded_at AS \"time\", value AS promotion_gap FROM pipeline_run_metrics WHERE metric = 'promotion_gap' AND $__timeFilter(recorded_at) ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "승격 비용 — 문서당 초 (배치마다)",
+      "description": "promotion-consumer 가 배치를 끝낼 때마다 남기는 문서당 소요. 2026-09-23 prod 실측 6.01s/doc 이 1,000만 스케일의 첫 벍이었다(단순 투영 약 694일). 컨테이너 로그는 배포마다 사라지므로 추이를 볼 수 있는 유일한 곳이다. 배치가 작을수록 배치당 고정비용이 문서당으로 전가되어 값이 뛰다 — batch 크기와 같이 읽을 것.",
+      "gridPos": {"h": 6, "w": 12, "x": 0, "y": 27},
+      "datasource": {"type": "postgres", "uid": "citadel-pg"},
+      "fieldConfig": {"defaults": {"unit": "s", "decimals": 2}, "overrides": []},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "postgres", "uid": "citadel-pg"},
+          "format": "time_series",
+          "rawSql": "SELECT recorded_at AS \"time\", value AS seconds_per_doc FROM pipeline_run_metrics WHERE metric = 'seconds_per_doc' AND $__timeFilter(recorded_at) ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "승격 배치 크기 — 배치당 문서 수",
+      "description": "커밋 상각의 단위는 배치다. 2026-09-25 실측에서 prod 유효 배치 크기가 1 이었고(수집이 문서를 하나씩 발행한다), 그 때문에 문서당 스냅샷이 7.8 이었다. LINGER_SECONDS 도입 후 추이를 여기서 확인한다.",
+      "gridPos": {"h": 6, "w": 12, "x": 12, "y": 27},
+      "datasource": {"type": "postgres", "uid": "citadel-pg"},
+      "fieldConfig": {"defaults": {"decimals": 0}, "overrides": []},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "postgres", "uid": "citadel-pg"},
+          "format": "time_series",
+          "rawSql": "SELECT recorded_at AS \"time\", value AS documents FROM pipeline_run_metrics WHERE metric = 'documents' AND job_id = 'promotion_batch' AND $__timeFilter(recorded_at) ORDER BY 1"
         }
       ]
     }

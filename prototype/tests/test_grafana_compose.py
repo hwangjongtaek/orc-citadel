@@ -166,6 +166,17 @@ def test_dashboard_surfaces_the_promotion_gap(dashboard: dict) -> None:
     assert red and red[0]["value"] == 1, "공백 1건부터 빨강이어야 한다"
 
 
+def test_dashboard_surfaces_promotion_cost(dashboard: dict) -> None:
+    """문서당 승격 비용은 스케일 한계를 정하는 수치다 (2026-09-23 실측 6.01s/doc).
+
+    컨테이너 로그는 배포마다 사라지므로 추이를 볼 곳이 대시보드여야 한다.
+    """
+    panels = [p for p in dashboard["panels"]
+              if any("seconds_per_doc" in t.get("rawSql", "")
+                     for t in p.get("targets", []))]
+    assert panels, "seconds_per_doc 를 보여주는 패널이 없다"
+
+
 def test_dashboard_queries_only_no_inline_data(dashboard: dict) -> None:
     """관측 전용 — 스냅샷/하드코딩 데이터 금지, 전 타깃이 rawSql 쿼리."""
     assert not dashboard.get("snapshot")

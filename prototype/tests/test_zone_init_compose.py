@@ -63,3 +63,11 @@ def test_prod_overlay_points_zone_init_at_the_named_data_volume(prod: str) -> No
     assert "profiles: !reset []" in service, "prod 에서는 프로필 없이 항상 뜬다"
     assert "proddata:/app/data" in service
     assert "orc-citadel-prototype:latest" in service, "prod 는 태그 이미지를 재사용한다"
+
+
+def test_promotion_consumer_can_reach_the_metrics_store(compose: str) -> None:
+    """승격 비용 메트릭은 postgres 로 간다 — 자격증명이 없으면 조용히 실패한다."""
+    service = _service(compose, "promotion-consumer")
+    for key in ("POSTGRES_HOST", "POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB"):
+        assert key in service, f"{key} 없이는 flush 가 매번 실패한다"
+    assert re.search(r"postgres:\n\s+condition: service_healthy", service)

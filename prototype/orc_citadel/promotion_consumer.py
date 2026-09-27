@@ -60,6 +60,13 @@ QUIET_POLLS = 30
 _DOC_ID = re.compile(r"^doc-[0-9a-f]{24}$")
 
 
+def _flush_batch_metrics(job_id: str, metrics: list) -> object:
+    """기본 flush 경로 — postgres `pipeline_run_metrics` (design 11 §2.2)."""
+    from .run_metrics import safe_flush
+
+    return safe_flush(job_id=job_id, metrics=metrics)
+
+
 def consumer_config(brokers: str) -> dict:
     """Return the stable manual-offset consumer configuration."""
     return {
@@ -205,6 +212,7 @@ class PromotionConsumer:
         promote: Callable = promote_raw_refs,
         max_retries: int = 3,
         clock: Callable[[], float] = time.monotonic,
+        flush_metrics: Callable[[str, list], object] | None = None,
     ) -> None:
         self._consumer = consumer
         self._producer = producer
@@ -213,6 +221,7 @@ class PromotionConsumer:
         self._promote = promote
         self._max_retries = max_retries
         self._clock = clock
+        self._flush_metrics = flush_metrics or _flush_batch_metrics
         topics = STAGE_TOPICS["S2"]
         consumer.subscribe([topics.primary, topics.retry])
 
@@ -250,6 +259,23 @@ class PromotionConsumer:
             messages.extend(more)
             quiet = 0 if more else quiet + 1
         return messages
+
+    def _record_cost(self, documents: int, elapsed: float, per_doc: float) -> None:
+        """배치 비용을 run metric 으로 내린다 — **비차단**.
+
+        관측 계층 장애가 승격을 실패시키면 안 된다 (§6.2, nightly flush 와 동일
+        규약). 실패는 정직하게 로그하고 넘어간다 — offset 커밋까지 막으면 관측
+        때문에 배치가 무한 재배달된다.
+        """
+        try:
+            self._flush_metrics("promotion_batch", [
+                {"metric": "documents", "value": float(documents), "labels": {}},
+                {"metric": "batch_elapsed_s", "value": float(elapsed), "labels": {}},
+                {"metric": "seconds_per_doc", "value": float(per_doc), "labels": {}},
+            ])
+        except Exception as exc:
+            print(f"[promote] 비용 메트릭 flush 실패(비차단 — 승격은 정상): {exc}",
+                  flush=True)
 
     def run_once(self, *, timeout: float = 1.0) -> int:
         messages = self._fill_batch(timeout)
@@ -306,6 +332,10 @@ class PromotionConsumer:
             per_doc = elapsed / len(pending) if pending else 0.0
             print(f"[promote] batch={len(messages)} promoted={len(pending)} "
                   f"elapsed={elapsed:.1f}s s/doc={per_doc:.2f} {summary}", flush=True)
+            # 로그는 배포가 컨테이너를 재생성하면 사라진다 (2026-09-27 실측: 그날
+            # 배치 수를 스냅샷 델타로 추론해야 했다). 같은 수치를 promotion_gap 과
+            # 같은 경로로 영속해 대시보드가 추이를 볼 수 있게 한다.
+            self._record_cost(len(pending), elapsed, per_doc)
             break
         for message in messages:
             try:

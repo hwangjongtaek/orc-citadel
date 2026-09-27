@@ -536,3 +536,61 @@ def test_linger_gives_up_at_the_deadline(tmp_path) -> None:
 def test_linger_fits_inside_the_declared_poll_interval() -> None:
     """linger + 처리 시간이 poll 간격을 넘으면 그룹에서 축출된다."""
     assert LINGER_SECONDS * 1000 < MAX_POLL_INTERVAL_MS / 2
+
+
+# ---- 승격 비용의 영속 관측 ----
+
+def test_batch_cost_is_flushed_as_a_run_metric(tmp_path) -> None:
+    """배치 로그는 배포가 컨테이너를 재생성하면 사라진다.
+
+    2026-09-27 실측에서 실제로 그렇게 됐다 — 그날 nightly 의 배치 수를 직접
+    관측하지 못하고 스냅샷 델타로 추론해야 했다. 문서당 비용은 이 파이프라인의
+    스케일 한계를 정하는 수치이므로 `promotion_gap` 과 같은 경로로 영속한다.
+    """
+    flushed = []
+    client = _ConsumerClient([_Message(_raw_event(f"doc-{i:024d}").to_json(), offset=i)
+                              for i in range(3)])
+
+    class _Clock:
+        now = 0.0
+
+        def __call__(self):
+            return self.now
+
+    clock = _Clock()
+
+    def promote(raw_dir, data_dir, refs):
+        clock.now += 2.4          # 승격이 실제로 소비한 시간 — 이것만 재야 한다.
+        return {"new_docs": len(refs)}
+
+    consumer = PromotionConsumer(
+        client, _Producer(), raw_dir=tmp_path / "raw", data_dir=tmp_path / "data",
+        promote=promote, clock=clock,
+        flush_metrics=lambda job_id, metrics: flushed.append((job_id, metrics)))
+
+    consumer.run_once()
+
+    assert len(flushed) == 1
+    job_id, metrics = flushed[0]
+    assert job_id == "promotion_batch"
+    values = {row["metric"]: row["value"] for row in metrics}
+    assert values["documents"] == 3.0
+    assert values["batch_elapsed_s"] == pytest.approx(2.4)
+    assert values["seconds_per_doc"] == pytest.approx(0.8)
+
+
+def test_metric_flush_failure_never_breaks_promotion(tmp_path, capsys) -> None:
+    """관측 계층 장애가 승격을 실패시키면 안 된다 (§6.2 — nightly flush 와 동일)."""
+    client = _ConsumerClient([_Message(_raw_event().to_json(), offset=0)])
+
+    def exploding(job_id, metrics):
+        raise RuntimeError("postgres unreachable")
+
+    consumer = PromotionConsumer(
+        client, _Producer(), raw_dir=tmp_path / "raw", data_dir=tmp_path / "data",
+        promote=lambda raw, data, refs: {"new_docs": 1},
+        flush_metrics=exploding)
+
+    assert consumer.run_once() == 1
+    assert client.commits, "메트릭 실패가 offset 커밋까지 막았다"
+    assert "postgres unreachable" in capsys.readouterr().out

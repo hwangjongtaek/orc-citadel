@@ -252,6 +252,13 @@ services:
     command: ["python", "-m", "orc_citadel.promotion_consumer"]
     environment:
       KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+      # 배치 비용(문서당 초)을 pipeline_run_metrics 로 내린다 — 컨테이너 로그는
+      # 배포마다 사라지므로 추이를 볼 유일한 영속 경로다. flush 는 비차단이지만
+      # 자격증명이 없으면 매 배치 조용히 실패하므로 여기서 준다.
+      POSTGRES_HOST: postgres
+      POSTGRES_USER: ${POSTGRES_USER:?}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+      POSTGRES_DB: ${POSTGRES_DB:?}
       ICEBERG_CATALOG_URI: ${ICEBERG_CATALOG_URI:?}
       ICEBERG_WAREHOUSE: ${ICEBERG_WAREHOUSE:?}
       LAKEKEEPER_WAREHOUSE_BUCKET: ${LAKEKEEPER_WAREHOUSE_BUCKET:?}
@@ -268,6 +275,8 @@ services:
         condition: service_completed_successfully
       zone-init:
         condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
     volumes:
       - ./prototype/data:/app/data
       - ./deploy/lakekeeper:/app/deploy/lakekeeper:ro

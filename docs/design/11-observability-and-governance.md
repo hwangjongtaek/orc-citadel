@@ -125,6 +125,17 @@ blueprint §14의 대시보드 목록을 지표 계약으로 확정한다.
 > 건이다), 관측 자체가 실패하면 행을 남기지 않는다 — 미관측은 "공백 0" 이 아니다.
 > Grafana 는 공백 1건부터 빨강인 stat 과 추이 패널을 노출한다.
 
+> **구현 (승격 비용 영속 관측, 2026-09-27):** D2 에 `promotion_batch` 런 메트릭을
+> 추가했다 — 배치마다 `documents`·`batch_elapsed_s`·`seconds_per_doc`. 계기는 관측
+> 공백이다: 문서당 비용은 이 파이프라인의 스케일 한계를 정하는 수치인데(2026-09-23
+> prod 6.01s/doc → 1,000만 단순 투영 약 694일) 유일한 관측점이 컨테이너 로그였고,
+> **배포가 컨테이너를 재생성하면서 사라졌다.** 2026-09-27 에 실제로 그날 배치 수를
+> 직접 보지 못하고 스냅샷 델타로 추론해야 했다. flush 는 nightly 와 같은 비차단
+> 규약이다 — 실패는 로그로 남기고 승격은 계속한다(관측이 offset 커밋을 막으면
+> 배치가 무한 재배달된다). `documents` 를 함께 남기는 이유는 **배치 크기가
+> 문서당 비용을 지배**하기 때문이다: 배치당 고정비가 작은 배치에서 문서당으로
+> 전가되므로 두 수치는 같이 읽어야 한다.
+
 - 초기 구성은 PostgreSQL + Grafana, 확장 시 ClickHouse + Grafana (→ [01](./01-architecture.md) §5, 승격 트리거: 분석 쿼리 지연).
 
 > **구현 메모 (Phase 4 — ClickHouse 분석 승격, 2026-08-12):** `analytics_promotion.py` — 01 §5 분석·관측 계층의 **승격 트리거(분석 쿼리 지연)**를 봉인 (ClickHouse 미설치 — executor mock 주입, #14 mock/실측 격리와 동일). `measure_analytics_latency(queries, executor)` — 분석 쿼리 경로별 지연 분포 → `p95`(정렬 인덱스, neo4j_q4_harness 와 동일 결정법)·`avg·max·n_queries`. `evaluate_analytics_promotion(latency_stats)` — **`ANALYTICS_SLO_MS=200ms` p95 초과 시 `escalate_clickhouse=True`** (01 §5 승격 트리거 — Q4/Q6 게이트와 동일 성격, `classified="slo-gate"` CI 비차단 nightly 승격 평가). 미측정(None/p95 부재) → `escalate=False`·`classified="not-measured"` — honest-gap(§6.2: 미측정이 승격 불필요의 근거가 아님). `aggregate_metrics(rows, key_fn)` — **OLAP 집계**(ClickHouse 가 대체 승격하는 분석 부하의 실제 형태), `correlation_id`·`version_tuple` 로 drill-down(§2.2). read-only(불변식 §3-3)·결정적. **스키마·계약 변경 없음 → Spec 그대로(0.1.9).** TDD — `test_analytics_promotion` 신규 19개(p95·측정 결정성/executor·승격 트리거 경계/비차단·honest-gap·OLAP 집계·read-only·결정성) — 스위트 670→**689개 통과**(회귀 0). 다음: 100만 처리 시간·비용 공개 + SLO graph 반영(01·10, DoD ①②).
