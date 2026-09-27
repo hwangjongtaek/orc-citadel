@@ -128,6 +128,18 @@ blueprint §8.1의 우선순위 **API › RSS › sitemap › download**를 sour
 | **`bulk_archive`** | 아카이브 URL | zip/tar(.gz) 대량 배포 — FR 월 zip·govinfo bulk·CFPB·Companies House | **`{archive_url}#{entry_path}`** (아카이브 URL 하나로는 내부를 구분할 수 없다) |
 | **`index_stream`** | config dict | URL 을 열거하는 인덱스 — EDGAR `master.idx`·govinfo 컬렉션 | 인덱스가 가리키는 문서 URL |
 
+> **구현 (arXiv 윈도우 커버리지, 2026-09-27):** 위 줄이 "같은 부류" 라 부른 원래
+> 결함 두 건을 수정했다. ① `_arxiv_date_windows` 의 상한이 `"202608112359"` 로
+> 하드코딩돼 있어 **그 이후 제출된 논문에 언제 실행해도 도달하지 못했다** —
+> 달력이 넘어갈수록 구멍이 커지는데 신호가 없었다. 이제 기본 상한은 실행 시점의
+> 달이고, `start`/`today` 주입 시 여전히 순수·결정적이다. ② 월이 예산이나 10k 벽에
+> 걸려 **소진되지 않은 채** 다음 윈도우로 넘어가던 경로에 같은
+> `S1/result_cap_reached`(terminal)를 배선해 어느 달이 잘렸는지 남긴다. 다만
+> `paged_api` 와 달리 **중단하지 않는다** — paged_api 는 커서가 하나라 상한에 걸리면
+> 이어갈 수 없지만 arXiv 윈도우는 서로 독립이므로, 한 달이 잘렸다고 나머지 달을
+> 버리는 것이 오히려 더 큰 누락이다. `collect_arxiv` 반환에 `capped`(소진되지 않은
+> 채 떠난 윈도우 수)가 추가돼 런 메트릭으로도 드러난다.
+
 - **`paged_api`는 결과 상한에서 조용히 끊지 않는다** — `max_offset` 도달 시 `ResultCapReached`를 올리고, collection boundary가 이를 `S1/result_cap_reached`, `status=terminal` event로 acked publish한다. 기존 `_arxiv_date_windows`가 10k 초과 월을 말없이 누락하던 결함과 같은 부류를 event-stream 경계에서도 구조적으로 막는다.
 - **`index_stream` 은 인덱스 중복 수록분을 한 번만 받는다** — EDGAR `master.idx` 는 공동제출을 CIK 별로 중복 수록한다 (2025Q4 중복률 29.7%, Form 4 는 52% — 2026-09-20 도메인 조사 실측).
 - `bulk_archive` 는 compressed response를 1 MiB chunk로 disk spool에 직접 내려받고

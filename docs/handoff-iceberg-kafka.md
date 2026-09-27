@@ -288,9 +288,12 @@ Q6과 Q7은 이 범위에서 **완료**다. 이 판정은 1,000만 corpus 전체
 
 - 라이선스가 확인된 신규 source 등록과 1,000만 수집 재개. D1은 G2 이후 scope 확대를
   승인하지 않았다.
-- `_arxiv_date_windows`의 10k 초과 월 누락 및 `start="202608112359"` hard-coded 상한.
-  `ResultCapReached` event 계약은 조용한 누락을 드러내지만 이 별도 결함 자체를
-  수정했다는 뜻은 아니다.
+- ~~`_arxiv_date_windows`의 10k 초과 월 누락 및 `start="202608112359"` hard-coded
+  상한.~~ **2026-09-27 해소** — 상한은 달력을 따라가고(주입 시 여전히 순수·결정적),
+  소진되지 않은 채 떠나는 윈도우는 같은 `result_cap_reached`(S1 terminal) 계약으로
+  어느 달이 잘렸는지 남긴다. `collect_paged_api` 와 달리 **중단하지 않는다** —
+  arXiv 윈도우는 서로 독립이므로 한 달이 잘렸다고 나머지를 버릴 이유가 없다.
+  `collect_arxiv` 반환에 `capped`(소진되지 않은 채 떠난 윈도우 수)가 추가됐다.
 - PostgreSQL `graph_mutations`를 Iceberg로 전환하는 작업. replay 정확성 때문에 별도다.
 - investigation job의 PostgreSQL SKIP LOCKED queue. 감사·claim/lease 계약을 그대로
   유지한다.

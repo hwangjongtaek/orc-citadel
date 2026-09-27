@@ -26,7 +26,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-from orc_citadel.connectors.arxiv import ArxivConnector
+from orc_citadel.connectors.arxiv import ARXIV_SEARCH, ArxivConnector
 from orc_citadel.connectors.rss import RssConnector
 from orc_citadel.fetch import FetchFramework
 from orc_citadel.raw_shard import RawShardStore
@@ -298,7 +298,7 @@ def collect_arxiv(total: int, windows: int = 0, slo_log=None, minio_store=None,
     (Spec 1.0.0, 관측은 선택 주입).
     """
     conn = ArxivConnector()
-    counts = {"saved": 0, "skipped": 0, "errors": 0}
+    counts = {"saved": 0, "skipped": 0, "errors": 0, "capped": 0}
     fetched = 0
     source_id = "research-arxiv-cs-cr"
     _reconcile_and_publish(
@@ -315,6 +315,9 @@ def collect_arxiv(total: int, windows: int = 0, slo_log=None, minio_store=None,
             break
         # 윈도우 별 최대 할당 ← 총량을 windows 로 균등 배분.
         per_window = max(1, total // max(1, len(dateranges)))
+        # 이 윈도우가 **소진돼서** 끝났는지, 예산·10k 벽에 걸려 끊겼는지 구분한다.
+        # 끊긴 채 다음 달로 넘어가는 것이 조용한 누락의 정체였다.
+        exhausted = False
         for start, mx in arxiv_windows(per_window, windows=1, page=ARXIV_PAGE):
             if fetched >= total:
                 break
@@ -333,6 +336,7 @@ def collect_arxiv(total: int, windows: int = 0, slo_log=None, minio_store=None,
                 # 페이지 호출이 10회뿐이므로 재시도 인내를 넉넉히 (호출당 최대 ~22분).
                 entries = _with_retry(_page, retries=8)
             except _EmptyPage:
+                exhausted = True
                 break  # 재시도에도 빈 페이지 → 이 윈도우 결과 소진.
             except urllib.error.HTTPError:
                 # 지속 5xx(재시도 소진) 페이지는 전체 실행을 죽이지 않고 errors 로 집계 후
@@ -358,21 +362,41 @@ def collect_arxiv(total: int, windows: int = 0, slo_log=None, minio_store=None,
                 if slo_log is not None:
                     # SLO-05 — fetch 성공한 문서는 저장 성공으로 기록 (시도 1건).
                     slo_log.record_collect("research-arxiv-cs-cr", url, ok=True)
+        if not exhausted and fetched < total:
+            # 월이 안 끝났는데 이 윈도우를 떠난다 — 남은 건수를 우리는 모른다.
+            # `collect_paged_api` 와 달리 **중단하지 않는다**: arXiv 윈도우는 서로
+            # 독립이라 한 달이 잘렸다고 나머지 달을 버릴 이유가 없다. 대신 같은
+            # S1 terminal 계약으로 어느 달이 잘렸는지 남긴다.
+            counts["capped"] += 1
+            _publish_result_cap(
+                {"url": ARXIV_SEARCH, "max_offset": per_window,
+                 "fetch_window": f"{dw[0]}/{dw[1]}" if dw is not None else "full"},
+                source_id, fetched, event_producer)
     _reconcile_and_publish(
         source_id, event_producer, minio_store=minio_store, flush=True)
     return counts
 
 
-def _arxiv_date_windows(n_windows: int, start: str = "202608112359") -> list[tuple[str, str]]:
+def _arxiv_date_windows(n_windows: int, start: str | None = None,
+                        today=None) -> list[tuple[str, str]]:
     """과거로 후진하는 `n_windows` 월 구간 (start,end) — 각 <~10k 결과를 목표.
 
-    결정적 순수 함수 (역사 기반, 2026-08 현재). arXiv 는 start>~10k 에서 500(S50)이므로
-    **미수집 과거 연대부터** 윈도우를 흝는다 — 각 윈도우가 단일 쿼리의 10k 한계를
-    넘지 않게 1개월 구간으로 잡아, 재실행마다 새 (미수집) 연대를 채워 100k 로 누적한다.
-    반환은 최신→과거 순 [("YYYYMMDDHHMM","YYYYMMDDHHMM"), ...] (start 인자는 상한).
+    arXiv 는 start>~10k 에서 500(S50)이므로 **미수집 과거 연대부터** 윈도우를 훑는다 —
+    각 윈도우가 단일 쿼리의 10k 한계를 넘지 않게 1개월 구간으로 잡아, 재실행마다 새
+    (미수집) 연대를 채워 누적한다. 반환은 최신→과거 순
+    [("YYYYMMDDHHMM","YYYYMMDDHHMM"), ...].
+
+    **상한은 달력을 따라간다.** 이전 구현은 `start="202608112359"` 로 고정돼 있어
+    2026-08-11 이후 제출된 논문에 **언제 실행해도 도달하지 못했다** — 달력이 넘어갈수록
+    구멍이 커지는데 아무 신호가 없었다. 기본값은 `today` 의 달이고, 재현이 필요한
+    호출자는 `start`(또는 테스트에서 `today`)로 고정할 수 있다 — 주입하면 여전히
+    순수·결정적이다.
     """
     import datetime as _dt
 
+    if start is None:
+        current = today or _dt.date.today()
+        start = current.strftime("%Y%m%d") + "2359"
     y, m = int(start[:4]), int(start[4:6])
     out: list[tuple[str, str]] = []
     for _ in range(n_windows):

@@ -308,7 +308,8 @@ def test_collect_arxiv_empty_page_retries_then_stops(monkeypatch):
     monkeypatch.setattr(cl.time, "sleep", lambda s: None)
 
     counts = cl.collect_arxiv(total=200)  # 2 페이지 계획이지만 첫 페이지에서 소진
-    assert counts == {"saved": 0, "skipped": 0, "errors": 0}
+    # `capped` = 소진되지 않은 채 떠난 윈도우 수 — 여기선 실제로 소진됐으므로 0.
+    assert counts == {"saved": 0, "skipped": 0, "errors": 0, "capped": 0}
     assert calls["n"] >= 2  # 빈 페이지를 최소 한 번은 재시도했다
 
 
