@@ -32,6 +32,14 @@ services:
       - proddata:/app/data
       - ./deploy/lakekeeper:/app/deploy/lakekeeper:ro
 
+  parquet-snapshot:
+    profiles: !reset []
+    image: orc-citadel-prototype:latest
+    volumes: !override
+      - proddata:/app/data
+      - ./deploy/lakekeeper:/app/deploy/lakekeeper:ro
+    restart: unless-stopped
+
   minio:
     ports: !override []
 

@@ -187,7 +187,17 @@ Q6과 Q7은 이 범위에서 **완료**다. 이 판정은 1,000만 corpus 전체
    `dup_bands` **1,144**. 다만 238문서 코퍼스라 file pruning 효율은 여전히
    의미 있는 규모에서 미측정이고, synthetic 10k/80k lookup 을 실측으로
    오표기하지 않는다는 원칙은 유지한다.
-3. **DuckDB UI parquet 스냅샷의 자동 갱신 부재.** K5 가 scheduler 를 collection
+3. **~~DuckDB UI parquet 스냅샷의 자동 갱신 부재.~~ 2026-09-27 해소 — 갱신 주체는
+   전용 프로세스다.** 결정 대상으로 남겨뒀던 "갱신 주체를 promotion consumer 로
+   둘지 별도 one-shot 으로 둘지" 의 답은 **둘 다 아니다**: consumer 에 붙이면
+   서빙 계층 export 가 승격 hot path 에 끼어들어 배치마다 돌고, scheduler 로
+   되살리면 ADR-107 경계를 다시 연다. `parquet-snapshot` 상주 서비스가
+   `watch_zones` 로 소유한다 — 기본 15분 주기이되 **존 스냅샷 토큰이 그대로면
+   내보내지 않는다**(전량 export 는 코퍼스와 함께 비싸다). export 실패는 루프를
+   죽이지 않는다 — 죽으면 UI 가 영영 멈춘다. `NormalizedZone.snapshot_token()`
+   을 `CuratedZone` 과 대칭으로 추가했다. 아래는 해소 전 기록이다.
+
+   **(해소 전)** K5 가 scheduler 를 collection
    dispatch+metrics 전용으로 좁히면서 기존 `_snapshot_parquet` 훅이 제거됐다.
    `parquet_snapshot` 모듈 자체는 Iceberg 읽기로 갱신돼 동작하지만 **프로덕션
    호출자가 0개**이고(테스트만 참조), `docker-compose.yml` 의 duckdb-ui 는 여전히

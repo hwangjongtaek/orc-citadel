@@ -189,6 +189,34 @@ services:
   # - parquet 스냅샷(16a)만 read-only 로 읽는다 — 존 `.duckdb` 는 마운트하지
   #   않는다 (뷰어 RW 잠금 함정 원천 차단, §3-3 존 오염 불가).
   # - 접근 정책은 viewer·grafana 와 동일: loopback + SSH 터널.
+  # DuckDB UI 가 읽는 parquet 스냅샷의 갱신 주체. ADR-107 이 scheduler 를
+  # collection dispatch+metrics 전용으로 좁히면서 기존 훅이 사라졌고, 그 뒤로
+  # UI 는 마지막 수동 export 시점에 고정돼 있었다(handoff §8-3). scheduler 로
+  # 되살리면 경계를 다시 열고, 승격 consumer 에 붙이면 서빙 계층 export 가
+  # 승격 hot path 에 끼어든다 — 그래서 전용 프로세스가 갖는다.
+  # 존 스냅샷 토큰이 그대로면 내보내지 않는다 (전량 export 는 코퍼스와 함께 비싸다).
+  parquet-snapshot:
+    profiles: ["prototype"]
+    build: ./prototype
+    command: ["python", "-m", "orc_citadel.parquet_snapshot"]
+    environment:
+      ORC_DATA_DIR: /app/data
+      PARQUET_SNAPSHOT_INTERVAL_S: ${PARQUET_SNAPSHOT_INTERVAL_S:-900}
+      ICEBERG_CATALOG_URI: ${ICEBERG_CATALOG_URI:?}
+      ICEBERG_WAREHOUSE: ${ICEBERG_WAREHOUSE:?}
+      LAKEKEEPER_WAREHOUSE_BUCKET: ${LAKEKEEPER_WAREHOUSE_BUCKET:?}
+      ICEBERG_S3_ENDPOINT: ${ICEBERG_S3_ENDPOINT:?}
+      ICEBERG_S3_REGION: ${ICEBERG_S3_REGION:?}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?}
+    depends_on:
+      zone-init:
+        condition: service_completed_successfully
+    volumes:
+      - ./prototype/data:/app/data
+      - ./deploy/lakekeeper:/app/deploy/lakekeeper:ro
+    restart: unless-stopped
+
   duckdb-ui:
     build: ./deploy/duckdb-ui
     ports:

@@ -71,3 +71,25 @@ def test_promotion_consumer_can_reach_the_metrics_store(compose: str) -> None:
     for key in ("POSTGRES_HOST", "POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB"):
         assert key in service, f"{key} 없이는 flush 가 매번 실패한다"
     assert re.search(r"postgres:\n\s+condition: service_healthy", service)
+
+
+def test_parquet_snapshot_watcher_owns_the_ui_export(compose: str, prod: str) -> None:
+    """ADR-107 이 scheduler 에서 빼낸 갱신 주체 — 전용 프로세스가 갖는다.
+
+    duckdb-ui 는 `data/parquet` 만 읽으므로 갱신자가 없으면 마지막 수동 export 에
+    고정된다 (handoff §8-3).
+    """
+    service = _service(compose, "parquet-snapshot")
+    assert "orc_citadel.parquet_snapshot" in service
+    assert "PARQUET_SNAPSHOT_INTERVAL_S" in service, "1회 실행이면 UI 가 다시 고정된다"
+    assert re.search(r"zone-init:\n\s+condition: service_completed_successfully",
+                     service)
+    # scheduler(prod 오버레이 소유)는 dispatch+metrics 전용이어야 한다 (ADR-107).
+    assert "parquet_snapshot" not in _service(prod, "scheduler")
+
+
+def test_prod_overlay_shares_the_data_volume_with_the_ui(prod: str) -> None:
+    """워처가 쓴 parquet 를 사이드카가 읽어야 의미가 있다 — 같은 볼륨."""
+    service = _service(prod, "parquet-snapshot")
+    assert "proddata:/app/data" in service
+    assert "orc-citadel-prototype:latest" in service

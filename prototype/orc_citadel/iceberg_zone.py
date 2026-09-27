@@ -215,6 +215,14 @@ class NormalizedZone:
                           row_filter=EqualTo("doc_id", doc_id)))
         return sorted(rows, key=lambda row: (row["ord"], row["parser_version"]))
 
+    def snapshot_token(self) -> tuple[tuple[str, int | None], ...]:
+        """현재 스냅샷 id 묶음 — 변경 감지의 근거 (CuratedZone 과 동일 계약)."""
+        token = []
+        for name in (_DOCUMENTS.split(".")[-1], _SEGMENTS.split(".")[-1]):
+            snapshot = self._table(name).current_snapshot()
+            token.append((name, snapshot.snapshot_id if snapshot else None))
+        return tuple(token)
+
     def counts(self) -> dict[str, int]:
         return {name: self._record_count(self._table(name))
                 for name in ("documents", "segments")}
