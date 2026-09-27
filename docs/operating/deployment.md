@@ -186,6 +186,26 @@ docker compose -p orc-citadel -f docker-compose.yml -f docker-compose.prod.yml \
 #   ... migrate_curated_to_iceberg.py --force
 ```
 
+### 3.8 스냅샷 보존 (메타데이터 정리)
+
+Iceberg 스냅샷 이력은 커밋마다 길어지고, 그 길이가 **커밋 비용**에 들어간다
+(로컬 실측: 이력 401개에서 커밋 388.3ms, 정리 후 263.6ms). 기본은 **dry-run** —
+무엇이 사라질지 먼저 본다:
+
+```bash
+docker compose -p orc-citadel -f docker-compose.yml -f docker-compose.prod.yml \
+  --profile prototype --env-file .env exec -T promotion-consumer \
+  python -m orc_citadel.snapshot_retention            # dry-run (기본)
+#   ... snapshot_retention --apply                     # 실제 정리
+```
+
+보존 규칙: 기본 7일 창 + **나이와 무관하게 최근 3개**(롤백 여지) + 현재 스냅샷은
+절대 제외. 이력을 지우는 작업이므로 `--apply` 전에 dry-run 결과를 확인한다.
+
+**읽기는 빨라지지 않는다.** 읽기 비용은 스냅샷 수가 아니라 **데이터 파일 수**에
+묶인다(같은 400행: 400파일 545.5ms vs 1파일 3.9ms). 파일 수를 줄이는 compaction 은
+PyIceberg 0.12 에 없으므로 이 명령의 범위 밖이다 — handoff §8-1 참조.
+
 ## 4. nightly 운영 확인
 
 원격 스케줄러는 grace 하루(§6.2)로 당일 보충 실행한다. 정상 축적 여부:
