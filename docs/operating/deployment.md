@@ -206,6 +206,24 @@ docker compose -p orc-citadel -f docker-compose.yml -f docker-compose.prod.yml \
 묶인다(같은 400행: 400파일 545.5ms vs 1파일 3.9ms). 파일 수를 줄이는 compaction 은
 PyIceberg 0.12 에 없으므로 이 명령의 범위 밖이다 — handoff §8-1 참조.
 
+### 3.9 작은 파일 재작성 (읽기 비용 회수)
+
+읽기 비용은 **데이터 파일 수**에 묶인다(실측: 400행이 400파일이면 436.5ms,
+1파일이면 7.1ms). 쓰기 배치화 이후 새로 쌓이는 파일은 배치당 1개지만, 사고 때
+흩어진 파일은 남아 있다. 기본은 **dry-run**:
+
+```bash
+docker compose -p orc-citadel -f docker-compose.yml -f docker-compose.prod.yml \\
+  --profile prototype --env-file .env exec -T promotion-consumer \\
+  python -m orc_citadel.compaction --data-dir /app/data          # dry-run
+#   ... compaction --data-dir /app/data --apply                   # 실제 재작성
+```
+
+테이블 전량을 덮어쓰므로 **승격이 돌지 않는 시점에** 실행한다(lag 0 확인).
+재작성 전후 내용 digest 를 비교하고, 불일치면 이전 스냅샷으로 되돌린 뒤 실패를
+알린다. `--max-rows`(기본 500k)를 넘는 테이블은 거부한다 — 전량을 메모리에
+올리는 방법이라 그 경계가 곧 이 명령의 유효 범위다.
+
 ## 4. nightly 운영 확인
 
 원격 스케줄러는 grace 하루(§6.2)로 당일 보충 실행한다. 정상 축적 여부:
