@@ -213,8 +213,8 @@ PyIceberg 0.12 에 없으므로 이 명령의 범위 밖이다 — handoff §8-1
 흩어진 파일은 남아 있다. 기본은 **dry-run**:
 
 ```bash
-docker compose -p orc-citadel -f docker-compose.yml -f docker-compose.prod.yml \\
-  --profile prototype --env-file .env exec -T promotion-consumer \\
+docker compose -p orc-citadel -f docker-compose.yml -f docker-compose.prod.yml \
+  --profile prototype --env-file .env exec -T promotion-consumer \
   python -m orc_citadel.compaction --data-dir /app/data          # dry-run
 #   ... compaction --data-dir /app/data --apply                   # 실제 재작성
 ```
