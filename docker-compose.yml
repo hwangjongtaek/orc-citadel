@@ -310,6 +310,39 @@ services:
       - ./deploy/lakekeeper:/app/deploy/lakekeeper:ro
     restart: unless-stopped
 
+  stream-storage-observer:
+    profiles: ["prototype"]
+    build: ./prototype
+    command: ["python", "-m", "orc_citadel.stream_lake_observability"]
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+      STREAM_STORAGE_OBSERVE_INTERVAL_S: ${STREAM_STORAGE_OBSERVE_INTERVAL_S:-60}
+      POSTGRES_HOST: postgres
+      POSTGRES_USER: ${POSTGRES_USER:?}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+      POSTGRES_DB: ${POSTGRES_DB:?}
+      ICEBERG_CATALOG_URI: ${ICEBERG_CATALOG_URI:?}
+      ICEBERG_WAREHOUSE: ${ICEBERG_WAREHOUSE:?}
+      ICEBERG_S3_ENDPOINT: ${ICEBERG_S3_ENDPOINT:?}
+      ICEBERG_S3_REGION: ${ICEBERG_S3_REGION:?}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      lakekeeper:
+        condition: service_healthy
+      redpanda-init:
+        condition: service_completed_successfully
+      zone-init:
+        condition: service_completed_successfully
+    volumes:
+      - ./prototype/data:/app/data
+      - ./deploy/lakekeeper:/app/deploy/lakekeeper:ro
+    restart: unless-stopped
+
   investigation-worker:
     profiles: ["prototype"]
     build: ./prototype

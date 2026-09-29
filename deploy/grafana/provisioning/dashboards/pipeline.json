@@ -71,7 +71,7 @@
           "refId": "A",
           "datasource": {"type": "postgres", "uid": "citadel-pg"},
           "format": "table",
-          "rawSql": "SELECT labels->>'source_id' AS source, max(value) FILTER (WHERE metric = 'saved') AS saved, max(value) FILTER (WHERE metric = 'skipped') AS skipped, max(value) FILTER (WHERE metric = 'errors') AS errors FROM pipeline_run_metrics WHERE labels ? 'source_id' AND run_id = (SELECT run_id FROM pipeline_run_metrics ORDER BY recorded_at DESC LIMIT 1) GROUP BY 1 ORDER BY 1"
+          "rawSql": "SELECT labels->>'source_id' AS source, max(value) FILTER (WHERE metric = 'saved') AS saved, max(value) FILTER (WHERE metric = 'skipped') AS skipped, max(value) FILTER (WHERE metric = 'errors') AS errors FROM pipeline_run_metrics WHERE labels ? 'source_id' AND run_id = (SELECT run_id FROM pipeline_run_metrics WHERE labels ? 'source_id' ORDER BY recorded_at DESC LIMIT 1) GROUP BY 1 ORDER BY 1"
         }
       ]
     },

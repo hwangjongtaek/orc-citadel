@@ -183,6 +183,14 @@ services:
         condition: service_started
     restart: unless-stopped
 
+  stream-storage-observer:
+    profiles: !reset []
+    image: orc-citadel-prototype:latest
+    volumes: !override
+      - proddata:/app/data
+      - ./deploy/lakekeeper:/app/deploy/lakekeeper:ro
+    restart: unless-stopped
+
   promotion-consumer:
     profiles: !reset []
     image: orc-citadel-prototype:latest

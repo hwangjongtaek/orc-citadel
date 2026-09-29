@@ -151,6 +151,14 @@ def test_dashboard_covers_mandated_panels(dashboard: dict) -> None:
         assert marker in text, marker
 
 
+def test_dashboard_source_table_selects_latest_collection_run(dashboard: dict) -> None:
+    """SLO flush가 뒤따라도 소스 테이블은 마지막 source-label 수집 run을 보여야 한다."""
+    panel = next(p for p in dashboard["panels"]
+                 if p["title"] == "소스별 최신 런 — saved · skipped · errors")
+    sql = panel["targets"][0]["rawSql"]
+    assert ("run_id = (SELECT run_id FROM pipeline_run_metrics "
+            "WHERE labels ? 'source_id' ORDER BY recorded_at DESC LIMIT 1)") in sql
+
 def test_dashboard_surfaces_the_promotion_gap(dashboard: dict) -> None:
     """승격 공백은 붉게 떠야 한다 (2026-09-23 실측 결함 후속).
 
@@ -190,3 +198,34 @@ def test_deployment_doc_covers_grafana_access() -> None:
     assert "grafana" in doc.lower()
     assert "3000" in doc, "SSH 터널 포트 안내가 없다"
     assert "init-readonly.sql" in doc, "read-only 계정 1회 적용 절차가 없다"
+
+
+@pytest.fixture(scope="module")
+def stream_lake_dashboard() -> dict:
+    import json
+    path = GRAFANA / "provisioning" / "dashboards" / "stream-lake.json"
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def test_stream_lake_dashboard_covers_kafka_and_iceberg(stream_lake_dashboard: dict) -> None:
+    """Kafka lag와 Iceberg metadata 스냅샷은 별도 운영 대시보드에서 읽는다."""
+    assert stream_lake_dashboard["uid"] == "citadel-stream-lake"
+    text = __import__("json").dumps(stream_lake_dashboard["panels"], ensure_ascii=False)
+    for metric in ("kafka_consumer_lag", "kafka_consumer_group_healthy",
+                   "iceberg_snapshot_count", "iceberg_current_snapshot_records",
+                   "iceberg_current_snapshot_age_s"):
+        assert metric in text, metric
+    for panel in stream_lake_dashboard["panels"]:
+        for target in panel.get("targets", []):
+            assert target["datasource"]["uid"] == "citadel-pg", panel["title"]
+
+
+def test_stream_lake_observer_is_managed_in_production() -> None:
+    """Kafka와 Iceberg 관측은 수집 주기와 분리된 상주 probe가 메트릭으로 flush한다."""
+    compose = (REPO / "docker-compose.yml").read_text(encoding="utf-8")
+    prod = (REPO / "docker-compose.prod.yml").read_text(encoding="utf-8")
+    assert "stream-storage-observer:" in compose
+    assert '["python", "-m", "orc_citadel.stream_lake_observability"]' in compose
+    assert "KAFKA_BOOTSTRAP_SERVERS: redpanda:9092" in compose
+    assert "ICEBERG_CATALOG_URI: ${ICEBERG_CATALOG_URI:?}" in compose
+    assert "stream-storage-observer:" in prod

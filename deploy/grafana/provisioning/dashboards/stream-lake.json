@@ -1,0 +1,104 @@
+{
+  "__comment": "Kafka와 Iceberg metadata 관측. stream-storage-observer가 PostgreSQL pipeline_run_metrics에 append-only flush한 실제 snapshot만 읽는다. Iceberg table scan과 관측 실패를 0으로 위장하는 쿼리는 금지한다.",
+  "uid": "citadel-stream-lake",
+  "title": "Orc Citadel · Stream & Lake",
+  "tags": ["orc-citadel", "kafka", "iceberg", "observability"],
+  "timezone": "browser",
+  "editable": false,
+  "schemaVersion": 40,
+  "version": 1,
+  "refresh": "1m",
+  "time": {"from": "now-24h", "to": "now"},
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Kafka probe freshness — 마지막 성공 이후 경과(m)",
+      "description": "Kafka Admin API가 마지막으로 성공한 시점. 3분을 넘으면 consumer lag 값도 신뢰하지 않는다.",
+      "gridPos": {"h": 6, "w": 6, "x": 0, "y": 0},
+      "datasource": {"type": "postgres", "uid": "citadel-pg"},
+      "fieldConfig": {"defaults": {"unit": "m", "decimals": 1, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 3}, {"color": "red", "value": 10}]}}, "overrides": []},
+      "targets": [{"refId": "A", "datasource": {"type": "postgres", "uid": "citadel-pg"}, "format": "table", "rawSql": "SELECT round((extract(epoch FROM now() - max(recorded_at)) / 60)::numeric, 1) AS \"경과(m)\" FROM pipeline_run_metrics WHERE metric = 'kafka_probe_ok' AND value = 1"}]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Kafka consumer group — stable",
+      "description": "promotion consumer group의 마지막 Kafka Admin state. 0은 STABLE이 아닌 상태, No data는 관측 부재다.",
+      "gridPos": {"h": 6, "w": 6, "x": 6, "y": 0},
+      "datasource": {"type": "postgres", "uid": "citadel-pg"},
+      "fieldConfig": {"defaults": {"decimals": 0, "mappings": [{"type": "value", "options": {"0": {"text": "not stable", "color": "red"}, "1": {"text": "stable", "color": "green"}}}], "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}}, "overrides": []},
+      "targets": [{"refId": "A", "datasource": {"type": "postgres", "uid": "citadel-pg"}, "format": "table", "rawSql": "SELECT value AS stable FROM pipeline_run_metrics WHERE metric = 'kafka_consumer_group_healthy' ORDER BY recorded_at DESC LIMIT 1"}]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Iceberg probe freshness — 마지막 성공 이후 경과(m)",
+      "description": "REST catalog metadata를 마지막으로 읽은 시점. 3분을 넘으면 table snapshot 값은 과거 상태다.",
+      "gridPos": {"h": 6, "w": 6, "x": 12, "y": 0},
+      "datasource": {"type": "postgres", "uid": "citadel-pg"},
+      "fieldConfig": {"defaults": {"unit": "m", "decimals": 1, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 3}, {"color": "red", "value": 10}]}}, "overrides": []},
+      "targets": [{"refId": "A", "datasource": {"type": "postgres", "uid": "citadel-pg"}, "format": "table", "rawSql": "SELECT round((extract(epoch FROM now() - max(recorded_at)) / 60)::numeric, 1) AS \"경과(m)\" FROM pipeline_run_metrics WHERE metric = 'iceberg_probe_ok' AND value = 1"}]
+    },
+    {
+      "id": 4,
+      "type": "table",
+      "title": "Iceberg table probe — 현재 상태",
+      "description": "각 table metadata load 결과. 0은 table 단위 관측 실패이며 metrics 0이 아니다.",
+      "gridPos": {"h": 6, "w": 6, "x": 18, "y": 0},
+      "datasource": {"type": "postgres", "uid": "citadel-pg"},
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "targets": [{"refId": "A", "datasource": {"type": "postgres", "uid": "citadel-pg"}, "format": "table", "rawSql": "SELECT DISTINCT ON (labels->>'namespace', labels->>'table') labels->>'namespace' AS namespace, labels->>'table' AS table_name, value::integer AS ok, recorded_at FROM pipeline_run_metrics WHERE metric = 'iceberg_table_probe_ok' ORDER BY labels->>'namespace', labels->>'table', recorded_at DESC"}]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Kafka consumer lag — topic 합계",
+      "description": "promotion consumer group의 committed offset과 log end offset 차이. 0은 측정된 무적체, No data는 probe 실패 또는 group 미배정이다.",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 6},
+      "datasource": {"type": "postgres", "uid": "citadel-pg"},
+      "fieldConfig": {"defaults": {"decimals": 0, "custom": {"drawStyle": "line", "lineWidth": 2}}, "overrides": []},
+      "targets": [{"refId": "A", "datasource": {"type": "postgres", "uid": "citadel-pg"}, "format": "time_series", "rawSql": "SELECT recorded_at AS \"time\", labels->>'topic' AS metric, value FROM pipeline_run_metrics WHERE metric = 'kafka_consumer_lag' AND $__timeFilter(recorded_at) ORDER BY 1"}]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Kafka assigned partitions",
+      "description": "consumer group에서 현재 committed offset을 가진 partition 수. 가동 중인데 0이면 assignment 또는 초기 consumer 상태를 확인한다.",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 6},
+      "datasource": {"type": "postgres", "uid": "citadel-pg"},
+      "fieldConfig": {"defaults": {"decimals": 0, "custom": {"drawStyle": "line", "lineWidth": 2}}, "overrides": []},
+      "targets": [{"refId": "A", "datasource": {"type": "postgres", "uid": "citadel-pg"}, "format": "time_series", "rawSql": "SELECT recorded_at AS \"time\", value AS assigned_partitions FROM pipeline_run_metrics WHERE metric = 'kafka_consumer_group_partitions' AND $__timeFilter(recorded_at) ORDER BY 1"}]
+    },
+    {
+      "id": 7,
+      "type": "table",
+      "title": "Iceberg current snapshot — records · data files",
+      "description": "현재 snapshot summary의 total-records와 total-data-files. table scan 없이 Iceberg metadata에서 읽는다.",
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 14},
+      "datasource": {"type": "postgres", "uid": "citadel-pg"},
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "targets": [{"refId": "A", "datasource": {"type": "postgres", "uid": "citadel-pg"}, "format": "table", "rawSql": "WITH latest AS (SELECT DISTINCT ON (labels->>'namespace', labels->>'table', metric) labels->>'namespace' AS namespace, labels->>'table' AS table_name, metric, value FROM pipeline_run_metrics WHERE metric IN ('iceberg_current_snapshot_records', 'iceberg_current_snapshot_data_files') ORDER BY labels->>'namespace', labels->>'table', metric, recorded_at DESC) SELECT namespace, table_name, max(value) FILTER (WHERE metric = 'iceberg_current_snapshot_records') AS records, max(value) FILTER (WHERE metric = 'iceberg_current_snapshot_data_files') AS data_files FROM latest GROUP BY namespace, table_name ORDER BY namespace, table_name"}]
+    },
+    {
+      "id": 8,
+      "type": "table",
+      "title": "Iceberg snapshot count — 현재",
+      "description": "각 table의 metadata snapshot 수. 지속적으로 가파르게 증가하면 compaction/commit 단위를 점검한다.",
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 14},
+      "datasource": {"type": "postgres", "uid": "citadel-pg"},
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "targets": [{"refId": "A", "datasource": {"type": "postgres", "uid": "citadel-pg"}, "format": "table", "rawSql": "SELECT DISTINCT ON (labels->>'namespace', labels->>'table') labels->>'namespace' AS namespace, labels->>'table' AS table_name, value::integer AS snapshots, recorded_at FROM pipeline_run_metrics WHERE metric = 'iceberg_snapshot_count' ORDER BY labels->>'namespace', labels->>'table', recorded_at DESC"}]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Iceberg current snapshot age",
+      "description": "현재 snapshot의 commit 시각 이후 경과. 새 기록이 있어야 할 table에서 계속 증가하면 promotion path가 멈춘 것이다.",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 23},
+      "datasource": {"type": "postgres", "uid": "citadel-pg"},
+      "fieldConfig": {"defaults": {"unit": "s", "decimals": 0, "custom": {"drawStyle": "line", "lineWidth": 2}}, "overrides": []},
+      "targets": [{"refId": "A", "datasource": {"type": "postgres", "uid": "citadel-pg"}, "format": "time_series", "rawSql": "SELECT recorded_at AS \"time\", labels->>'namespace' || '.' || labels->>'table' AS metric, value FROM pipeline_run_metrics WHERE metric = 'iceberg_current_snapshot_age_s' AND $__timeFilter(recorded_at) ORDER BY 1"}]
+    }
+  ]
+}

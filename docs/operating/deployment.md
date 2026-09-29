@@ -43,6 +43,7 @@
 | prototype | viewer (API + 정적 서빙) | `127.0.0.1:8791` | §3.3 |
 | scheduler | nightly dispatch 상주 | 없음 | §4 |
 | investigation-worker | PostgreSQL 조사 queue 소비·read-only evidence 실행 | 없음 | §3.2.1 |
+| stream-storage-observer | Kafka lag·Iceberg snapshot metadata를 60초마다 flush | 없음 | §3.4 |
 | grafana | 파이프라인 모니터링 | `127.0.0.1:3000` | §3.4 |
 | duckdb-ui | 존 브라우징 사이드카 | `127.0.0.1:4213` | [data-browsing.md](data-browsing.md) |
 | redpanda-init | S1–S7 토픽 28개 멱등 생성 후 종료 | 없음 | one-shot |
@@ -122,6 +123,9 @@ ssh -N -L 3000:127.0.0.1:3000 hwangjongtaek@10.0.0.11    # → 브라우저 http
 - 대시보드: `Orc Citadel · Pipeline` (`/d/citadel-pipeline`). 소스는 nightly flush 가
   쌓는 `pipeline_run_metrics`·`pipeline_slo_observations` 뿐이며, stage 처리량·quarantine
   패널의 **No data 는 미계측의 정직한 표시**다(honest-gap — 계측 배선 전까지 그대로 둔다).
+- 대시보드: `Orc Citadel · Stream & Lake` (`/d/citadel-stream-lake`). `stream-storage-observer`가
+  Kafka Admin offset과 Iceberg snapshot metadata만 60초마다 `pipeline_run_metrics`에 flush한다.
+  Iceberg table scan은 하지 않으며, **No data는 probe 실패·미관측이지 0이 아니다**.
 - **최초 1회**: read-only DB 계정 적용(첫 flush 로 메트릭 테이블 생성된 이후):
   ```bash
   set -a; source .env; set +a
