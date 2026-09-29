@@ -126,6 +126,33 @@ function useCouncil() {
           runTrace, runQuestion, cancel, error, noSubjects};
 }
 
+const RECENT_LIMIT = 5;
+const RECENT_STATUS = {
+  completed: ['완료', 'success'], running: ['진행', 'neutral'], queued: ['대기', 'neutral'],
+  failed: ['실패', 'error'], cancelled: ['취소', 'warning'],
+};
+const recentAction = (item) => {
+  if (item.status !== 'completed') return item.status === 'failed' ? '기록 보기' : '진행 보기';
+  return item.artifact_state === 'ready' ? '리포트 보기' : '리포트 없음 · 재작성';
+};
+
+/** 최근 조사 — 방금 실행한 한 건이 아니라 저장된 조사 전체의 리포트 진입점. */
+function useRecentCampaigns(refreshKey) {
+  const [recent, setRecent] = React.useState({state: 'loading', items: []});
+  React.useEffect(() => {
+    const controller = new AbortController();
+    fetch(`/api/investigations?limit=${RECENT_LIMIT}`, {signal: controller.signal})
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((payload) => setRecent({state: 'ready',
+        items: Array.isArray(payload.items) ? payload.items : []}))
+      .catch((error) => {
+        if (error.name !== 'AbortError') setRecent({state: 'error', items: []});
+      });
+    return () => controller.abort();
+  }, [refreshKey]);
+  return recent;
+}
+
 /** Gate 의 New Campaign 이 넘긴 질문 (제출은 하지 않는다 — 확인 후 사용자가 지시). */
 const bootQuestion = () =>
   (new URLSearchParams(window.location.search).get('question') || '').trim();
@@ -136,6 +163,7 @@ function App() {
   const [question, setQuestion] = React.useState(bootQuestion);
   const [useLlm, setUseLlm] = React.useState(false);
   usePaletteHotkey(setPaletteOpen);
+  const recent = useRecentCampaigns(s.job?.status);
 
   const names = React.useMemo(() => new Map(
     ((s.table && s.table.entities) || []).map((e) => [e.entity_id, e.name])), [s.table]);
@@ -229,10 +257,41 @@ function App() {
                 '지식에 없는 대상 — gap 정직 표기, 조사 산출 없음 (§6.2)'))
           : null) : null));
 
+  // 최근 조사 — 항목별 리포트 진입 (Campaign Ledger 딥링크)
+  const recentCampaigns = h(React.Fragment, {},
+    panelHead('최근 조사 · Recent Campaigns',
+      recent.state === 'ready' ? `최근 ${recent.items.length}건` : '조사 기록'),
+    h('div', {style: {padding: '10px 12px'}, 'data-testid': 'recent-campaigns'},
+      recent.state === 'loading' ? h(Text, {type: 'supporting'}, '조사 기록 불러오는 중…') : null,
+      recent.state === 'error' ? h(Text, {type: 'supporting'},
+        '조사 기록을 불러오지 못했습니다. Campaign Ledger 에서 다시 확인하세요.') : null,
+      recent.state === 'ready' && !recent.items.length
+        ? h(Text, {type: 'supporting'}, '아직 저장된 조사가 없습니다.') : null,
+      recent.items.map((item) => {
+        const [label, tone] = RECENT_STATUS[item.status] || [item.status, 'neutral'];
+        return h('a', {key: item.investigation_id,
+          href: `${urls.reports}?investigation=${encodeURIComponent(item.investigation_id)}`,
+          style: {display: 'block', textDecoration: 'none', padding: '8px 10px',
+            marginBottom: 6, border: '1px solid var(--color-border)',
+            borderRadius: 'var(--radius-inner)'}},
+          h('div', {style: {display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4}},
+            h(Badge, {variant: tone, label}),
+            h('span', {style: {fontSize: 11, color: 'var(--color-accent)',
+              fontFamily: 'var(--font-family-heading)', fontWeight: 600}}, recentAction(item))),
+          h('div', {style: {fontSize: 12, color: 'var(--color-text-primary)',
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'}},
+          item.question || item.investigation_id));
+      }),
+      h('a', {href: urls.reports, style: {display: 'inline-block', marginTop: 4, fontSize: 11.5,
+        color: 'var(--color-accent)', textDecoration: 'none',
+        fontFamily: 'var(--font-family-heading)', fontWeight: 600}},
+      '전체 Campaign Ledger 열기 →')));
+
   // 좌 — 조사 지시 + Subjects 선택 + Warchief's Council 8 Agent
   const council = h(LayoutPanel, {width: 320, hasDivider: true, padding: 0,
     label: "Warchief's Council"},
     directive,
+    recentCampaigns,
     panelHead('Subjects', `랭킹 · ${((s.table && s.table.subjects) || []).length}`),
     h('div', {style: {padding: '10px 12px'}},
       ((s.table && s.table.subjects) || []).map((sub) =>

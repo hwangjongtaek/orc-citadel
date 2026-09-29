@@ -275,6 +275,7 @@ function App() {
   return h(React.Fragment, {},
     shell({
       route: 'council-chamber',
+      ledgerActive: true,
       eyebrow: 'Council Chamber · Reports',
       context: 'Campaign Ledger · 조사 기록',
       title: 'Campaign Ledger · 조사 보고서',

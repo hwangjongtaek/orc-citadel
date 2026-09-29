@@ -107,6 +107,13 @@ const S = {
     color: 'var(--astryx-theme-citadel-signal-amber)',
     background: 'rgba(255,177,59,.08)', border: '1px solid rgba(255,177,59,.3)',
     padding: '8px 12px', borderRadius: 'var(--radius-element)', textDecoration: 'none'},
+  ledger: {display: 'flex', alignItems: 'center', whiteSpace: 'nowrap',
+    fontFamily: 'var(--font-family-heading)', fontSize: 12, fontWeight: 600,
+    color: 'var(--color-text-secondary)', background: 'transparent',
+    border: '1px solid var(--color-border)', padding: '8px 12px',
+    borderRadius: 'var(--radius-element)', textDecoration: 'none'},
+  ledgerOn: {color: 'var(--color-accent)', borderColor: 'var(--color-accent)',
+    background: 'rgba(69,224,111,.08)'},
   dot: {width: 7, height: 7, borderRadius: 'var(--radius-full)',
     background: 'var(--astryx-theme-citadel-signal-amber)',
     boxShadow: '0 0 8px 1px var(--astryx-theme-citadel-signal-amber)'},
@@ -193,12 +200,13 @@ function masthead({title, subtitle, hero, heroAlt, urls}) {
  * @param slots    Layout 슬롯 { start, content, end, footer }
  * @param urls     URL 공간 (기본 MOCKUP_URLS — 앱은 APP_URLS)
  * @param onSearchOpen  검색창 클릭 시 팔레트 열기 (앱 전용 — 목업은 정적)
+ * @param ledgerActive  Campaign Ledger(/reports) 화면이면 GNB 칩을 현재 위치로 표시
  * @param utilityNav    안내 페이지용 최소 내비게이션 노드
  * @param mastheadContent 기본 마스트헤드를 대체할 안내 페이지 첫 화면
  * @param skipTarget    본문 바로가기 대상 id
  */
 export function shell({route, eyebrow, context, title, subtitle, hero, heroAlt, alerts = 3,
-                       slots, urls = MOCKUP_URLS, onSearchOpen, utilityNav,
+                       slots, urls = MOCKUP_URLS, onSearchOpen, utilityNav, ledgerActive = false,
                        mastheadContent, skipTarget}) {
   const isUtility = utilityNav !== undefined;
   const header = h(LayoutHeader, {padding: 0, hasDivider: false},
@@ -217,6 +225,11 @@ export function shell({route, eyebrow, context, title, subtitle, hero, heroAlt, 
         h('input', {style: S.searchInput,
           placeholder: 'subject · claim · document 통합 검색', readOnly: true}),
         h('span', {style: S.kbd, 'aria-hidden': 'true'}, '⌘K')),
+      // Campaign Ledger — 9번째 공간이 아니라 유틸리티 칩이다 (8공간 배열 불변).
+      isUtility ? null : h('a', {href: urls.reports,
+        style: ledgerActive ? {...S.ledger, ...S.ledgerOn} : S.ledger,
+        'aria-current': ledgerActive ? 'page' : undefined,
+        title: '완료·진행·실패한 조사와 HTML 리포트'}, 'Campaign Ledger · 조사 리포트'),
       isUtility ? null : h('a', {style: S.spire, href: urls.page('signal-spire'),
         title: 'Signal Spire · 결론·confidence 변화 알림'},
         h('span', {style: S.dot}), `Signal Spire · ${alerts}`)),

@@ -346,3 +346,23 @@ def test_gate_bundle_opens_campaign_directive() -> None:
     gate_js = (DIST / "js" / "gate.js").read_text(encoding="utf-8", errors="ignore")
     for stale in ("조사 실행 (비활성)", "read-only 프로토타입 · 비활성"):
         assert stale not in gate_js, stale
+
+
+def test_gnb_links_campaign_ledger_from_every_space() -> None:
+    """GNB 유틸리티 칩 — 어느 공간에서든 /reports 로 닿는다. 8공간 탭 배열은 그대로다."""
+    shared_js = (DIST / "js" / "components.js").read_text(encoding="utf-8", errors="ignore")
+    assert "Campaign Ledger · 조사 리포트" in shared_js
+    assert "reports:\"/reports\"" in shared_js
+    # 아홉 번째 공간이 아니다 — 탭 목록(PRIMARY/SECONDARY)에 reports 가 끼지 않는다.
+    assert "['reports'" not in shared_js and '["reports"' not in shared_js
+
+
+def test_council_lists_recent_campaigns_with_per_report_links() -> None:
+    """Council 은 방금 실행한 조사만이 아니라 최근 조사 전체의 리포트로 진입시킨다."""
+    council_js = (DIST / "js" / "council.js").read_text(encoding="utf-8", errors="ignore")
+    for marker in (
+        "/api/investigations?limit=",
+        "최근 조사 · Recent Campaigns",
+        "?investigation=",
+    ):
+        assert marker in council_js, marker
