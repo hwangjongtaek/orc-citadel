@@ -120,3 +120,32 @@ def test_backfill_is_idempotent(legacy):
 
     assert again["missing"] == 1 and again["resolvable"] == 0
     assert _hashes(legacy)["clm-known"] == RAW_HASH
+
+
+def test_backfill_hashes_the_raw_bytes_even_when_shard_meta_has_no_hash(tmp_path):
+    """옛 샤드는 메타에 content_hash 가 없다 — 원문이 있으면 바이트에서 직접 계산한다."""
+    import duckdb
+
+    raw = RawShardStore(tmp_path / "raw")
+    doc_id, _ = raw.append("test", "https://test.example/nvidia", CONTENT, {})
+    raw.flush()
+    shard = next((tmp_path / "raw").rglob("*.parquet"))
+    con = duckdb.connect()
+    con.execute(f"COPY (SELECT * REPLACE (NULL AS meta_json) FROM read_parquet('{shard}')) "
+                f"TO '{shard}.new' (FORMAT PARQUET)")
+    con.close()
+    pathlib_shard = shard
+    pathlib_shard.unlink()
+    (pathlib_shard.parent / (pathlib_shard.name + ".new")).rename(pathlib_shard)
+    assert all("content_hash" not in r for r in RawShardStore(tmp_path / "raw").iter_records())
+
+    zone = CuratedZone(tmp_path / "iceberg")
+    zone.initialize()
+    zone.persist_extraction_record(element_id="clm-old", doc_id=doc_id,
+                                   segment_id=f"{doc_id}#p0", char_start=0, char_end=5)
+    zone.close()
+
+    report = backfill_content_hashes(tmp_path, dry_run=False)
+
+    assert report["resolvable"] == 1 and report["unresolvable"] == 0
+    assert _hashes(tmp_path)["clm-old"] == RAW_HASH
