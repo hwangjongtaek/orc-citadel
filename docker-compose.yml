@@ -352,6 +352,15 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:?}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
       POSTGRES_DB: ${POSTGRES_DB:?}
+      # 존을 읽는다 — Iceberg 카탈로그 설정이 없으면 로컬 빈 카탈로그로 되돌아가
+      # `Table does not exist: curated.assertions` 로 실패한다 (cutover 이후 누락).
+      ICEBERG_CATALOG_URI: ${ICEBERG_CATALOG_URI:?}
+      ICEBERG_WAREHOUSE: ${ICEBERG_WAREHOUSE:?}
+      LAKEKEEPER_WAREHOUSE_BUCKET: ${LAKEKEEPER_WAREHOUSE_BUCKET:?}
+      ICEBERG_S3_ENDPOINT: ${ICEBERG_S3_ENDPOINT:?}
+      ICEBERG_S3_REGION: ${ICEBERG_S3_REGION:?}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?}
       LLM_PROVIDER: ${LLM_PROVIDER:-}
       LLM_MODEL: ${LLM_MODEL:-}
       LLM_API_KEY: ${LLM_API_KEY:-}
@@ -360,6 +369,12 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      minio:
+        condition: service_healthy
+      lakekeeper:
+        condition: service_healthy
+      zone-init:
+        condition: service_completed_successfully
     volumes:
       - ./prototype/data:/app/data
 volumes:

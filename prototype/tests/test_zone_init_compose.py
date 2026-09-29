@@ -44,7 +44,23 @@ def test_zone_init_waits_for_the_catalog_and_object_store(compose: str) -> None:
         assert dependency in service, f"{dependency} 기동 전에 테이블을 만들 수 없다"
 
 
-@pytest.mark.parametrize("name", ["prototype", "promotion-consumer"])
+# 존을 여는 모든 서비스. investigation-worker 가 이 목록에서 빠져 있었고, 그래서 Iceberg
+# 전환(09-23) 이후 조사가 `Table does not exist: curated.assertions` 로 전부 실패했다 —
+# 전환 이후 조사를 한 번도 실행하지 않아 2026-09-29 까지 드러나지 않았다.
+ZONE_READERS = ["prototype", "promotion-consumer", "investigation-worker"]
+
+
+@pytest.mark.parametrize("name", ZONE_READERS)
+def test_zone_readers_receive_the_catalog_config(compose: str, name: str) -> None:
+    """카탈로그 주소가 없으면 로컬 빈 카탈로그로 되돌아가 테이블이 없다고 실패한다."""
+    service = _service(compose, name)
+    for key in ("ICEBERG_CATALOG_URI", "ICEBERG_WAREHOUSE", "ICEBERG_S3_ENDPOINT",
+                "ICEBERG_S3_REGION", "LAKEKEEPER_WAREHOUSE_BUCKET",
+                "MINIO_ROOT_USER", "MINIO_ROOT_PASSWORD"):
+        assert f"{key}:" in service, f"{name} 에 {key} 가 없다"
+
+
+@pytest.mark.parametrize("name", ZONE_READERS)
 def test_iceberg_readers_wait_for_zone_init(compose: str, name: str) -> None:
     """viewer 가 빈 카탈로그를 읽고 죽은 것이 이 계약의 계기다."""
     service = _service(compose, name)
