@@ -401,9 +401,17 @@ def _build():
     return build_read_facade(ICEBERG_ROOT)
 
 
+def _default_report_generator():
+    from orc_citadel.investigation_report import HtmlReportGenerator
+
+    return HtmlReportGenerator()
+
+
 class Handler(BaseHTTPRequestHandler):
     facade = None  # class-level (한 번 로드)
     investigation_table_prefix = "investigation"
+    # 리포트 재작성 생성기 — 테스트는 LLM 없는 생성기로 교체한다.
+    report_generator_factory = staticmethod(lambda: _default_report_generator())
     # 정적 자산 루트 — 없으면 자산 없이 동작한다 (정직 갭).
     static_roots = viewer_static.default_roots()
     # raw fetch.json 전수 스캔 캐시 — 키는 (경로, raw 지문). 지문이 바뀌면
@@ -1231,6 +1239,60 @@ class Handler(BaseHTTPRequestHandler):
 
 
 
+    def _regenerate_report(self, investigation_id: str) -> None:
+        """POST /api/investigations/{id}/report:regenerate — artifact 가 없을 때만 생성."""
+        from orc_citadel.report_regeneration import regenerate_report
+
+        errors = {
+            "not_found": (404, "investigation_not_found", "조사를 찾을 수 없습니다."),
+            "not_completed": (409, "investigation_not_completed",
+                              "완료된 조사만 리포트를 재작성할 수 있습니다."),
+            "exists": (409, "report_artifact_exists",
+                       "이미 리포트가 있습니다. 저장된 리포트는 교체하지 않습니다."),
+            "source_missing": (409, "report_source_missing",
+                               "재작성할 원본 report가 저장되어 있지 않습니다."),
+            "source_changed": (409, "report_source_changed",
+                               "생성 중 원본 report가 바뀌어 저장하지 않았습니다."),
+        }
+        try:
+            store, conn = self._investigation_store()
+        except Exception:
+            store = conn = None
+        if store is None:
+            self._send_json(503, self._investigation_error(
+                "investigation_store_unavailable",
+                "investigation PostgreSQL 저장소에 연결할 수 없습니다."))
+            return
+        try:
+            try:
+                outcome = regenerate_report(
+                    store, investigation_id, generator=self.report_generator_factory())
+            except Exception as exc:
+                self._send_json(500, self._investigation_error(
+                    "report_regeneration_failed", str(exc),
+                    investigation_id=investigation_id))
+                return
+            if outcome in errors:
+                status, code, message = errors[outcome]
+                self._send_json(status, self._investigation_error(
+                    code, message, investigation_id=investigation_id))
+                return
+            artifact = store.get_report_artifact(investigation_id)
+        finally:
+            conn.close()
+        self._send_json(201, {
+            "investigation_id": investigation_id,
+            "artifact_state": "ready",
+            "artifact": {
+                "artifact_id": artifact["artifact_id"],
+                "generation_mode": artifact["generation_mode"],
+                "fallback_reason": artifact["fallback_reason"],
+                "content_hash": artifact["content_hash"],
+                "byte_length": artifact["byte_length"],
+                "html_url": f"/api/investigations/{investigation_id}/report.html",
+            },
+        })
+
     def do_POST(self):
         parsed = urlparse(self.path)
         cancel_prefix = "/api/investigations/"
@@ -1262,6 +1324,13 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 return
             self._send_json(200, cancelled)
+            return
+
+        regen_suffix = "/report:regenerate"
+        if (parsed.path.startswith(cancel_prefix)
+                and parsed.path.endswith(regen_suffix)):
+            self._regenerate_report(
+                unquote(parsed.path[len(cancel_prefix):-len(regen_suffix)]))
             return
 
         if parsed.path == "/api/collections":

@@ -13,6 +13,7 @@ import pytest
 psycopg = pytest.importorskip("psycopg")
 
 from orc_citadel.investigation_report import (
+    HtmlReportGenerator,
     default_report_profile,
     style_csp_hash,
 )
@@ -33,6 +34,8 @@ def server():
 
     class TestHandler(Handler):
         investigation_table_prefix = TEST_PREFIX
+        # 재작성은 LLM 없이 deterministic fallback 으로 고정한다 (hermetic).
+        report_generator_factory = staticmethod(lambda: HtmlReportGenerator(client=False))
 
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), TestHandler)
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
@@ -499,3 +502,68 @@ def test_post_returns_503_without_creating_fake_job_when_postgres_is_unavailable
 
     assert status == 503
     assert body["error"]["code"] == "investigation_store_unavailable"
+
+def _make_legacy_completed(server, key: str, *, with_report: bool = True):
+    """cutover 이전 형태의 완료 조사: report 는 있고 artifact·profile 은 없다."""
+    created = _create_via_http(server, key)
+    conn, store = _store_connection()
+    try:
+        conn.cursor().execute(
+            f'''UPDATE "{store.investigations_table}"
+                SET status = 'completed', report_profile = NULL,
+                    report = %s, audit_trace = %s
+                WHERE investigation_id = %s''',
+            (json.dumps({"statements": []} if with_report else None),
+             json.dumps({"linked": 0, "verifiable": 0}), created["investigation_id"]),
+        )
+    finally:
+        conn.close()
+    return created["investigation_id"]
+
+
+def test_regenerate_backfills_a_legacy_completed_investigation(server):
+    investigation_id = _make_legacy_completed(server, "regen-legacy")
+
+    status, _, body = request(
+        server, "POST", f"/api/investigations/{investigation_id}/report:regenerate")
+
+    assert status == 201
+    assert body["artifact_state"] == "ready"
+    assert body["artifact"]["generation_mode"] == "deterministic_fallback"
+    assert body["artifact"]["html_url"] == f"/api/investigations/{investigation_id}/report.html"
+    # 이제 HTML 이 실제로 서빙된다.
+    html_status, headers, html = raw_request(
+        server, "GET", f"/api/investigations/{investigation_id}/report.html")
+    assert html_status == 200 and html.startswith(b"<!doctype html>")
+    # 목록도 legacy 가 아니라 ready 로 바뀐다.
+    _, _, listed = request(server, "GET", "/api/investigations")
+    item = next(i for i in listed["items"] if i["investigation_id"] == investigation_id)
+    assert item["artifact_state"] == "ready"
+
+
+def test_regenerate_never_replaces_an_existing_report(server):
+    investigation_id = _make_legacy_completed(server, "regen-twice")
+    path = f"/api/investigations/{investigation_id}/report:regenerate"
+    assert request(server, "POST", path)[0] == 201
+    html_path = f"/api/investigations/{investigation_id}/report.html"
+    first = raw_request(server, "GET", html_path)[2]
+
+    status, _, body = request(server, "POST", path)
+
+    assert status == 409 and body["error"]["code"] == "report_artifact_exists"
+    assert raw_request(server, "GET", html_path)[2] == first
+
+
+def test_regenerate_distinguishes_unknown_unfinished_and_sourceless(server):
+    queued = _create_via_http(server, "regen-queued")["investigation_id"]
+    sourceless = _make_legacy_completed(server, "regen-nosource", with_report=False)
+    cases = [
+        ("inv-does-not-exist", 404, "investigation_not_found"),
+        (queued, 409, "investigation_not_completed"),
+        (sourceless, 409, "report_source_missing"),
+    ]
+    for investigation_id, expected, code in cases:
+        status, _, body = request(
+            server, "POST", f"/api/investigations/{investigation_id}/report:regenerate")
+        assert status == expected, (investigation_id, body)
+        assert body["error"]["code"] == code

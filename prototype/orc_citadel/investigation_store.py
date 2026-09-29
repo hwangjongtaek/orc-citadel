@@ -410,18 +410,9 @@ class InvestigationStore:
         )
         return cur.rowcount == 1
 
-    def complete_with_report_artifact(
-        self,
-        *,
-        job_id: str,
-        claim_token: str,
-        report: dict,
-        audit_trace: dict,
-        coverage: dict,
-        termination: str | None,
-        artifact: dict,
-    ) -> bool:
-        """artifact·REPORT step·완료 상태를 현재 claim 아래에서 원자 확정한다."""
+    @staticmethod
+    def _validate_artifact(artifact: dict, report: dict, audit_trace: dict) -> tuple[bytes, str, str | None, dict]:
+        """artifact 필드·enum·hash 무결성을 검증하고 (html, mode, reason, draft)를 반환한다."""
         required = {
             "html_bytes",
             "content_hash",
@@ -468,6 +459,22 @@ class InvestigationStore:
         for field, expected in expected_hashes.items():
             if artifact[field] != expected:
                 raise ValueError(f"artifact {field} 무결성 검증에 실패했습니다")
+        return html_bytes, mode, reason, draft_json
+
+    def complete_with_report_artifact(
+        self,
+        *,
+        job_id: str,
+        claim_token: str,
+        report: dict,
+        audit_trace: dict,
+        coverage: dict,
+        termination: str | None,
+        artifact: dict,
+    ) -> bool:
+        """artifact·REPORT step·완료 상태를 현재 claim 아래에서 원자 확정한다."""
+        html_bytes, mode, reason, draft_json = self._validate_artifact(
+            artifact, report, audit_trace)
 
 
         try:
@@ -576,6 +583,127 @@ class InvestigationStore:
                 return False
             raise
         return True
+
+    def get_regeneration_source(self, investigation_id: str) -> dict | None:
+        """리포트 재작성에 필요한 원본을 반환한다. 없으면 None.
+
+        완료 여부·artifact 존재 여부는 판정하지 않는다 — 저장 시점의
+        `attach_report_artifact` 가 잠금 아래에서 판정한다.
+        """
+        cur = self._conn.cursor()
+        cur.execute(
+            f'''SELECT i.investigation_id, i.question, i.subject_id, i.scope, i.mode,
+                       i.version_tuple, i.correlation_id, i.report_profile, i.status,
+                       i.report, i.audit_trace,
+                       EXISTS (SELECT 1 FROM "{self.report_artifacts_table}" a
+                               WHERE a.investigation_id = i.investigation_id) AS has_artifact
+                FROM "{self.investigations_table}" i
+                WHERE i.investigation_id = %s''',
+            (investigation_id,),
+        )
+        return self._as_dict(cur)
+
+    def attach_report_artifact(
+        self, investigation_id: str, *, artifact: dict, report_profile: dict,
+    ) -> str:
+        """완료됐지만 artifact 가 없는 조사에 artifact 를 붙인다 (재작성).
+
+        기존 artifact 는 절대 교체하지 않는다 (조사당 불변 1개). 결과:
+        attached | exists | not_found | not_completed | source_changed
+        """
+        if (not isinstance(report_profile, dict)
+                or not REPORT_PROFILE_FIELDS.issubset(report_profile)):
+            raise ValueError("report_profile의 버전 pin이 필요합니다")
+        for field in ("template_version", "output_schema_version", "prompt_template_hash"):
+            if artifact.get(field) != report_profile.get(field):
+                raise ValueError(f"artifact {field} pin이 profile과 다릅니다")
+        try:
+            with self._conn.transaction():
+                cur = self._conn.cursor()
+                cur.execute(
+                    f'''SELECT status, report, audit_trace, version_tuple,
+                               correlation_id, report_profile
+                        FROM "{self.investigations_table}"
+                        WHERE investigation_id = %s FOR UPDATE''',
+                    (investigation_id,),
+                )
+                row = cur.fetchone()
+                if row is None:
+                    return "not_found"
+                status, report, audit_trace, version_tuple, correlation_id, stored = row
+                if status != "completed":
+                    return "not_completed"
+                cur.execute(
+                    f'''SELECT 1 FROM "{self.report_artifacts_table}"
+                        WHERE investigation_id = %s''',
+                    (investigation_id,),
+                )
+                if cur.fetchone() is not None:
+                    return "exists"
+                if isinstance(stored, dict) and any(
+                    stored.get(f) != report_profile.get(f) for f in REPORT_PROFILE_FIELDS
+                ):
+                    raise ValueError("investigation에 pin된 report_profile과 다릅니다")
+                source_report = report if isinstance(report, dict) else {}
+                source_trace = (
+                    audit_trace if isinstance(audit_trace, dict)
+                    else source_report.get("audit_trace", {})
+                )
+                if artifact.get("source_report_hash") != _sha256(_canonical_json_bytes({
+                    "report": source_report, "audit_trace": source_trace,
+                })):
+                    return "source_changed"
+                html_bytes, mode, reason, draft_json = self._validate_artifact(
+                    artifact, source_report, source_trace)
+                cur.execute(
+                    f'''INSERT INTO "{self.report_artifacts_table}"
+                        (artifact_id, investigation_id, media_type, html_bytes,
+                         byte_length, content_hash, source_report_hash, draft_json,
+                         draft_hash, generation_mode, fallback_reason, template_version,
+                         output_schema_version, provider, model_id, prompt_template_hash,
+                         usage, audit_summary, version_tuple, correlation_id)
+                        VALUES (%s, %s, 'text/html; charset=utf-8', %s, %s, %s, %s,
+                                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)''',
+                    (
+                        new_ulid("rpt"), investigation_id, html_bytes, len(html_bytes),
+                        artifact["content_hash"], artifact["source_report_hash"],
+                        json.dumps(draft_json), artifact["draft_hash"], mode, reason,
+                        artifact["template_version"], artifact["output_schema_version"],
+                        artifact["provider"], artifact["model_id"],
+                        artifact["prompt_template_hash"], json.dumps(artifact["usage"]),
+                        json.dumps(artifact["audit_summary"]),
+                        json.dumps(version_tuple), correlation_id,
+                    ),
+                )
+                cur.execute(
+                    f'''INSERT INTO "{self.steps_table}"
+                        (investigation_id, step_id, stage, payload, correlation_id)
+                        VALUES (%s, 'step-005', 'REPORT', %s, %s)
+                        ON CONFLICT (investigation_id, step_id) DO NOTHING''',
+                    (
+                        investigation_id,
+                        json.dumps({
+                            "origin": "regenerated",
+                            "generation_mode": mode,
+                            "content_hash": artifact["content_hash"],
+                            "source_report_hash": artifact["source_report_hash"],
+                            "template_version": artifact["template_version"],
+                        }),
+                        correlation_id,
+                    ),
+                )
+                if stored is None:
+                    cur.execute(
+                        f'''UPDATE "{self.investigations_table}"
+                            SET report_profile = %s, updated_at = now()
+                            WHERE investigation_id = %s AND report_profile IS NULL''',
+                        (json.dumps(report_profile), investigation_id),
+                    )
+        except Exception as exc:
+            if getattr(exc, "sqlstate", None) == "23505":
+                return "exists"
+            raise
+        return "attached"
 
     def fail(self, *, job_id: str, claim_token: str, error: dict) -> bool:
         """현재 claim의 실행 오류를 영속한다. 취소 요청은 failure로 덮지 않는다."""

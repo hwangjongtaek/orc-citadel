@@ -510,3 +510,108 @@ def test_create_bounds_report_inputs_before_persistence(pg):
             idempotency_key="request-large-scope",
             report_profile=REPORT_PROFILE,
         )
+
+
+def _insert_completed_legacy(pg, investigation_id: str, *, report=None, audit_trace=None,
+                             status: str = "completed", profile=None):
+    """cutover 이전 형태: 완료 + report/audit_trace 는 있고 artifact 는 없다."""
+    report = {"statements": [{"statement": "s", "claim_ref": "clm-1"}]} if report is None else report
+    audit_trace = {"linked": 1} if audit_trace is None else audit_trace
+    cur = pg.cursor()
+    cur.execute(
+        f'''INSERT INTO "{TEST_PREFIX}_investigations"
+            (investigation_id, idempotency_key, question, subject_id, scope, mode,
+             owner, version_tuple, correlation_id, status, coverage, report,
+             audit_trace, report_profile, completed_at)
+            VALUES (%s, %s, 'legacy question', NULL, '{{}}', 'deterministic',
+                    NULL, '{{}}', 'corr-legacy', %s, '{{}}', %s, %s, %s, now())''',
+        (investigation_id, f"key-{investigation_id}", status,
+         json.dumps(report), json.dumps(audit_trace),
+         None if profile is None else json.dumps(profile)),
+    )
+    return report, audit_trace
+
+
+def test_attach_report_artifact_backfills_a_completed_row_without_artifact(pg):
+    from orc_citadel.investigation_store import InvestigationStore
+
+    store = InvestigationStore(pg, table_prefix=TEST_PREFIX)
+    store.ensure_tables()
+    report, audit_trace = _insert_completed_legacy(pg, "inv-legacy-a")
+
+    source = store.get_regeneration_source("inv-legacy-a")
+    assert source["report"] == report and source["audit_trace"] == audit_trace
+    assert source["report_profile"] is None
+
+    outcome = store.attach_report_artifact(
+        "inv-legacy-a",
+        artifact=_artifact(report=report, audit_trace=audit_trace),
+        report_profile=REPORT_PROFILE,
+    )
+
+    assert outcome == "attached"
+    assert store.get_report_artifact("inv-legacy-a")["generation_mode"] == "deterministic_fallback"
+    # legacy(NULL) profile 은 이 시점의 pin 으로 확정되어 이후 불변이다.
+    assert store.get_investigation("inv-legacy-a")["report_profile"] == REPORT_PROFILE
+    item = store.list_investigations()["items"][0]
+    assert item["artifact_state"] == "ready"
+    # 재작성은 기록에 남는다 — 최초 생성과 구분되어야 한다.
+    cur = pg.cursor()
+    cur.execute(f'''SELECT stage, payload FROM "{TEST_PREFIX}_steps"
+                    WHERE investigation_id = 'inv-legacy-a' ''')
+    stage, payload = cur.fetchone()
+    assert stage == "REPORT" and payload["origin"] == "regenerated"
+
+
+def test_attach_report_artifact_never_replaces_an_existing_artifact(pg):
+    from orc_citadel.investigation_store import InvestigationStore
+
+    store = InvestigationStore(pg, table_prefix=TEST_PREFIX)
+    store.ensure_tables()
+    report, audit_trace = _insert_completed_legacy(pg, "inv-legacy-b")
+    args = dict(artifact=_artifact(report=report, audit_trace=audit_trace),
+                report_profile=REPORT_PROFILE)
+    assert store.attach_report_artifact("inv-legacy-b", **args) == "attached"
+    first = store.get_report_artifact("inv-legacy-b")
+
+    assert store.attach_report_artifact(
+        "inv-legacy-b",
+        artifact=_artifact(report=report, audit_trace=audit_trace, html=b"<p>other</p>"),
+        report_profile=REPORT_PROFILE,
+    ) == "exists"
+    assert store.get_report_artifact("inv-legacy-b")["content_hash"] == first["content_hash"]
+
+
+def test_attach_report_artifact_reports_unknown_and_unfinished_investigations(pg):
+    from orc_citadel.investigation_store import InvestigationStore
+
+    store = InvestigationStore(pg, table_prefix=TEST_PREFIX)
+    store.ensure_tables()
+    _insert_completed_legacy(pg, "inv-running", status="running")
+    art = _artifact(report={"statements": [{"statement": "s", "claim_ref": "clm-1"}]},
+                    audit_trace={"linked": 1})
+
+    assert store.get_regeneration_source("inv-missing") is None
+    assert store.attach_report_artifact(
+        "inv-missing", artifact=art, report_profile=REPORT_PROFILE) == "not_found"
+    assert store.attach_report_artifact(
+        "inv-running", artifact=art, report_profile=REPORT_PROFILE) == "not_completed"
+
+
+def test_attach_report_artifact_rejects_artifact_built_from_other_source(pg):
+    """생성 도중 원본 report 가 바뀌었거나 다른 원본에서 만든 artifact 는 저장하지 않는다."""
+    from orc_citadel.investigation_store import InvestigationStore
+
+    store = InvestigationStore(pg, table_prefix=TEST_PREFIX)
+    store.ensure_tables()
+    _insert_completed_legacy(pg, "inv-legacy-c")
+
+    outcome = store.attach_report_artifact(
+        "inv-legacy-c",
+        artifact=_artifact(report={"statements": []}, audit_trace={}),
+        report_profile=REPORT_PROFILE,
+    )
+
+    assert outcome == "source_changed"
+    assert store.get_report_artifact("inv-legacy-c") is None
+    assert store.get_investigation("inv-legacy-c")["report_profile"] is None

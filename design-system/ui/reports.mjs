@@ -201,14 +201,41 @@ function DetailLoading() {
   h('div', {className: 'campaign-ledger-skeleton', style: {width: '62%', marginTop: 9}}));
 }
 
-function TerminalWithoutArtifact({item, jsonUrl}) {
+const REGENERATE_ERRORS = {
+  report_source_missing: '원본 report가 저장되어 있지 않아 재작성할 수 없습니다.',
+  report_artifact_exists: '이미 리포트가 있습니다. 목록을 새로고침하세요.',
+  investigation_not_completed: '완료된 조사만 리포트를 재작성할 수 있습니다.',
+};
+
+function RegenerateAction({onRegenerate, regenerate = {}}) {
+  if (!onRegenerate) return null;
+  const running = regenerate.state === 'running';
+  const message = regenerate.state === 'error'
+    ? REGENERATE_ERRORS[regenerate.code] || '리포트를 만들지 못했습니다. 잠시 후 다시 시도하세요.'
+    : null;
+  return h('div', {style: {marginTop: 12}},
+    h('div', {style: {display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center'}},
+      h('button', {type: 'button', onClick: onRegenerate, disabled: running,
+        'aria-busy': running ? 'true' : 'false',
+        style: {...actionStyle(true), opacity: running ? 0.6 : 1,
+          cursor: running ? 'progress' : 'pointer'}},
+      running ? '리포트 생성 중…' : '리포트 재작성'),
+      h(Text, {type: 'supporting'},
+        '저장된 조사 결과로 HTML을 새로 만듭니다. 기존 리포트는 교체하지 않습니다.')),
+    message ? h('div', {role: 'alert', style: {marginTop: 8}},
+      h(Badge, {variant: 'error', label: message})) : null);
+}
+
+function TerminalWithoutArtifact({item, jsonUrl, onRegenerate, regenerate}) {
   if (item.artifact_state === 'legacy_json_only') {
     return h(Card, {}, h('div', {style: {padding: 4}},
       h(Badge, {variant: 'neutral', label: 'LEGACY JSON ONLY'}),
       h('h3', {style: {margin: '10px 0 6px'}}, 'HTML artifact가 없는 이전 조사'),
-      h(Text, {type: 'supporting'}, 'cutover 이전 완료 기록입니다. HTML을 생성했다고 가장하지 않습니다.'),
-      h('a', {href: jsonUrl, target: '_blank', rel: 'noopener noreferrer',
-        style: {...actionStyle(false), marginTop: 12}}, '기존 JSON 리포트 열기')));
+      h(Text, {type: 'supporting'}, 'cutover 이전 완료 기록입니다. 재작성하기 전까지 HTML을 생성했다고 가장하지 않습니다.'),
+      h('div', {style: {display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12}},
+        h('a', {href: jsonUrl, target: '_blank', rel: 'noopener noreferrer',
+          style: actionStyle(false)}, '기존 JSON 리포트 열기')),
+      h(RegenerateAction, {onRegenerate, regenerate})));
   }
   const failed = item.status === 'failed';
   return h(Card, {}, h('div', {style: {padding: 4}},
@@ -284,7 +311,8 @@ function StateReferences({assetBase}) {
 }
 
 function DetailBody(props) {
-  const {detailState, item, artifact, onRetryDetail, artifactUrls, assetBase} = props;
+  const {detailState, item, artifact, onRetryDetail, artifactUrls, assetBase,
+    onRegenerate, regenerate} = props;
   if (detailState === 'initial') return emptyState({
     title: '리포트를 선택하세요',
     description: '리포트를 선택하면 감사된 HTML 문서를 엽니다.',
@@ -301,7 +329,7 @@ function DetailBody(props) {
   if (!item) return null;
   if (['queued', 'running'].includes(item.status)) return h(ActiveDetail, {item});
   if (['failed', 'cancelled'].includes(item.status) || item.artifact_state === 'legacy_json_only') {
-    return h(TerminalWithoutArtifact, {item, jsonUrl: artifactUrls.json});
+    return h(TerminalWithoutArtifact, {item, jsonUrl: artifactUrls.json, onRegenerate, regenerate});
   }
   if (!artifact) return h(StoreError, {onRetry: onRetryDetail});
   return h(React.Fragment, {},
@@ -325,7 +353,8 @@ function DetailBody(props) {
 
 function ReportDetail(props) {
   const {selectedId, item, artifact, detailState, detailHeadingRef, onBack,
-    onRetryDetail, artifactUrls, councilUrl, assetBase, showStateReferences} = props;
+    onRetryDetail, artifactUrls, councilUrl, assetBase, showStateReferences,
+    onRegenerate, regenerate} = props;
   const status = item ? STATUS[item.status] || [item.status || 'unknown', 'neutral'] : null;
   return h(LayoutContent, {className: 'campaign-ledger-detail', padding: 0,
     label: '선택한 Campaign 보고서', 'data-detail-open': selectedId ? 'true' : 'false'},
@@ -349,7 +378,8 @@ function ReportDetail(props) {
         ? h('a', {href: artifactUrls.html, target: '_blank', rel: 'noopener noreferrer',
             style: actionStyle(true)}, '전체 보고서 열기') : null,
       h('a', {href: councilUrl, style: actionStyle(false)}, 'Council Chamber로 돌아가기'))) : null,
-  h(DetailBody, {detailState, item, artifact, onRetryDetail, artifactUrls, assetBase}),
+  h(DetailBody, {detailState, item, artifact, onRetryDetail, artifactUrls, assetBase,
+    onRegenerate, regenerate}),
   showStateReferences ? h(StateReferences, {assetBase}) : null));
 }
 
@@ -361,14 +391,14 @@ export function campaignLedgerSlots({
   onRetryDetail, onBack, onCardRef, detailHeadingRef,
   selectionHref = (investigationId) => `?investigation=${encodeURIComponent(investigationId)}`,
   artifactUrls = {}, councilUrl = '/council', assetBase = '/assets/img/',
-  showStateReferences = false,
+  showStateReferences = false, onRegenerate, regenerate,
 }) {
   return {
     start: h(LedgerList, {items, selectedId, filter, listState, page, fixtureLabel,
       onFilterChange, onSelect, onPrevious, onNext, onRetryList, selectionHref, onCardRef}),
     content: h(ReportDetail, {selectedId, item: selectedItem, artifact, detailState,
       detailHeadingRef, onBack, onRetryDetail, artifactUrls, councilUrl, assetBase,
-      showStateReferences}),
+      showStateReferences, onRegenerate, regenerate}),
   };
 }
 

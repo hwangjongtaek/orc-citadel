@@ -45,7 +45,7 @@ renderer/storage failure             → job/investigation failed, no partial ro
   - `UNIQUE(investigation_id)`로 artifact 1개를 강제한다.
   - 정상 transaction은 전부 commit되거나 전부 rollback되므로 “artifact만 있고 job은 running”인 중간 상태가 없다.
   - stale worker의 late result는 기존 claim token 조건으로 거부한다.
-  - 최초 범위에서는 재생성/교체를 제공하지 않는다. template 변경은 새 investigation에만 적용한다.
+  - 최초 범위에서는 재생성/교체를 제공하지 않는다. template 변경은 새 investigation에만 적용한다. (2026-09-29 추가: artifact 가 **없는** 완료 조사에 한해 요청 시 재작성 — 기존 artifact 는 교체하지 않는다.)
 - **Completion semantics**: `investigation.status=completed`와 `job.status=succeeded`는 HTML artifact가 저장된 뒤에만 보인다. LLM 실패는 deterministic fallback으로 흡수하지만 renderer/DB 실패는 가짜 성공으로 숨기지 않는다.
 
 ### TS-2: LLM ReportDraft와 evidence 재감사 (from FR-1)

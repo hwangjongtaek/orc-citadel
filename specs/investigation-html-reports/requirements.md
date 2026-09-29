@@ -107,7 +107,7 @@
 - 사용자가 HTML/CSS template을 편집하는 기능.
 - PDF/DOCX 변환, 이메일 전송, public share URL, 다국어 번역.
 - artifact 수정 이력·다중 버전 재생성 UI. 최초 버전은 investigation당 불변 artifact 1개다.
-- cutover 이전 `completed` investigation의 HTML backfill. 기존 행은 `artifact=null`인 legacy JSON-only 기록으로 정직하게 표시한다.
+- cutover 이전 `completed` investigation의 **자동** HTML backfill. 기존 행은 `artifact=null`인 legacy JSON-only 기록으로 정직하게 표시한다. (2026-09-29: 사용자가 요청하는 개별 **리포트 재작성**은 별도로 제공한다 — `report:regenerate`, 기존 artifact 교체 없음.)
 - 리포트 삭제·보존 기간 정책과 tenant/auth 체계 신설.
 - LLM chain-of-thought·비공개 reasoning 저장 또는 표시.
 

@@ -215,6 +215,30 @@ function useCampaignLedger() {
     });
   }, []);
 
+  const [regenerate, setRegenerate] = React.useState({state: 'idle'});
+  React.useEffect(() => setRegenerate({state: 'idle'}), [selectedId]);
+  const regenerateReport = React.useCallback(() => {
+    if (!selectedId || regenerate.state === 'running') return;
+    setRegenerate({state: 'running'});
+    fetch(`/api/investigations/${encodeURIComponent(selectedId)}/report:regenerate`,
+      {method: 'POST'})
+      .then(readJson)
+      .then(() => {
+        setRegenerate({state: 'idle'});
+        setReloadList((value) => value + 1);
+        setReloadDetail((value) => value + 1);
+      })
+      .catch((error) => {
+        if (error.code === 'report_artifact_exists') {
+          // 다른 곳에서 이미 만들어졌다 — 오류가 아니라 목록을 새로 읽으면 된다.
+          setRegenerate({state: 'idle'});
+          setReloadList((value) => value + 1);
+          return;
+        }
+        setRegenerate({state: 'error', code: error.code});
+      });
+  }, [selectedId, regenerate.state]);
+
   let effectiveItem = selectedItem;
   if (!effectiveItem && selectedId && detail.state === 'ready' && detail.artifact) {
     effectiveItem = {investigation_id: selectedId, status: 'completed'};
@@ -231,7 +255,7 @@ function useCampaignLedger() {
     listState: list.state, items: list.items, detailState: visibleDetailState,
     page: {nextCursor: list.page.next_cursor, hasPrevious: cursorHistory.length > 0,
       label: cursorHistory.length ? `page ${cursorHistory.length + 1}` : '최근순'},
-    select, back, setFilter, next, previous,
+    select, back, setFilter, next, previous, regenerate, regenerateReport,
     retryList: () => setReloadList((value) => value + 1),
     retryDetail: () => setReloadDetail((value) => value + 1),
     detailHeadingRef,
@@ -275,6 +299,8 @@ function App() {
         onNext: state.next,
         onRetryList: state.retryList,
         onRetryDetail: state.retryDetail,
+        onRegenerate: state.regenerateReport,
+        regenerate: state.regenerate,
         onBack: state.back,
         onCardRef: state.onCardRef,
         detailHeadingRef: state.detailHeadingRef,
