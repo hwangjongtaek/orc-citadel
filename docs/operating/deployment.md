@@ -228,6 +228,26 @@ docker compose -p orc-citadel -f docker-compose.yml -f docker-compose.prod.yml \
 알린다. `--max-rows`(기본 500k)를 넘는 테이블은 거부한다 — 전량을 메모리에
 올리는 방법이라 그 경계가 곧 이 명령의 유효 범위다.
 
+### 3.10 근거 기록 원문 해시 backfill (조사 리포트가 비는 문제)
+
+`pipeline_runner` 가 추출 기록의 `content_hash`(원문 해시, 03 §8)를 남기지 않던 시기의
+기록은 NULL 이다. 조사 엔진의 감사는 그 span 을 통과시키지만 **리포트 검증기는 원문에
+묶이지 않은 span 을 거른다** — 그래서 그 claim 을 근거로 한 조사는 리포트가 비어
+`audit_rejected` fallback 이 된다(2026-09-29 실측: verifiable 3 → linked 0).
+코드는 이후 기록에 해시를 남긴다. 이미 쌓인 기록은 원문 저장소에서 채운다. 기본은
+**dry-run**:
+
+```bash
+docker compose -p orc-citadel -f docker-compose.yml -f docker-compose.prod.yml \
+  --profile prototype --env-file .env exec -T promotion-consumer \
+  python -m orc_citadel.provenance_backfill --data-dir /app/data          # dry-run
+#   ... provenance_backfill --data-dir /app/data --apply                   # 실제 채움
+```
+
+원문 저장소에 없는 문서의 기록은 **지어내지 않고 NULL 로 둔다**(출력의 `원문 없음`).
+멱등이다. **이미 저장된 조사 결과와 리포트는 바뀌지 않는다**(불변) — backfill 이후
+**새 조사**부터 리포트가 채워진다.
+
 ## 4. nightly 운영 확인
 
 원격 스케줄러는 grace 하루(§6.2)로 당일 보충 실행한다. 정상 축적 여부:

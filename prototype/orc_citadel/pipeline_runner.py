@@ -13,6 +13,8 @@
 """
 from __future__ import annotations
 
+import hashlib
+
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
@@ -77,6 +79,7 @@ def _run_chain(metas, zone, gate, resolver, judge, result: PipelineResult,
             result.parse_fail += 1
             continue
         segs = parse_document(m["doc_id"], doc)
+        source_hash = "sha256:" + hashlib.sha256(m["content"]).hexdigest()
         # S4 입력 — 결정적 체인에서 생성된 clean text·시간·신뢰 메타 수집.
         docs_meta.append({
             "doc_id": m["doc_id"],
@@ -107,6 +110,8 @@ def _run_chain(metas, zone, gate, resolver, judge, result: PipelineResult,
                 doc_id=c.doc_id,
                 segment_id=f"{c.doc_id}#p{c.seg_order}",
                 char_start=c.char_start, char_end=c.char_end,
+                # 원문 해시(03 §8) — 리포트 감사는 span 이 원문에 묶였는지를 이 값으로 본다.
+                content_hash=source_hash,
                 model_id="det",
             )
             # frozen dataclass — object.__setattr__ 로 provenance_ref 부여

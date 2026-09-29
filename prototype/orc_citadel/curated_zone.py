@@ -515,6 +515,19 @@ class CuratedZone:
             row["canonical_claim_id"] = assignments[row["claim_candidate_id"]]
             self._put("claim_candidates", row, replace=True)
 
+    def set_extraction_content_hashes(self, assignments: dict[str, str]) -> None:
+        """extraction_id → content_hash 를 한 번의 스캔으로 채운다 (backfill 용).
+
+        `persist_extraction_record` 는 삽입 전용이라 이미 있는 기록의 NULL 을 못 고친다.
+        """
+        if not assignments:
+            return
+        rows = list(self._rows("extraction_records",
+                               row_filter=In("extraction_id", list(assignments))))
+        for row in rows:
+            row["content_hash"] = assignments[row["extraction_id"]]
+            self._put("extraction_records", row, replace=True)
+
     def persist_conflict(self, cc) -> None:
         self._put("conflict_candidates", {
             "claim_id_a": cc.claim_id_a, "claim_id_b": cc.claim_id_b,
