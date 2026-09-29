@@ -524,9 +524,11 @@ class CuratedZone:
             return
         rows = list(self._rows("extraction_records",
                                row_filter=In("extraction_id", list(assignments))))
-        for row in rows:
-            row["content_hash"] = assignments[row["extraction_id"]]
-            self._put("extraction_records", row, replace=True)
+        # 배치로 내린다 — 행마다 커밋하면 스냅샷·작은 파일이 행 수만큼 쌓인다.
+        with self.batched_writes():
+            for row in rows:
+                row["content_hash"] = assignments[row["extraction_id"]]
+                self._put("extraction_records", row, replace=True)
 
     def persist_conflict(self, cc) -> None:
         self._put("conflict_candidates", {

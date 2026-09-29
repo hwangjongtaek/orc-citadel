@@ -149,3 +149,24 @@ def test_backfill_hashes_the_raw_bytes_even_when_shard_meta_has_no_hash(tmp_path
 
     assert report["resolvable"] == 1 and report["unresolvable"] == 0
     assert _hashes(tmp_path)["clm-old"] == RAW_HASH
+
+
+def test_backfill_commits_do_not_scale_with_row_count(tmp_path):
+    """행마다 커밋하면 스냅샷·작은 파일이 행 수만큼 쌓인다 — 방금 고친 문제를 되살린다."""
+    zone = CuratedZone(tmp_path / "iceberg")
+    zone.initialize()
+    ids = {}
+    for i in range(6):
+        eid = zone.persist_extraction_record(element_id=f"clm-{i}", doc_id=f"doc-{i}",
+                                             segment_id=f"doc-{i}#p0", char_start=0, char_end=5)
+        ids[eid] = RAW_HASH
+    table = zone._table("extraction_records")
+    before = len(table.snapshots())
+
+    zone.set_extraction_content_hashes(ids)
+
+    table = zone._table("extraction_records")
+    # 교체 upsert 는 삭제+추가로 스냅샷이 둘 생긴다 — 계약은 행 수(6)에 비례하지 않는 것이다.
+    assert len(table.snapshots()) - before <= 2
+    assert {r["content_hash"] for r in zone.extraction_records()} == {RAW_HASH}
+    zone.close()
